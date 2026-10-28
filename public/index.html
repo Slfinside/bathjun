@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f6f5f0" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ふろじゅん" />
+    <meta name="description" content="家族の、おふろの順番と時間の予約。" />
+    <title>ふろじゅん | 家族のおふろ予約</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="site-header">
+        <a class="brand" href="/" aria-label="ふろじゅん ホーム"
+          ><span class="brand-icon" aria-hidden="true">♨</span>ふろじゅん<span
+            class="brand-dot"
+            >.</span
+          ></a
+        >
+        <div id="header-account" hidden></div>
+      </header>
+      <main id="app" aria-busy="true">
+        <div class="loading">おふろの準備中…</div>
+      </main>
+      <footer>
+        <span class="site-credit">Made by @Slfinside・with Codex</span>
+        <button id="install-help-button" class="install-help-button" hidden>
+          ホーム画面への追加方法
+        </button>
+      </footer>
+    </div>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <dialog id="booking-dialog" aria-labelledby="booking-title"></dialog>
+    <dialog id="install-dialog" aria-labelledby="install-title">
+      <div class="sheet-heading">
+        <h2 id="install-title">ホーム画面に「ふろじゅん」</h2>
+        <button
+          id="install-help-close"
+          class="icon-button"
+          aria-label="追加方法を閉じる"
+        >
+          ×
+        </button>
+      </div>
+      <p class="muted">
+        Safariから追加すると、アドレスバーなしのアプリ画面で開けます。
+      </p>
+      <ol class="install-steps">
+        <li>家族用の固定HTTPSリンクをSafariで開きます。</li>
+        <li>
+          Safariの共有ボタンをタップします。<small
+            >四角から上向きの矢印が出ているボタンです。</small
+          >
+        </li>
+        <li>「ホーム画面に追加」を選びます。</li>
+        <li>
+          「Webアプリとして開く」が表示されたらオンにして「追加」を押します。
+        </li>
+      </ol>
+      <p class="muted">
+        追加したアイコンから開き、パスキーでログインしてください。通知は、追加したアプリ内の「通知を受け取る」から許可できます（iOS
+        16.4以降）。
+      </p>
+    </dialog>
+  </body>
+</html>

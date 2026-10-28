@@ -1,5 +1,7 @@
 # ふろじゅん ♨
 
+**[Windowsインストーラー v1.0.0 をダウンロード](https://github.com/Slfinside/bathjun/releases/download/v1.0.0/Bathjun-Setup-x64.exe)** · [SHA-256](https://github.com/Slfinside/bathjun/releases/download/v1.0.0/Bathjun-Setup-x64.exe.sha256)
+
 [iPhone・別端末から使うための管理者向けマニュアル](https://github.com/Slfinside/bathjun/blob/main/docs/administrator-guide.md)
 
 家族向けのおふろ予約。メンバー数や予約ルールはサーバーの設定画面で変更できます。Windows PCにデータを保存し、Tailscale Funnelの無料固定HTTPS URLから使う構成です。iPhone向けの画面、パスキー、予約順の通知、希望共有、備考と相談不可の任意表示に対応しています。Mac向けの起動方法も残しています。

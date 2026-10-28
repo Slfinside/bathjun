@@ -1,0 +1,21 @@
+{
+  "name": "bathjun",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test",
+    "public": "node src/public.js",
+    "family:password": "node src/family-password.js",
+    "public:fixed": "node -e \"import('./src/tailscale-public.js').then(m=>m.runTailscalePublic())\""
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "14.0.3",
+    "web-push": "3.6.7"
+  }
+}

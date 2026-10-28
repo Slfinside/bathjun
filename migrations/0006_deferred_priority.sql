@@ -1,0 +1,1 @@
+ALTER TABLE bath_skips ADD COLUMN tail_order INTEGER NOT NULL DEFAULT 0;
