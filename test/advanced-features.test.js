@@ -94,7 +94,7 @@ test('確認なしの全リセットは拒否。確認後は設定・メンバ�
  assert.throws(()=>f.app.resetAllData());assert.equal(f.app.getSecurity().members.length,3);
  const result=f.app.resetAllData({confirmation:'RESET_ALL_DATA'});assert.equal(result.settings.members.length,0);assert.deepEqual(result.settings.current,DEFAULT_SCHEDULE);assert.equal(result.security.familyConfigured,false);assert.notEqual(result.accessToken,old.access_token);
  const config=db.prepare('SELECT * FROM family_config').get();assert.notEqual(config.vapid_public,old.vapid_public);assert.equal(config.password_hash,null);
- for(const table of ['members','draws','bookings','wishes','bath_skips','sessions','family_sessions','passkey_accounts','passkey_credentials','passkey_challenges','push_subscriptions','notification_queue'])assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n,0,table);
+ for(const table of ['booking_reminders','members','draws','bookings','wishes','bath_skips','sessions','family_sessions','passkey_accounts','passkey_credentials','passkey_challenges','push_subscriptions','notification_queue'])assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n,0,table);
  assert.equal((await f.api('members',undefined,f.cookies[1])).status,401);
  const reloaded=createApp({database:f.database});assert.deepEqual(reloaded.getServerSettings().members,[]);assert.equal(reloaded.familyConfigured(),false);reloaded.close();
  // Reconfiguration works without restarting the server or reintroducing defaults.

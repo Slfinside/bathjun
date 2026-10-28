@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { generateKeys, sendPush, validateSubscription } from "./push.js";
 import { validateProfile } from "./member-profile.js";
 import { createAdminData } from "./admin-data.js";
+import { createBookingReminders } from "./booking-reminders.js";
 import { createPasskeys } from "./passkeys.js";
 import { createServerSettings } from "./server-settings.js";
 import {
@@ -163,6 +164,7 @@ export function createApp({
   }
   const enqueueTurn = (day, previous = null, onlyEndpoint = null) => {
     advanceWishes(day);
+    reminders.syncDay(day);
     const next = currentTurn(day);
     if (!next || next === previous) return;
     const subscriptions = db
@@ -244,6 +246,7 @@ export function createApp({
           }
         }
       }
+      await reminders.flush();
     } finally {
       flushing = false;
     }
@@ -271,6 +274,7 @@ export function createApp({
       db.exec("ROLLBACK");
       throw error;
     }
+    onNotificationQueued();
   }
   const bookingColumns = db
     .prepare("PRAGMA table_info(bookings)")
@@ -292,6 +296,7 @@ export function createApp({
     db.exec("ALTER TABLE bookings ADD COLUMN auto_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(auto_confirmed IN (0,1))");
 
   const scheduleForDay = serverSettings.scheduleForDay;
+  const reminders=createBookingReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed});
   const currentTime = () => {
     const time = japanTime(now());
     const yesterday = scheduleForDay(time.yesterday);
@@ -585,10 +590,10 @@ export function createApp({
           previousSubscription.member_id !== me.id ||
           previousSubscription.session_hash !==
             digest(cookieValue(req, "bath_session"));
-        if (newBinding)
-          db.prepare("DELETE FROM notification_queue WHERE endpoint=?").run(
-            subscription.endpoint,
-          );
+        if (newBinding) {
+          db.prepare("DELETE FROM notification_queue WHERE endpoint=?").run(subscription.endpoint);
+          reminders.clearEndpoint(subscription.endpoint);
+        }
         db.prepare(
           "INSERT INTO push_subscriptions VALUES(?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET member_id=excluded.member_id,session_hash=excluded.session_hash,subscription_json=excluded.subscription_json",
         ).run(
@@ -597,6 +602,7 @@ export function createApp({
           digest(cookieValue(req, "bath_session")),
           JSON.stringify(subscription),
         );
+        reminders.restore(me.id);
         const time = currentTime();
         if (newBinding) {
           enqueueTurn(time.today, null, subscription.endpoint);
@@ -611,6 +617,7 @@ export function createApp({
         db.prepare(
           "DELETE FROM push_subscriptions WHERE endpoint=? AND member_id=?",
         ).run(body.endpoint, me.id);
+        onNotificationQueued();
         return send(200, { ok: true });
       }
       if (req.method === "GET" && url.pathname === "/api/state") {
@@ -670,6 +677,7 @@ export function createApp({
           db.prepare("DELETE FROM sessions WHERE token_hash=?").run(
             digest(cookie),
           );
+        onNotificationQueued();
         res.setHeader(
           "Set-Cookie",
           "bath_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
@@ -867,8 +875,9 @@ export function createApp({
       });
     }
   }
+  reminders.restore();
   return {
-    ...createAdminData({db,setFamilyPassword,getSettings:serverSettings.get}),
+    ...createAdminData({db,setFamilyPassword,getSettings:serverSettings.get,onNotificationsChanged:onNotificationQueued}),
     handle,
     getServerSettings: serverSettings.get,
     saveServerSettings: (payload) => {
@@ -877,12 +886,13 @@ export function createApp({
       const before = days.map(currentTurn);
       const result = serverSettings.save(payload);
       days.forEach((day, i) => enqueueTurn(day, before[i]));
+      onNotificationQueued();
       return result;
     },
     flushNotifications,
     notificationDueAt: () =>
       db
-        .prepare("SELECT MIN(next_attempt) AS due FROM notification_queue")
+        .prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0)")
         .get().due,
     setFamilyPassword,
     familyConfigured: () => !!familyConfig().password_hash,

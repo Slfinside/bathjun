@@ -34,14 +34,14 @@ export function validateSubscription(subscription) {
     return false;
   }
 }
-export const sendPush = (subscription, payload, keys) =>
+export const sendPush = (subscription, payload, keys, {ttl=3600} = {}) =>
   webpush.sendNotification(subscription, JSON.stringify(payload), {
     vapidDetails: {
       subject: "https://github.com/Slfinside/bathjun",
       publicKey: keys.publicKey,
       privateKey: keys.privateKey,
     },
-    TTL: 3600,
+    TTL: ttl,
     urgency: "high",
     timeout: 10000,
   });

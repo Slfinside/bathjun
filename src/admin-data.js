@@ -4,7 +4,7 @@ import {generateKeys} from "./push.js";
 import {DEFAULT_SCHEDULE} from "./server-settings.js";
 const scrypt=promisify(scryptCallback);
 // These operations are exported only to the authenticated local server panel, never HTTP.
-export function createAdminData({db,setFamilyPassword,getSettings}) {
+export function createAdminData({db,setFamilyPassword,getSettings,onNotificationsChanged=()=>{}}) {
   const config=()=>db.prepare("SELECT * FROM family_config WHERE id=1").get();
   function account(target) {
     if(target==="family")return config();
@@ -41,6 +41,7 @@ export function createAdminData({db,setFamilyPassword,getSettings}) {
       db.prepare("DELETE FROM passkey_challenges WHERE member_id=?").run(target);
       db.exec("COMMIT");
     }catch(error){db.exec("ROLLBACK");throw error;}
+    onNotificationsChanged();
     return getSecurity();
   }
   function resetAllData({confirmation}={}) {
@@ -48,12 +49,13 @@ export function createAdminData({db,setFamilyPassword,getSettings}) {
     const keys=generateKeys(),accessToken=randomBytes(32).toString("hex");
     db.exec("BEGIN IMMEDIATE");
     try {
-      for(const table of ["notification_queue","push_subscriptions","passkey_challenges","passkey_credentials","passkey_accounts","sessions","family_sessions","bookings","wishes","bath_skips","draws","members","schedule_settings","family_config"])
+      for(const table of ["booking_reminders","notification_queue","push_subscriptions","passkey_challenges","passkey_credentials","passkey_accounts","sessions","family_sessions","bookings","wishes","bath_skips","draws","members","schedule_settings","family_config"])
         db.exec(`DELETE FROM ${table}`);
       db.prepare("INSERT INTO family_config(id,access_token,vapid_public,vapid_private) VALUES(1,?,?,?)").run(accessToken,keys.publicKey,keys.privateKey);
       db.prepare("INSERT INTO schedule_settings VALUES(?,?)").run("0000-01-01",JSON.stringify(DEFAULT_SCHEDULE));
       db.exec("DELETE FROM sqlite_sequence WHERE name='notification_queue'; COMMIT");
     }catch(error){db.exec("ROLLBACK");throw error;}
+    onNotificationsChanged();
     return {settings:getSettings(),security:getSecurity(),accessToken};
   }
   return {getSecurity,verifyPassword,changePassword,resetAllData};

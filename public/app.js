@@ -234,7 +234,7 @@ function notificationCard(showConfigured = false) {
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const standalone =
     matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-  let help = "前の人が予約し終わると、この端末にお知らせします。";
+  let help = "前の人が予約し終わると、この端末にお知らせします。予約開始10分前にも通知します。";
   let action =
     '<button class="notification-button" data-action="enable-notifications">通知を受け取る</button>';
   if (ios && !standalone) {
