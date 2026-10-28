@@ -64,6 +64,9 @@ internal sealed class PanelForm : Form {
     readonly Label status=new Label(),detail=new Label(),powerState=new Label(),saveState=new Label();
     readonly TextBox link=new TextBox();readonly Button screen=new Button(),copy=new Button(),open=new Button(),save=new Button();
     readonly DataGridView members=new DataGridView();
+    readonly TextBox newMemberName=new TextBox();
+    readonly Button addMember=ActionButton("メンバーを追加");
+    bool settingsLoaded;
     readonly DateTimePicker bathStart=Clock(),bathEnd=Clock(),drawStart=Clock(),drawEnd=Clock();
     readonly CheckBox nextDay=new CheckBox(),drawRestricted=new CheckBox();
     readonly NumericUpDown minimum=Number(),maximum=Number();readonly ComboBox step=new ComboBox(),orderMode=new ComboBox();
@@ -119,10 +122,14 @@ internal sealed class PanelForm : Form {
     void BuildSettings(TabPage page) {
         var box=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,FlowDirection=FlowDirection.TopDown,WrapContents=false};page.Controls.Add(box);
         box.Controls.Add(TextLabel("メンバー（名前・利用するかどうか）",30));
-        members.Size=new Size(550,200);members.AutoGenerateColumns=false;members.AllowUserToDeleteRows=false;members.RowHeadersVisible=false;members.Columns.Add(new DataGridViewTextBoxColumn{Name="Id",Visible=false});members.Columns.Add(new DataGridViewTextBoxColumn{Name="Name",HeaderText="名前",Width=350,MaxInputLength=30});members.Columns.Add(new DataGridViewCheckBoxColumn{Name="Active",HeaderText="利用する",Width=110});members.DefaultValuesNeeded+=delegate(object sender,DataGridViewRowEventArgs e){e.Row.Cells["Active"].Value=true;};box.Controls.Add(members);
+        members.Size=new Size(550,200);members.AutoGenerateColumns=false;members.AllowUserToAddRows=false;members.AllowUserToDeleteRows=false;members.RowHeadersVisible=false;members.Columns.Add(new DataGridViewTextBoxColumn{Name="Id",Visible=false});members.Columns.Add(new DataGridViewTextBoxColumn{Name="Name",HeaderText="名前",Width=350,MaxInputLength=30});members.Columns.Add(new DataGridViewCheckBoxColumn{Name="Active",HeaderText="利用する",Width=110});box.Controls.Add(members);
+        var addRow=new FlowLayoutPanel{Width=550,AutoSize=true};
+        addRow.Controls.Add(new Label{Text="追加する名前",AutoSize=true,Margin=new Padding(0,12,8,0)});
+        newMemberName.Width=270;newMemberName.MaxLength=30;newMemberName.AccessibleName="追加するメンバー名";newMemberName.Margin=new Padding(0,10,8,0);newMemberName.Enabled=false;addRow.Controls.Add(newMemberName);
+        addMember.Enabled=false;addMember.Click+=delegate{AddMemberFromInput(true);};addRow.Controls.Add(addMember);box.Controls.Add(addRow);
         var orderRow=new FlowLayoutPanel{Width=550,AutoSize=true};orderMode.DropDownStyle=ComboBoxStyle.DropDownList;orderMode.Items.AddRange(new object[]{"毎日抽選","固定順"});orderMode.Width=140;orderMode.SelectedIndexChanged+=delegate{UpdateDrawControls();};orderRow.Controls.Add(orderMode);var up=ActionButton("選択行を上へ");var down=ActionButton("選択行を下へ");up.Click+=delegate{MoveMember(-1);};down.Click+=delegate{MoveMember(1);};orderRow.Controls.Add(up);orderRow.Controls.Add(down);box.Controls.Add(orderRow);
         box.Controls.Add(TextLabel("固定順は表の上から順です。「入らない/様子見」の人は末尾へ、利用停止の人は対象外にします。切り替えは翌日分から反映します。",64));
-        box.Controls.Add(TextLabel("末尾の空行から追加。履歴を残すため、削除の代わりに「利用する」を外します。名前と利用状態は保存後すぐ反映し、既存の予約は残ります。",68));
+        box.Controls.Add(TextLabel("名前を入力して「メンバーを追加」→「設定を保存」。使わない人は「利用する」を外します。既存の予約と履歴は残ります。",68));
         var timeRow=new FlowLayoutPanel{Width=550,AutoSize=true};timeRow.Controls.Add(TextLabel("入浴",30));timeRow.Controls.Add(bathStart);timeRow.Controls.Add(new Label{Text="〜",AutoSize=true});timeRow.Controls.Add(bathEnd);nextDay.Text="翌日終了";nextDay.AutoSize=true;timeRow.Controls.Add(nextDay);box.Controls.Add(timeRow);
         drawRestricted.Text="抽選できる時間帯を制限する";drawRestricted.AutoSize=true;drawRestricted.CheckedChanged+=delegate{UpdateDrawControls();};box.Controls.Add(drawRestricted);
         var drawRow=new FlowLayoutPanel{Width=550,AutoSize=true};drawRow.Controls.Add(new Label{Text="抽選",AutoSize=true,Margin=new Padding(0,7,15,0)});drawRow.Controls.Add(drawStart);drawRow.Controls.Add(new Label{Text="〜",AutoSize=true});drawRow.Controls.Add(drawEnd);box.Controls.Add(drawRow);
@@ -174,6 +181,7 @@ internal sealed class PanelForm : Form {
             confirm.ResumeLayout(true);
             if(confirm.ShowDialog(this)!=DialogResult.OK)return;
         }
+        newMemberName.Clear();
         pendingSecurity=Send("data/reset",new{confirmation="RESET_ALL_DATA"});if(pendingSecurity!=null){SetSecurityBusy(true);save.Enabled=false;securityState.Text="リセットしています…";securityTimeout.Start();}
     }
     void UpdateDrawControls(){drawRestricted.Enabled=orderMode.SelectedIndex!=1;drawStart.Enabled=drawEnd.Enabled=orderMode.SelectedIndex!=1&&drawRestricted.Checked;}
@@ -181,6 +189,7 @@ internal sealed class PanelForm : Form {
     static int Minutes(DateTimePicker picker){return picker.Value.Hour*60+picker.Value.Minute;}
     void FillSettings(Settings settings) {
         members.Rows.Clear();foreach(var member in settings.members)members.Rows.Add(member.id,member.name,member.active);
+        settingsLoaded=true;newMemberName.Enabled=addMember.Enabled=true;
         var rule=settings.upcoming;drawRestricted.Checked=rule.lotteryTimeRestricted;orderMode.SelectedIndex=rule.orderMode=="fixed"?1:0;bathStart.Value=ToClock(rule.bathStart);bathEnd.Value=ToClock(rule.bathEnd);nextDay.Checked=rule.bathEnd>=1440;drawStart.Value=ToClock(rule.lotteryStart);drawEnd.Value=ToClock(rule.lotteryEnd);minimum.Value=rule.minDuration;maximum.Value=rule.maxDuration;step.SelectedItem=rule.step;
         saveState.Text="時間の設定は "+settings.effectiveDay+" 分から反映します。今日の予約・時間設定は変えません。追加メンバーは次の順番決定から参加します。";save.Enabled=true;
     }
@@ -191,8 +200,27 @@ internal sealed class PanelForm : Form {
         for(int column=0;column<members.Columns.Count;column++){var value=first.Cells[column].Value;first.Cells[column].Value=second.Cells[column].Value;second.Cells[column].Value=value;}
         members.CurrentCell=members.Rows[target].Cells["Name"];
     }
+    bool CommitMemberEdits() {
+        if((!members.IsCurrentCellDirty||members.CommitEdit(DataGridViewDataErrorContexts.Commit))&&(!members.IsCurrentCellInEditMode||members.EndEdit()))return true;
+        MessageBox.Show(this,"入力中のメンバー名を確認してください。");return false;
+    }
+    bool AddMemberFromInput(bool focusInput) {
+        if(!settingsLoaded||pendingSave!=null||pendingSecurity!=null)return false;
+        if(!CommitMemberEdits())return false;
+        string name=newMemberName.Text.Trim().Normalize(NormalizationForm.FormC);
+        if(name.Length==0||name.Length>30){MessageBox.Show(this,"追加する名前を1〜30文字で入力してください。");return false;}
+        foreach(char character in name)if(char.IsControl(character)){MessageBox.Show(this,"名前に改行や制御文字は使えません。");return false;}
+        foreach(DataGridViewRow row in members.Rows)if(Convert.ToString(row.Cells["Name"].Value).Trim().Normalize(NormalizationForm.FormC)==name){MessageBox.Show(this,"同じ名前はすでに追加されています。");return false;}
+        if(members.Rows.Count>=50){MessageBox.Show(this,"メンバーは50人まで追加できます。");return false;}
+        int index=members.Rows.Add(null,name,true);members.CurrentCell=members.Rows[index].Cells["Name"];
+        newMemberName.Clear();saveState.Text="メンバーを追加しました。「設定を保存」で確定します。";
+        if(focusInput)newMemberName.Focus();return true;
+    }
     void SaveSettings() {
-        members.EndEdit();var rows=new List<object>();
+        if(!settingsLoaded||pendingSave!=null||pendingSecurity!=null)return;
+        if(!CommitMemberEdits())return;
+        if(!string.IsNullOrWhiteSpace(newMemberName.Text)&&!AddMemberFromInput(false))return;
+        var rows=new List<object>();
         foreach(DataGridViewRow row in members.Rows){if(row.IsNewRow)continue;string name=Convert.ToString(row.Cells["Name"].Value);int id=row.Cells["Id"].Value==null?0:Convert.ToInt32(row.Cells["Id"].Value);if(id==0 && string.IsNullOrWhiteSpace(name))continue;rows.Add(new{id=id,name=name,active=Convert.ToBoolean(row.Cells["Active"].Value)});}
         var schedule=new Schedule{bathStart=Minutes(bathStart),bathEnd=Minutes(bathEnd)+(nextDay.Checked?1440:0),lotteryTimeRestricted=drawRestricted.Checked,lotteryStart=Minutes(drawStart),lotteryEnd=Minutes(drawEnd),minDuration=(int)minimum.Value,maxDuration=(int)maximum.Value,step=step.SelectedItem==null?15:(int)step.SelectedItem,orderMode=orderMode.SelectedIndex==1?"fixed":"random"};
         if(pendingSecurity!=null)return;save.Enabled=false;saveState.Text="保存しています…";pendingSave=Send("settings/save",new{members=rows,schedule=schedule});if(pendingSave!=null)saveTimeout.Start();else save.Enabled=true;
