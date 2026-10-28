@@ -1,6 +1,8 @@
 # ふろじゅん ♨
 
-Windowsインストール版 v1.0.0 は、配布された `Bathjun-Setup-x64.exe` を使用してください。GitHubリリースは公開準備中です。
+**[Windowsインストーラー v1.0.0 をダウンロード](https://github.com/Slfinside/bathjun/blob/downloads-v1.0.0/Bathjun-Setup-x64.exe?raw=true)** · [SHA-256](https://github.com/Slfinside/bathjun/blob/downloads-v1.0.0/Bathjun-Setup-x64.exe.sha256)
+
+非公開リポジトリのため、GitHubにログインして取得してください。ファイルページの「Download raw file」（↓）からも取得できます。配布ファイル専用ブランチを使っており、GitHub Releasesはまだ下書きです。
 
 [iPhone・別端末から使うための管理者向けマニュアル](https://github.com/Slfinside/bathjun/blob/main/docs/administrator-guide.md)
 
