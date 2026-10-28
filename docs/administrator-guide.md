@@ -36,6 +36,8 @@ Tailscale Funnel
 
 ## 1. 公開用Windows PCを準備する
 
+Windows 10/11の64bit版と、.NET Framework 4.7.2以降を使います。更新済みのWindowsでは通常、既存の.NET Frameworkを利用できます。
+
 1. 配布された `Bathjun-Setup-x64.exe` を実行します。
 2. **「無料固定URL用のTailscale」** を選びます。すでに導入済みなら既存のTailscaleを利用できます。本体だけの導入は管理者権限なしですが、Tailscaleの初回導入にはWindows管理者の許可が必要です。
 3. 最初の起動で、家族共通の合い言葉を設定します。合い言葉は8〜128文字です。
