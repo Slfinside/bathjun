@@ -6,7 +6,10 @@ def verify(root):
     manifest=json.loads((root/'build-manifest.json').read_text(encoding='utf-8'))
     expected=manifest['files']
     actual={p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file() and p.name!='build-manifest.json' and '$PLUGINSDIR' not in p.parts}
-    if actual!=set(expected):raise ValueError('Payload differs from its manifest')
+    # NSIS generates its own uninstaller, outside the application's payload.
+    # Some NSIS/7-Zip combinations expose it at the extraction root.
+    generated={'Uninstall.exe'} if 'distribution' not in manifest else set()
+    if actual-generated!=set(expected):raise ValueError('Payload differs from its manifest')
     for name,digest in expected.items():
         path=root/name
         if hashlib.sha256(path.read_bytes()).hexdigest()!=digest:raise ValueError('Invalid file hash: '+name)
