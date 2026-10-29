@@ -78,7 +78,7 @@ test("操作画面へ状態を通知し、設定変更と停止操作をロー�
   const f = await fixture(t);
   const c = await client(f.path);
   c.send({ token: f.token, command: "status", id: "1" });
-  assert.equal((await c.next()).state.phase, "starting");
+  const initial=(await c.next()).state;assert.equal(initial.phase,"starting");assert.equal(initial.pid,process.pid);
   f.control.update({
     phase: "ready",
     detail: "サーバー稼働中",

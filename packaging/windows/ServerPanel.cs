@@ -9,6 +9,7 @@ using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using System.Runtime.Versioning;
@@ -52,7 +53,7 @@ public sealed class PanelOutbox : IDisposable {
 public sealed class Member {public int id;public string name;public bool active;}
 public sealed class Schedule {public int bathStart,bathEnd,lotteryStart,lotteryEnd,minDuration,maxDuration,step;public bool lotteryTimeRestricted;public string orderMode;public int[] fixedOrder;}
 public sealed class Settings {public Member[] members;public Schedule current,upcoming;public string effectiveDay;}
-public sealed class ServerState {public string phase,detail,url;}
+public sealed class ServerState {public string phase,detail,url;public int pid;}
 public sealed class SecurityMember {public int id;public string name;public bool passwordSet;}
 public sealed class SecurityInfo {public bool familyConfigured;public SecurityMember[] members;}
 public sealed class Verification {public bool matches,configured;}
@@ -68,6 +69,7 @@ internal sealed class PanelForm : Form {
     readonly TextBox newMemberName=new TextBox();
     readonly Button addMember=ActionButton("メンバーを追加");
     bool settingsLoaded;
+    bool publicMode,updatePreparing;int serverPid;
     DashboardForm dashboard;readonly CheckBox presenceEnabled=new CheckBox();
     readonly DateTimePicker bathStart=Clock(),bathEnd=Clock(),drawStart=Clock(),drawEnd=Clock();
     readonly CheckBox nextDay=new CheckBox(),drawRestricted=new CheckBox();
@@ -107,6 +109,8 @@ internal sealed class PanelForm : Form {
         var dashboardButton=ActionButton("ダッシュボードを開く");dashboardButton.Click+=delegate{OpenDashboard();};layout.Controls.Add(dashboardButton);
         presenceEnabled.Text="人感センサーで表示の明るさを調整（対応端末のみ）";presenceEnabled.AutoSize=true;
         presenceEnabled.Checked=ReadPresencePreference();presenceEnabled.CheckedChanged+=delegate{SavePresencePreference();};layout.Controls.Add(presenceEnabled);
+        var releases=ActionButton("最新版を確認");releases.Click+=delegate{try{Process.Start(new ProcessStartInfo(ServerUpdate.ReleaseUrl){UseShellExecute=true});}catch{MessageBox.Show(this,ServerUpdate.ReleaseUrl);}};layout.Controls.Add(releases);
+        var update=ActionButton("インストーラーを選んで更新");update.Click+=delegate{UpdateServer();};layout.Controls.Add(update);
         var stop=ActionButton("サーバーを停止して終了");stop.Click+=delegate{StopServer();};layout.Controls.Add(stop);
         layout.Controls.Add(TextLabel("×は通知領域にしまいます。スリープ防止はサーバー稼働中だけ有効で、終了すると解除します。AC電源につないで使ってください。",68));
         BuildSettings(config);var security=new TabPage("パスワード・リセット"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(security);BuildSecurity(security);
@@ -120,6 +124,27 @@ internal sealed class PanelForm : Form {
     static string PresencePreferencePath(){return Path.Combine(Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BathjunData"),"dashboard-presence.txt");}
     static bool ReadPresencePreference(){try{return File.ReadAllText(PresencePreferencePath()).Trim()=="enabled";}catch{return false;}}
     void SavePresencePreference(){try{File.WriteAllText(PresencePreferencePath(),presenceEnabled.Checked?"enabled":"disabled");}catch{MessageBox.Show(this,"人感センサーの設定を保存できませんでした。");}}
+    public void SetPublicMode(bool value){publicMode=value;}
+    async void UpdateServer(){
+        if(updatePreparing)return;
+        if(!connected||currentPhase!="ready"||serverPid<=0){MessageBox.Show(this,"サーバーが稼働状態になってから更新してください。");return;}
+        if(pendingSave!=null||pendingSecurity!=null){MessageBox.Show(this,"設定の保存・操作が終わってから更新してください。");return;}
+        string root=ServerUpdate.InstallRoot;
+        if(!File.Exists(Path.Combine(root,"Uninstall.exe"))){MessageBox.Show(this,"ZIP版は新しいZIPを別のフォルダーへ展開し、停止後に「はじめる.cmd」を開いて更新してください。テストデータは引き継ぎます。");return;}
+        using(var picker=new OpenFileDialog{Title="ダウンロードしたふろじゅんのインストーラー",Filter="Windowsインストーラー (*.exe)|*.exe",CheckFileExists=true,Multiselect=false}) {
+            if(picker.ShowDialog(this)!=DialogResult.OK)return;
+            try {
+                updatePreparing=true;UseWaitCursor=true;
+                string selected=picker.FileName;
+                var current=new Version(ServerUpdate.VersionAt(root));var next=await Task.Run(()=>ServerUpdate.ValidateInstaller(selected,current));
+                if(MessageBox.Show(this,"バージョン "+current+" → "+next+" に更新します。\n予約データは残し、更新中はアクセスと通知を停止します。完了後は同じ起動方法で再起動します。\n\nGitHubの公式Releaseから取得したファイルであることを確認してください。\nSHA-256ファイルを同じ場所へ置いた場合は照合します。","ふろじゅんの更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
+                var helper=await Task.Run(()=>ServerUpdate.Stage(selected,root,serverPid,publicMode));
+                if(dashboard!=null)dashboard.Close();
+                if(Send("stop",null)==null){try{helper.Kill();}catch{}throw new IOException("停止を依頼できませんでした。もう一度お試しください。");}
+            }catch(Exception error){MessageBox.Show(this,error.Message,"更新できませんでした");}
+            finally{updatePreparing=false;UseWaitCursor=false;}
+        }
+    }
     void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);presenceEnabled.Enabled=false;screen.Enabled=false;dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
     void ShowPowerState(){powerState.Text=powerHeld?"自動スリープ防止：有効（サーバー終了時に解除）\nAC電源で使ってください。電源ボタン・カバー閉じの手動スリープは防ぎません。":"自動スリープ防止を有効にできませんでした。\nWindowsの電源設定を確認してください。消灯ボタンは使えません。";powerState.ForeColor=powerHeld?Color.DarkGreen:Color.Firebrick;}
     void ShowPanel(){Show();WindowState=FormWindowState.Normal;Activate();}
@@ -240,8 +265,8 @@ internal sealed class PanelForm : Form {
         saveState.Text="サーバーに送信できませんでした。接続を確認してください。";return null;
     }
     void WriteFailed(Exception error){try{BeginInvoke((MethodInvoker)delegate{if(closing)return;saveTimeout.Stop();pendingSave=null;pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);save.Enabled=connected;saveState.Text="サーバーに送信できませんでした。再起動してください。";});}catch{}}
-    void BeginRead(){reader=new Thread(delegate(){try{pipe=new NamedPipeClientStream(".",pipeName,PipeDirection.InOut,PipeOptions.Asynchronous);pipe.Connect(10000);writer=new StreamWriter(pipe,new UTF8Encoding(false),4096,true);var input=new StreamReader(pipe,Encoding.UTF8,false,4096,true);outbox=new PanelOutbox(outgoing=>{writer.WriteLine(outgoing);writer.Flush();},WriteFailed);connected=true;Send("status",null);Send("settings/get",null);Send("security/get",null);string line;while((line=input.ReadLine())!=null){var reply=json.Deserialize<Reply>(line);BeginInvoke((MethodInvoker)delegate{if(closing)return;if(reply.show)ShowPanel();if(reply.dashboard!=null&&dashboard!=null)dashboard.UpdateData(reply.dashboard);bool secured=reply.id==pendingSecurity&&pendingSecurity!=null;if(secured){pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);}bool saved=reply.id==pendingSave&&pendingSave!=null;if(saved){pendingSave=null;saveTimeout.Stop();save.Enabled=true;}if(!reply.ok){if(dashboard!=null)dashboard.Fail("データを更新できませんでした");save.Enabled=true;MessageBox.Show(this,reply.error ?? "操作を完了できませんでした。","ふろじゅん");}if(reply.state!=null){currentPhase=reply.state.phase;status.Text=reply.state.phase=="ready"?"● サーバー稼働中":reply.state.phase=="stopping"?"停止しています…":"準備中";detail.Text=reply.state.detail;link.Text=reply.state.url??"";copy.Enabled=open.Enabled=link.Text.Length>0;screen.Enabled=dashboard==null&&powerHeld&&OnAC()&&reply.state.phase=="ready";}if(reply.settings!=null){FillSettings(reply.settings);if(pendingSave!=null||pendingSecurity!=null)save.Enabled=false;}if(reply.security!=null)FillSecurity(reply.security);if(reply.verification!=null)securityState.Text=reply.verification.matches?"入力したパスワードは現在のものと一致しています。":reply.verification.configured?"入力したパスワードは一致しません。新しいものへ変更できます。":"パスワードはまだ設定されていません。";if(reply.notice!=null){securityState.Text=reply.notice;passwordInput.Clear();passwordConfirm.Clear();}if(secured&&!reply.ok)securityState.Text=reply.error;if(saved&&reply.ok){saveState.Text="保存しました。時間の設定は "+reply.settings.effectiveDay+" 分から反映します。";Send("security/get",null);}});}}catch{}finally{connected=false;try{BeginInvoke((MethodInvoker)delegate{canClose=true;Close();});}catch{}}});reader.IsBackground=true;reader.Start();}
+    void BeginRead(){reader=new Thread(delegate(){try{pipe=new NamedPipeClientStream(".",pipeName,PipeDirection.InOut,PipeOptions.Asynchronous);pipe.Connect(10000);writer=new StreamWriter(pipe,new UTF8Encoding(false),4096,true);var input=new StreamReader(pipe,Encoding.UTF8,false,4096,true);outbox=new PanelOutbox(outgoing=>{writer.WriteLine(outgoing);writer.Flush();},WriteFailed);connected=true;Send("status",null);Send("settings/get",null);Send("security/get",null);string line;while((line=input.ReadLine())!=null){var reply=json.Deserialize<Reply>(line);BeginInvoke((MethodInvoker)delegate{if(closing)return;if(reply.show)ShowPanel();if(reply.dashboard!=null&&dashboard!=null)dashboard.UpdateData(reply.dashboard);bool secured=reply.id==pendingSecurity&&pendingSecurity!=null;if(secured){pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);}bool saved=reply.id==pendingSave&&pendingSave!=null;if(saved){pendingSave=null;saveTimeout.Stop();save.Enabled=true;}if(!reply.ok){if(dashboard!=null)dashboard.Fail("データを更新できませんでした");save.Enabled=true;MessageBox.Show(this,reply.error ?? "操作を完了できませんでした。","ふろじゅん");}if(reply.state!=null){currentPhase=reply.state.phase;serverPid=reply.state.pid;status.Text=reply.state.phase=="ready"?"● サーバー稼働中":reply.state.phase=="stopping"?"停止しています…":"準備中";detail.Text=reply.state.detail;link.Text=reply.state.url??"";copy.Enabled=open.Enabled=link.Text.Length>0;screen.Enabled=dashboard==null&&powerHeld&&OnAC()&&reply.state.phase=="ready";}if(reply.settings!=null){FillSettings(reply.settings);if(pendingSave!=null||pendingSecurity!=null)save.Enabled=false;}if(reply.security!=null)FillSecurity(reply.security);if(reply.verification!=null)securityState.Text=reply.verification.matches?"入力したパスワードは現在のものと一致しています。":reply.verification.configured?"入力したパスワードは一致しません。新しいものへ変更できます。":"パスワードはまだ設定されていません。";if(reply.notice!=null){securityState.Text=reply.notice;passwordInput.Clear();passwordConfirm.Clear();}if(secured&&!reply.ok)securityState.Text=reply.error;if(saved&&reply.ok){saveState.Text="保存しました。時間の設定は "+reply.settings.effectiveDay+" 分から反映します。";Send("security/get",null);}});}}catch{}finally{connected=false;try{BeginInvoke((MethodInvoker)delegate{canClose=true;Close();});}catch{}}});reader.IsBackground=true;reader.Start();}
 }
 internal static class Program {
-    [STAThread] static void Main(string[] args){if(args.Length<2)return;Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new PanelForm(args[0],args[1],args.Length>2&&args[2]=="--minimized"));}
+    [STAThread] static void Main(string[] args){if(args.Length>0&&args[0]=="--apply-update"){ServerUpdate.Run(args);return;}if(args.Length<2)return;Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);var panel=new PanelForm(args[0],args[1],Array.IndexOf(args,"--minimized")>=0);panel.SetPublicMode(Array.IndexOf(args,"--public")>=0);Application.Run(panel);}
 }

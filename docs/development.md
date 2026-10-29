@@ -29,7 +29,7 @@ NSIS 3以降・Python 3・Node.js・C#コンパイラー（Mono mcsなど）が�
 - `docs/`: 利用者・管理者・開発者向け文書。
 - `dist/`: ビルド出力。Gitには含めません。
 
-`ServerPanel.cs`・`Dashboard.cs`・`HumanPresenceReader.cs` は同じアセンブリとしてコンパイルします。ネイティブ描画テストは `packaging/windows/tests/DashboardTest.cs`、メンバー入力テストは `MemberEntryTest.cs`、通信テストは `PanelOutboxTest.cs` です。Windows APIを実行しない描画・入力テストは Mono + Xvfb でも実行できます。
+`ServerPanel.cs`・`Dashboard.cs`・`HumanPresenceReader.cs`・`ServerUpdate.cs` は同じアセンブリとしてコンパイルします。ネイティブ描画テストは `packaging/windows/tests/DashboardTest.cs`、メンバー入力テストは `MemberEntryTest.cs`、通信テストは `PanelOutboxTest.cs` です。Windows APIを実行しない描画・入力テストは Mono + Xvfb でも実行できます。
 
 ## リリース
 
@@ -38,3 +38,5 @@ NSIS 3以降・Python 3・Node.js・C#コンパイラー（Mono mcsなど）が�
 管理画面は .NET Framework 4.7.2 の PerMonitorV2 DPI 設定を同梱します。ビルド時にPE内のマニフェストと設定ファイルを検証します。人感機能はWindows HumanPresenceSensorのABIのみを利用し、カメラ録画・顔認証処理は追加しません。
 
 ZIPは `python3 packaging/verify-distribution.py dist/Bathjun-Portable-x64.zip`、インストーラーは7-Zipで別の一時フォルダーへ展開して同スクリプトへフォルダーを指定すると、マニフェスト全ファイル・秘密データの混入・版番号・同梱文書を検証できます。
+
+更新ファイルの検査は `ServerUpdateTest.cs` と `UpdateFixture.cs` で確認できます。MonoはネイティブEXEのFileVersionInfoを取得できないため、テストでは管理アセンブリのバージョンリソースを使用します。インストーラー起動・実際の上書き更新はWindows実機で別途確認が必要です。

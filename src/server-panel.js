@@ -28,6 +28,7 @@ export function createPanelController({
 }) {
   const clients = new Set();
   let state = {
+    pid: process.pid,
     phase: "starting",
     detail: "サーバーを起動しています。",
     url: "",
@@ -197,6 +198,7 @@ export async function startWindowsPanel(handlers) {
     [
       name,
       token,
+      ...(handlers.mode==="public"?["--public"]:[]),
       ...(process.env.BATHJUN_AUTOSTART === "1" ? ["--minimized"] : []),
     ],
     { stdio: "ignore", windowsHide: true },

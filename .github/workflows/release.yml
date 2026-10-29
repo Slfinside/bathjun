@@ -25,6 +25,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y nsis mono-mcs libmono-system-windows-forms4.0-cil libmono-system-web-extensions4.0-cil
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
+      - name: Check native update package validation
+        run: |
+          mcs -target:winexe -platform:x64 -warnaserror+ -r:System.Windows.Forms.dll -r:System.Drawing.dll -r:System.Web.Extensions.dll -out:/tmp/Bathjun-NativeTests.exe packaging/windows/ServerPanel.cs packaging/windows/Dashboard.cs packaging/windows/HumanPresenceReader.cs packaging/windows/ServerUpdate.cs
+          mcs -out:/tmp/UpdateFixture.exe packaging/windows/tests/UpdateFixture.cs
+          mcs -r:/tmp/Bathjun-NativeTests.exe -out:/tmp/ServerUpdateTest.exe packaging/windows/tests/ServerUpdateTest.cs
+          mono /tmp/ServerUpdateTest.exe /tmp/UpdateFixture.exe /tmp
       - name: Check version
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
