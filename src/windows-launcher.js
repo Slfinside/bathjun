@@ -31,6 +31,7 @@ try {
   }
   if (mode !== "password")
     panel = await startWindowsPanel({
+      onGetDashboard:()=>adminCall(app=>app.getDashboard()),
       onGetSettings:()=>adminCall(app=>app.getServerSettings()),
       onSaveSettings:payload=>adminCall(app=>app.saveServerSettings(payload)),
       onGetSecurity:()=>adminCall(app=>app.getSecurity()),

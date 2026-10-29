@@ -879,6 +879,13 @@ export function createApp({
   return {
     ...createAdminData({db,setFamilyPassword,getSettings:serverSettings.get,onNotificationsChanged:onNotificationQueued}),
     handle,
+    getDashboard: () => {
+      const time=currentTime(),day=time.activeDay;
+      return {day,now:now().toISOString(),settings:scheduleForDay(day),members:allMembers(false).map(({id,name,active})=>({id,name,active})),
+        bookings:db.prepare("SELECT member_id AS memberId,start,duration FROM bookings WHERE day=? ORDER BY start").all(day),
+        wishes:db.prepare("SELECT member_id AS memberId,start,duration FROM wishes WHERE day=? ORDER BY start,member_id").all(day),
+        skips:db.prepare("SELECT member_id FROM bath_skips WHERE day=?").all(day).map(r=>r.member_id)};
+    },
     getServerSettings: serverSettings.get,
     saveServerSettings: (payload) => {
       const time = currentTime();

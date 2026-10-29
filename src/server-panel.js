@@ -1,3 +1,4 @@
+import { dashboardView, dashboardQr } from './dashboard.js';
 import { createServer, connect } from "node:net";
 import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -16,6 +17,7 @@ export function registerServerStop(stop) {
 export function createPanelController({
   path,
   token,
+  onGetDashboard,
   onGetSettings,
   onSaveSettings,
   onGetSecurity,
@@ -74,6 +76,8 @@ export function createPanelController({
         socket.panelAuthenticated = true;
         if (message.command === "status")
           send(socket, { id: message.id, ok: true, state });
+        else if (message.command === "dashboard/get")
+          send(socket,{id:message.id,ok:true,dashboard:{...dashboardView(await onGetDashboard()),...dashboardQr(state),phase:state.phase}});
         else if (message.command === "settings/get")
           send(socket, {
             id: message.id,

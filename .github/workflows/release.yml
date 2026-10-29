@@ -1,0 +1,43 @@
+name: Windows release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag (vX.Y.Z)'
+        required: true
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y nsis mono-mcs libmono-system-windows-forms4.0-cil libmono-system-web-extensions4.0-cil
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - name: Check version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: node --input-type=module -e 'import p from "./package.json" with {type:"json"}; if(process.env.RELEASE_TAG!==`v${p.version}`)throw Error("Tag and package version differ");'
+      - name: Build both Windows distributions
+        run: python3 packaging/build-windows.py --assets /tmp/bathjun-assets
+      - name: Verify portable payload
+        run: python3 packaging/verify-distribution.py dist/Bathjun-Portable-x64.zip
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --title "ふろじゅん $RELEASE_TAG" --notes-file docs/release-notes.md --draft
+          gh release upload "$RELEASE_TAG" --clobber dist/Bathjun-Setup-x64.exe dist/Bathjun-Setup-x64.exe.sha256 dist/Bathjun-Portable-x64.zip dist/Bathjun-Portable-x64.zip.sha256
+          gh release edit "$RELEASE_TAG" --draft=false

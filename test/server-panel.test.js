@@ -17,6 +17,7 @@ async function fixture(t) {
   const control = createPanelController({
     path,
     token,
+    onGetDashboard: app.getDashboard,
     onGetSettings: app.getServerSettings,
     onSaveSettings: app.saveServerSettings,
     onGetSecurity:app.getSecurity,
@@ -117,4 +118,14 @@ test("パスワード管理と全リセットを認証済みIPCだけで行い�
  assert.equal((await command('data/reset',{},'unconfirmed')).ok,false);assert.equal(f.app.getServerSettings().members.length,5);
  f.control.update({phase:'ready',url:'https://example.test/family/'+f.app.accessToken()+'/'});await c.next();
  const reset=await command('data/reset',{confirmation:'RESET_ALL_DATA'},'reset');assert.equal(reset.ok,true);assert.equal(reset.settings.members.length,0);assert.equal(reset.security.familyConfigured,false);assert.equal(reset.state.url,'https://example.test/family/'+f.app.accessToken()+'/');
+});
+
+test("ダッシュボードは認証済みローカルIPCからのみ読み出す",async t=>{
+ const f=await fixture(t),c=await client(f.path);
+ c.send({token:f.token,command:"dashboard/get",id:"dashboard"});
+ const reply=await c.next();assert.equal(reply.ok,true);assert.equal(reply.id,"dashboard");
+ assert.equal(reply.dashboard.members.length,5);assert.equal(reply.dashboard.qr.length,0);
+ assert.equal(reply.dashboard.phase,"starting");assert.equal(reply.dashboard.shareUrl,"");
+ assert.ok(!JSON.stringify(reply.dashboard).includes("password"));
+ c.socket.destroy();
 });

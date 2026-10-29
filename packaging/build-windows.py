@@ -22,7 +22,7 @@ def build(args):
     version=json.loads((ROOT/'package.json').read_text())['version']
     with tempfile.TemporaryDirectory(prefix='bathjun-win-build-') as temporary:
         payload=pathlib.Path(temporary)/'payload';app=payload/'app';app.mkdir(parents=True)
-        for directory in ['src','public','migrations']:shutil.copytree(ROOT/directory,app/directory)
+        for directory in ['src','public','migrations','docs']:shutil.copytree(ROOT/directory,app/directory)
         for file in ['package.json','package-lock.json','README.md']:shutil.copy2(ROOT/file,app/file)
         subprocess.run(['npm','ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund'],cwd=app,check=True,env={**os.environ,'npm_config_cache':str(assets/'npm-cache')})
         if list((app/'node_modules').rglob('*.node')):raise RuntimeError('Native npm modules need Windows-specific builds')
@@ -33,7 +33,7 @@ def build(args):
         null_header=struct.pack('<IIHHHHIHHII',0,32,0xffff,0,0xffff,0,0,0,0,0,0)
         manifest_header=struct.pack('<IIHHHHIHHII',len(manifest_data),32,0xffff,24,0xffff,1,0,0x30,0,0,0)
         resource.write_bytes(null_header+manifest_header+manifest_data+b'\0'*((-len(manifest_data))%4))
-        subprocess.run([args.csc,'-target:winexe','-platform:x64','-optimize+','-warnaserror+','-r:System.Windows.Forms.dll','-r:System.Drawing.dll','-r:System.Web.Extensions.dll','-win32res:'+str(resource),'-out:'+str(binary/'Bathjun-Server.exe'),str(ROOT/'packaging/windows/ServerPanel.cs')],check=True)
+        subprocess.run([args.csc,'-target:winexe','-platform:x64','-optimize+','-warnaserror+','-r:System.Windows.Forms.dll','-r:System.Drawing.dll','-r:System.Web.Extensions.dll','-win32res:'+str(resource),'-out:'+str(binary/'Bathjun-Server.exe'),*[str(ROOT/'packaging/windows'/file) for file in ['ServerPanel.cs','Dashboard.cs','HumanPresenceReader.cs']]],check=True)
         shutil.copy2(ROOT/'packaging/windows/ServerPanel.exe.config',binary/'Bathjun-Server.exe.config')
         runpy.run_path(str(ROOT/'packaging/windows/tests/verify-dpi.py'))['verify'](binary/'Bathjun-Server.exe')
         for name in lock:shutil.copy2(assets/(name+'.exe'),binary/(name+'.exe'))
