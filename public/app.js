@@ -234,7 +234,7 @@ function notificationCard(showConfigured = false) {
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const standalone =
     matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-  let help = "前の人が予約し終わると、この端末にお知らせします。予約開始10分前にも通知します。";
+  let help = "前の人が予約し終わると、この端末にお知らせします。希望の結果や、設定した分数前の入浴通知も受け取れます。";
   let action =
     '<button class="notification-button" data-action="enable-notifications">通知を受け取る</button>';
   if (ios && !standalone) {
@@ -256,8 +256,23 @@ function notificationCard(showConfigured = false) {
   } else if (notificationStatus === "有効")
     action =
       '<button class="notification-button" data-action="disable-notifications">通知を止める</button>';
-  return `<aside class="notification-card"><div><h3>予約する番をお知らせ</h3><p>${help}</p><span id="notification-status">この端末：${notificationStatus}</span></div>${action}</aside>`;
+  return `<aside class="notification-card"><div><h3>おふろのお知らせ</h3><p>${help}</p><span id="notification-status">この端末：${notificationStatus}</span></div>${action}</aside>`;
 }
+function notificationPreferencesForm() {
+  const settings=state.notificationPreferences||{};
+  return `<form id="notification-preference-form" class="notification-preferences"><h3>通知の種類</h3>${[['wishConfirmed','事前希望が確定した'],['wishUnconfirmed','事前希望を確定できなかった'],['reservationTurn','予約の順番が回ってきた'],['bathReminder','入浴開始前のお知らせ']].map(([key,label])=>`<label class="notification-choice"><input type="checkbox" name="${key}" ${settings[key]!==false?'checked':''}><span>${label}</span></label>`).join('')}<label class="reminder-minutes">入浴の何分前に通知するか<input type="number" name="reminderMinutes" min="1" max="180" step="1" required value="${Number(settings.reminderMinutes)||10}"><span>分前</span></label><p class="muted">種類と分数は、自分の端末間で共通です。通知の許可は端末ごとに必要です。</p><button type="submit" class="primary">通知設定を保存</button><p class="form-error" role="alert"></p></form>`;
+}
+document.querySelector('.app-shell').addEventListener('submit',async event=>{
+  if(event.target.id!=='notification-preference-form')return;
+  event.preventDefault();if(busy)return;busy=true;
+  const form=event.target,button=form.querySelector('[type=submit]');button.disabled=true;
+  try {
+    const data=new FormData(form),settings={reminderMinutes:Number(data.get('reminderMinutes'))};
+    for(const key of ['wishConfirmed','wishUnconfirmed','reservationTurn','bathReminder'])settings[key]=data.has(key);
+    await api('notification-preferences',settings);await refresh(true);notify('通知設定を保存しました。');
+  }catch(error){form.querySelector('.form-error').textContent=error.message;}
+  finally{busy=false;button.disabled=false;}
+});
 async function syncNotifications() {
   if (
     !me ||
@@ -358,6 +373,9 @@ async function refresh(force = false) {
     }
     const signature = JSON.stringify([
       data.day,
+      data.today,
+      data.dayAfterTomorrow,
+      data.dayRollover,
       data.draw,
       data.bookings,
       data.wishes,
@@ -367,6 +385,7 @@ async function refresh(force = false) {
       data.members,
       data.settings,
       data.lotteryOpen,
+      data.notificationPreferences,
       Math.floor(new Date(data.now).getTime() / 60000),
     ]);
     const before = previousTurn;
@@ -379,7 +398,7 @@ async function refresh(force = false) {
           ) && !data.bookings.some((b) => b.memberId === id),
       ) || null;
     if (
-      before !== null &&
+      state?.day===data.day && data.notificationPreferences?.reservationTurn && data.day<=data.today && before !== null &&
       before !== previousTurn &&
       previousTurn === data.me.id
     )
@@ -387,7 +406,7 @@ async function refresh(force = false) {
     members = data.members;
     me = data.me;
     selectedDay = data.day;
-    if (force || signature !== lastSignature) {
+    if ((force || signature !== lastSignature) && (force || !document.activeElement?.closest("#notification-preference-form"))) {
       renderDashboard();
       lastSignature = signature;
     }
@@ -411,22 +430,23 @@ function renderDashboard() {
   const yourTurn = turn === me.id && !expired;
   const allBooked = state.draw && !turn;
   renderHeaderAccount();
-  root.innerHTML = `  <div class="date-bar"><div><span class="date-caption">BATH DAY</span><h2>${dateLabel(state.day)}</h2><p>${time(state.settings.bathStart)} <span>—</span> ${time(state.settings.bathEnd)} <span class="jst">日本時間</span></p></div><div class="day-switch" aria-label="日付切り替え"><button data-day="${state.yesterday}" class="${state.day === state.yesterday ? "active" : ""}" aria-pressed="${state.day === state.yesterday}">昨日の夜～</button><button data-day="${state.today}" class="${state.day === state.today ? "active" : ""}" aria-pressed="${state.day === state.today}">今日の夜～</button><button data-day="${state.tomorrow}" class="${state.day === state.tomorrow ? "active" : ""}" aria-pressed="${state.day === state.tomorrow}">明日の夜～</button></div></div>
+  root.innerHTML = `  <div class="date-bar"><div><span class="date-caption">BATH DAY</span><h2>${dateLabel(state.day)}</h2><p>${time(state.settings.bathStart)} <span>—</span> ${time(state.settings.bathEnd)} <span class="jst">日本時間</span></p></div><div class="day-switch" aria-label="日付切り替え"><button data-day="${state.yesterday}" class="${state.day === state.yesterday ? "active" : ""}" aria-pressed="${state.day === state.yesterday}">昨日の夜～</button><button data-day="${state.today}" class="${state.day === state.today ? "active" : ""}" aria-pressed="${state.day === state.today}">今日の夜～</button><button data-day="${state.tomorrow}" class="${state.day === state.tomorrow ? "active" : ""}" aria-pressed="${state.day === state.tomorrow}">明日の夜～</button><button data-day="${state.dayAfterTomorrow}" class="${state.day === state.dayAfterTomorrow ? "active" : ""}" aria-pressed="${state.day === state.dayAfterTomorrow}">明後日の夜～</button></div></div>
   <div class="dashboard-grid"><div class="left-column"><section class="draw-card">${
     state.draw
       ? `
-    <div class="card-title"><h2>予約の順番</h2><span class="badge">${icon("check")}${state.settings.orderMode === "fixed" ? "固定順" : "抽選済み"}</span></div><p class="muted">この順番で、お風呂の時間を選べます。</p><ol class="draw-list">${state.draw.order
+    <div class="card-title"><h2>予約の順番</h2><span class="badge">${icon("check")}${state.draw.mode === "fixed" ? "固定順" : "抽選済み"}</span></div><p class="muted">この順番で、お風呂の時間を選べます。</p><ol class="draw-list">${state.draw.order
       .map((id, index) => {
         const booked = state.bookings.some((b) => b.memberId === id);
         const skipped = state.skips.includes(id);
         const inactive = !activeMember(id);
-        return `<li class="${turn === id && !expired ? "current" : ""}"><span class="rank">${String(index + 1).padStart(2, "0")}</span>${avatar(id, true)}<strong>${escapeHTML(memberName(id))}${id === me.id ? '<span class="you">あなた</span>' : ""}</strong><span class="draw-status ${booked ? "done" : ""}">${inactive ? "利用停止" : booked ? `${icon("check")}予約済み` : skipped ? "入らない/様子見" : expired ? "受付終了" : turn === id ? "選ぶ番" : "待機中"}</span></li>`;
+        return `<li class="${turn === id && !expired && state.day <= state.today ? "current" : ""}"><span class="rank">${String(index + 1).padStart(2, "0")}</span>${avatar(id, true)}<strong>${escapeHTML(memberName(id))}${id === me.id ? '<span class="you">あなた</span>' : ""}</strong><span class="draw-status ${booked ? "done" : ""}">${inactive ? "利用停止" : booked ? `${icon("check")}予約済み` : skipped ? "入らない/様子見" : expired ? "受付終了" : state.day > state.today ? "当日から" : turn === id ? "選ぶ番" : "待機中"}</span></li>`;
       })
       .join(
         "",
       )}</ol>${state.settings.orderMode === "fixed" ? '<p class="fine-print">固定順は全端末で共通。「入らない/様子見」は末尾へ回ります。</p>' : ""}`
-      : `<div class="draw-illustration" aria-hidden="true">${icon("shuffle")}<span>?</span></div><h2>今夜の順番、くじで決めよう。</h2><p class="muted">${activeMembers().length}人の予約する順番をランダムに決定。<br>だれか1人が引けば、みんなに共有されます。</p><button class="primary" data-action="draw" ${state.lotteryOpen ? "" : "disabled"}>${icon("shuffle")}${state.lotteryOpen ? "この夜の順番を抽選する" : "抽選できる時間を待ってね"}</button><p class="fine-print">${icon("clock")}${state.settings.lotteryTimeRestricted ? `抽選できる時間：当日 ${time(state.settings.lotteryStart)}〜${time(state.settings.lotteryEnd)}（締切）` : "抽選時間の制限なし（対象日のおふろ終了まで）"}</p>${state.settings.lotteryTimeRestricted && !state.lotteryOpen && state.day === state.today && state.minute >= state.settings.lotteryEnd ? '<p class="form-error">今日は抽選時間が終了しました。次は明日の抽選時間に操作してください。</p>' : ""}`
-  }</section>${renderWishes()}${passkeyCard()}${notificationCard()}${`<details class="configured-settings"><summary>ログイン・通知の設定</summary><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${state.passkeyCount ? passkeyCard(true) : ""}${notificationStatus === "有効" ? notificationCard(true) : ""}</details>`}${state.shareUrl ? '<aside class="share-card"><button data-action="copy-link">家族用リンクをコピー</button><p>リンクと合い言葉は、家族だけに共有してください。</p></aside>' : ""}
+      : state.settings.orderMode === "fixed" ? '<h2>予約の順番</h2><p class="muted">固定順は当日に確定します。時刻の予約も当日からです。</p>'
+      : `<div class="draw-illustration" aria-hidden="true">${icon("shuffle")}<span>?</span></div><h2>この夜の順番、くじで決めよう。</h2><p class="muted">${activeMembers().length}人の予約する順番をランダムに決定。<br>だれか1人が引けば、みんなに共有されます。</p><button class="primary" data-action="draw" ${state.lotteryOpen ? "" : "disabled"}>${icon("shuffle")}${state.lotteryOpen ? "この夜の順番を抽選する" : "抽選できる時間を待ってね"}</button><p class="fine-print">${icon("clock")}${state.settings.lotteryTimeRestricted ? `抽選できる時間：当日 ${time(state.settings.lotteryStart)}〜${time(state.settings.lotteryEnd)}（締切）` : "当日分を抽選できます（対象日のおふろ終了まで）"}</p>${state.settings.lotteryTimeRestricted && !state.lotteryOpen && state.day === state.today && state.minute >= state.settings.lotteryEnd ? '<p class="form-error">今日は抽選時間が終了しました。次は明日の抽選時間に操作してください。</p>' : ""}`
+  }</section>${renderWishes()}${passkeyCard()}${notificationCard()}${`<details class="configured-settings"><summary>ログイン・通知の設定</summary><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${state.passkeyCount ? passkeyCard(true) : ""}${notificationStatus === "有効" ? notificationCard(true) : ""}${notificationPreferencesForm()}</details>`}${state.shareUrl ? '<aside class="share-card"><button data-action="copy-link">家族用リンクをコピー</button><p>リンクと合い言葉は、家族だけに共有してください。</p></aside>' : ""}
   <aside class="rules-card"><span class="rules-icon">♨</span><div><h3>わが家のおふろルール</h3><p>1回 <strong>${state.settings.minDuration}〜${state.settings.maxDuration}分</strong>、${state.settings.step}分刻みで予約。<br>脱衣所に入ってから、出るまでの時間です。<br>1人1枠。予約後も、開始前なら変更できます。</p></div></aside></div>
   <div class="right-column">${renderBookingBanner(booking, turn, expired, canEdit)}
   <section class="schedule-card"><div class="card-title"><h2>スケジュール</h2><span class="count">${state.bookings.length} 人予約${state.skips.filter((id) => !state.bookings.some((b) => b.memberId === id)).length ? ` · ${state.skips.filter((id) => !state.bookings.some((b) => b.memberId === id)).length} 人様子見` : ""}</span></div><div id="connection-status" class="connection-status" role="status">共有データを更新済み</div><div class="schedule"><div class="timeline-label"><span class="timeline-dot"></span>${time(state.settings.bathStart)}<span>おふろ、はじまり</span></div>${renderSchedule()}<div class="timeline-label end"><span class="timeline-dot"></span>${time(state.settings.bathEnd)}</div></div></section></div></div>`;
@@ -435,14 +455,14 @@ function renderDashboard() {
   root.querySelectorAll('[data-min-height]').forEach(node => { node.style.minHeight = `${Number(node.dataset.minHeight)}px`; });
 }
 function renderBookingBanner(booking, turn, expired, canEdit) {
-  if (state.day === state.tomorrow) return `<section class="booking-banner"><div><h3>明日の夜の予定</h3><p>抽選・予約は当日から。翌日適用の時間設定もここで確認できます。</p></div></section>`;
+  if (state.day > state.today) return `<section class="booking-banner"><div><h3>${state.day === state.tomorrow ? "明日" : "明後日"}の夜の予定</h3><p>希望は抽選前から出せます。抽選・予約は当日からです。日付は${time(state.dayRollover)}に切り替わります。</p></div></section>`;
   const yourTurn = turn === me.id && !expired;
   let content;
   if (expired)
     content =
       '<span class="banner-symbol">☾</span><div><h3>この日のおふろは終了しました。</h3><p>今日の夜～のタブから次のおふろを確認できます。</p></div>';
   else if (booking)
-    content = `${icon("check")}<div><span class="eyebrow">YOUR BATH TIME</span><h3>${time(booking.start)} <span>〜</span> ${time(booking.start + booking.duration)}</h3><p>${booking.autoConfirmed ? "希望から自動確定" : "あなたの予約"} · ${booking.duration}分</p></div>${canEdit ? `<button class="icon-button" data-action="book" aria-label="自分の予約を変更">${icon("edit")}</button>` : ""}`;
+    content = `${icon("check")}<div><span class="eyebrow">YOUR BATH TIME</span><h3>${time(booking.start)} <span>〜</span> ${time(booking.start + booking.duration)}</h3><p>${booking.autoConfirmed ? "希望から自動確定" : "あなたの予約"} · ${booking.duration}分</p></div>${canEdit ? `<button class="primary" data-action="book" aria-label="自分の予約を変更">${icon("edit")}予約を変更</button>` : ""}`;
   else if (yourTurn)
     content = `${icon("bath")}<div><h3>${escapeHTML(me.name)}さん、選ぶ番です。</h3>${isDeferred() ? "<p>末尾の順番が回ってきました。希望するなら予約できます。</p>" : ""}</div>`;
   else if (isDeferred())
@@ -454,13 +474,13 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
 function renderWishes() {
   const expired = slotDate(state.settings.bathEnd) <= serverNow();
   const own = ownWish();
-  return `<section class="wishes-card"><div class="card-title"><h2>事前希望</h2>${!expired && state.day !== state.tomorrow && !ownBooking() ? `<button class="wish-button" data-action="wish">${own ? "自分の希望を変更" : "希望を出す"}</button>` : ""}</div><p class="muted">順番が回ってきたとき、ほかの予約・希望のどちらとも重ならなければ、自動で確定します。</p><hr class="wish-divider"><h3 class="wish-list-heading">みんなの希望</h3>${state.wishes.length ? `<div class="wish-list">${state.wishes.map((w) => renderWish(w)).join("")}</div>` : '<p class="empty-wish">まだ希望はありません。</p>'}</section>`;
+  return `<section class="wishes-card"><div class="card-title"><h2>事前希望</h2></div><p class="muted">順番が回ってきたとき、ほかの予約・希望のどちらとも重ならなければ、自動で確定します。</p>${!expired && !ownBooking() ? `<button class="primary wish-action" data-action="wish">${icon("clock")}${own ? "自分の希望を変更" : "希望を出す"}</button>` : ""}<hr class="wish-divider"><h3 class="wish-list-heading">みんなの希望</h3>${state.wishes.length ? `<div class="wish-list">${state.wishes.map((w) => renderWish(w)).join("")}</div>` : '<p class="empty-wish">まだ希望はありません。</p>'}</section>`;
 }
 function renderWish(w) {
   const conflict = state.bookings.some(
     (b) => b.start < w.start + w.duration && b.start + b.duration > w.start,
-  );
-  return `<article class="wish-item"><div class="wish-person">${avatar(w.memberId, true)}<strong>${escapeHTML(memberName(w.memberId))}</strong><span>希望・未確定</span></div><div class="wish-time">${time(w.start)}〜${time(w.start + w.duration)}<small>${w.duration}分</small></div>${w.note ? `<p class="booking-note">${escapeHTML(w.note)}</p>` : ""}${conflict ? '<p class="wish-conflict">この時間には、すでに予約があります。</p>' : ""}</article>`;
+  ) || state.wishes.some(other=>other.memberId!==w.memberId&&other.start<w.start+w.duration&&other.start+other.duration>w.start);
+  return `<article class="wish-item"><div class="wish-person">${avatar(w.memberId, true)}<strong>${escapeHTML(memberName(w.memberId))}</strong><span>希望・未確定</span></div><div class="wish-time">${time(w.start)}〜${time(w.start + w.duration)}<small>${w.duration}分</small></div>${w.note ? `<p class="booking-note">${escapeHTML(w.note)}</p>` : ""}${conflict ? '<p class="wish-conflict">ほかの予約・希望と重なっています。</p>' : ""}</article>`;
 }
 function renderSchedule() {
   const ruler = (segment) => `<div class="quarter-ruler" aria-label="15分刻み">${quarterTicks(segment.start, segment.end).map(minute => `<span class="${minute % 60 === 0 ? "whole-hour" : ""}" data-top="${(minute-segment.start)/(segment.end-segment.start)*100}">${time(minute)}</span>`).join("")}</div>`;

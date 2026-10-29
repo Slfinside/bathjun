@@ -1,3 +1,5 @@
+import { getNotificationPreferences, saveNotificationPreferences } from './notification-preferences.js';
+import { createWishNotifications } from './wish-notifications.js';
 import { DatabaseSync } from "node:sqlite";
 import {
   randomBytes,
@@ -12,7 +14,8 @@ import { validateProfile } from "./member-profile.js";
 import { createAdminData } from "./admin-data.js";
 import { createBookingReminders } from "./booking-reminders.js";
 import { createPasskeys } from "./passkeys.js";
-import { createServerSettings } from "./server-settings.js";
+import { createServerSettings, rawJapanDate } from "./server-settings.js";
+import { bathCalendar } from "./bath-calendar.js";
 import {
   japanTime,
   lotteryOpen,
@@ -93,6 +96,9 @@ export function createApp({
         "utf8",
       ),
     );
+  if (!db.prepare("PRAGMA table_info(draws)").all().some(column=>column.name==="mode"))
+    db.exec("ALTER TABLE draws ADD COLUMN mode TEXT CHECK(mode IS NULL OR mode IN ('random','fixed'))");
+  db.exec(readFileSync(new URL('../migrations/0008_notification_controls.sql',import.meta.url),'utf8'));
   const familyConfig = () =>
     db.prepare("SELECT * FROM family_config WHERE id=1").get();
   const cookieValue = (req, name) =>
@@ -151,14 +157,22 @@ export function createApp({
         if(db.prepare(`SELECT member_id FROM ${table} WHERE day=? AND member_id!=? AND start<? AND start+duration>? LIMIT 1`).get(day,id,wish.start+wish.duration,wish.start))return null;
       return wish;
     }
-    if(!candidate())return;
+    if(day>currentTime().today)return;
+    if(!candidate()) {
+      const id=currentTurn(day),wish=id?db.prepare("SELECT * FROM wishes WHERE day=? AND member_id=?").get(day,id):null;
+      if(wish)wishNotifications.record(wish,'wishUnconfirmed');
+      return;
+    }
     db.exec("BEGIN IMMEDIATE");
     try {
       let wish;
       while((wish=candidate())) {
-        db.prepare("INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,auto_confirmed) VALUES(?,?,?,?,?,0,1)").run(day,wish.member_id,wish.start,wish.duration,wish.note);
+        db.prepare("INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,auto_confirmed,auto_revision) VALUES(?,?,?,?,?,0,1,?)").run(day,wish.member_id,wish.start,wish.duration,wish.note,wish.revision);
+        wishNotifications.record(wish,"wishConfirmed");
         db.prepare("DELETE FROM wishes WHERE day=? AND member_id=?").run(day,wish.member_id);
       }
+      const id=currentTurn(day),pending=id?db.prepare("SELECT * FROM wishes WHERE day=? AND member_id=?").get(day,id):null;
+      if(pending)wishNotifications.record(pending,'wishUnconfirmed');
       db.exec("COMMIT");
     }catch(error){db.exec("ROLLBACK");throw error;}
   }
@@ -166,19 +180,19 @@ export function createApp({
     advanceWishes(day);
     reminders.syncDay(day);
     const next = currentTurn(day);
-    if (!next || next === previous) return;
+    if (!next || next === previous || day>currentTime().today || !getNotificationPreferences(db,next).reservationTurn) return;
     const subscriptions = db
       .prepare(
         "SELECT p.endpoint FROM push_subscriptions p JOIN sessions s ON p.session_hash=s.token_hash WHERE p.member_id=? AND s.expires>?",
       )
       .all(next, now().getTime());
     const insert = db.prepare(
-      "INSERT INTO notification_queue(endpoint,day,member_id) VALUES(?,?,?)",
+      "INSERT INTO notification_queue(endpoint,day,member_id,next_attempt) VALUES(?,?,?,?)",
     );
     let queued = false;
     for (const sub of subscriptions)
       if (!onlyEndpoint || sub.endpoint === onlyEndpoint) {
-        insert.run(sub.endpoint, day, next);
+        insert.run(sub.endpoint, day, next, Math.max(0, bookingOpensAt(day)>now().getTime()?bookingOpensAt(day):0));
         queued = true;
       }
     if (queued) onNotificationQueued();
@@ -189,6 +203,7 @@ export function createApp({
     if (flushing || closed) return;
     flushing = true;
     try {
+      await wishNotifications.flush();
       const jobs = db
         .prepare(
           "SELECT q.*,p.subscription_json,s.expires FROM notification_queue q JOIN push_subscriptions p ON p.endpoint=q.endpoint JOIN sessions s ON s.token_hash=p.session_hash WHERE q.next_attempt<=? ORDER BY q.id LIMIT 20",
@@ -197,9 +212,15 @@ export function createApp({
       for (const job of jobs) {
         if (
           job.expires <= now().getTime() ||
-          currentTurn(job.day) !== job.member_id
+          currentTurn(job.day) !== job.member_id || !getNotificationPreferences(db,job.member_id).reservationTurn
         ) {
           db.prepare("DELETE FROM notification_queue WHERE id=?").run(job.id);
+          continue;
+        }
+        // Wait until the configured opening if the rollover setting moved a queued alert.
+        const opensAt=bookingOpensAt(job.day);
+        if(opensAt>now().getTime()) {
+          db.prepare("UPDATE notification_queue SET next_attempt=? WHERE id=?").run(opensAt,job.id);
           continue;
         }
         const name = db
@@ -211,7 +232,7 @@ export function createApp({
             JSON.parse(job.subscription_json),
             {
               title: "おふろを予約する番です ♨",
-              body: `${name}さん、おふろを予約する番です。好きな時間を選んでください。`,
+              body: `${job.day}の夜：${name}さん、おふろを予約する番です。好きな時間を選んでください。`,
               tag: `bath-turn-${job.day}`,
               day: job.day,
               url: "/",
@@ -292,23 +313,24 @@ export function createApp({
     if (!db.prepare("PRAGMA table_info(members)").all().some(column=>column.name===name))
       db.exec(`ALTER TABLE members ADD COLUMN ${name} ${type}`);
   const serverSettings = createServerSettings(db, now);
+  if (!db.prepare("PRAGMA table_info(wishes)").all().some(column=>column.name==="revision")) {
+    db.exec("ALTER TABLE wishes ADD COLUMN revision TEXT NOT NULL DEFAULT ''; UPDATE wishes SET revision=lower(hex(randomblob(16)))");
+  }
+
   if (!db.prepare("PRAGMA table_info(bookings)").all().some(column=>column.name==="auto_confirmed"))
     db.exec("ALTER TABLE bookings ADD COLUMN auto_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(auto_confirmed IN (0,1))");
 
+  if (!db.prepare("PRAGMA table_info(bookings)").all().some(column=>column.name==="auto_revision"))db.exec("ALTER TABLE bookings ADD COLUMN auto_revision TEXT");
+  const wishNotifications=createWishNotifications({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn});
   const scheduleForDay = serverSettings.scheduleForDay;
   const reminders=createBookingReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed});
   const currentTime = () => {
-    const time = japanTime(now());
-    const yesterday = scheduleForDay(time.yesterday);
-    return {
-      ...time,
-      tomorrow: new Date(new Date(time.today + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10),
-      activeDay:
-        yesterday.bathEnd > 1440 && time.minute < yesterday.bathEnd - 1440
-          ? time.yesterday
-          : time.today,
-    };
+    const time=bathCalendar(now(),scheduleForDay(rawJapanDate(now())).dayRollover);
+    const raw=japanTime(now()),previousRule=scheduleForDay(raw.yesterday);
+    const activeDay=previousRule.bathEnd>1440&&raw.minute<previousRule.bathEnd-1440?raw.yesterday:time.today;
+    return {...time,activeDay};
   };
+  const bookingOpensAt = day => slotDate(day,scheduleForDay(day).dayRollover).getTime();
   const allMembers = (onlyActive = true) =>
     db
       .prepare(
@@ -329,8 +351,8 @@ export function createApp({
     ];
     if (!order.length) return;
     const created = db
-      .prepare("INSERT OR IGNORE INTO draws VALUES(?,?,?)")
-      .run(day, JSON.stringify(order), now().toISOString());
+      .prepare("INSERT OR IGNORE INTO draws(day,order_json,created_at,mode) VALUES(?,?,?,?)")
+      .run(day, JSON.stringify(order), now().toISOString(), "fixed");
     if (created.changes) enqueueTurn(day);
   };
   const memberFor = (req) => {
@@ -350,7 +372,7 @@ export function createApp({
   };
   const validDay = (day, allowTomorrow = false) => {
     const time = currentTime();
-    if (day !== time.today && day !== time.yesterday && !(allowTomorrow && day === time.tomorrow))
+    if (day !== time.today && day !== time.yesterday && !(allowTomorrow && [time.tomorrow,time.dayAfterTomorrow].includes(day)))
       fail(400, "表示できる日付、または受付中の日付を選んでください。");
     return day;
   };
@@ -546,6 +568,16 @@ export function createApp({
       }
       const me = memberFor(req);
       if (!me) fail(401, "ログインしてください。");
+      if(req.method==="POST" && url.pathname==="/api/notification-preferences") {
+        let result;const before=getNotificationPreferences(db,me.id);
+        try{result=saveNotificationPreferences(db,me.id,body);}catch(error){fail(400,error.message);}
+        if(!result.reservationTurn)db.prepare("DELETE FROM notification_queue WHERE member_id=?").run(me.id);
+        for(const key of ['wishConfirmed','wishUnconfirmed'])if(!result[key])db.prepare("DELETE FROM wish_notification_jobs WHERE sent=0 AND event_id IN (SELECT id FROM wish_outcomes WHERE member_id=? AND kind=?)").run(me.id,key);
+        reminders.restore(me.id);
+        if(result.reservationTurn&&!before.reservationTurn){const time=currentTime();enqueueTurn(time.today);if(time.activeDay!==time.today)enqueueTurn(time.activeDay);}
+        onNotificationQueued();
+        return send(200,{notificationPreferences:result});
+      }
       if(req.method==="POST" && url.pathname==="/api/profile") {
         const profile=parseProfile(body);
         db.prepare("UPDATE members SET emoji=?,color=? WHERE id=?").run(profile.emoji,profile.color,me.id);
@@ -606,6 +638,7 @@ export function createApp({
         const time = currentTime();
         if (newBinding) {
           enqueueTurn(time.today, null, subscription.endpoint);
+
           if (time.activeDay !== time.today)
             enqueueTurn(time.activeDay, null, subscription.endpoint);
         }
@@ -623,10 +656,11 @@ export function createApp({
       if (req.method === "GET" && url.pathname === "/api/state") {
         const time = currentTime();
         const day = validDay(url.searchParams.get("day") || time.activeDay, true);
-        if (day !== time.tomorrow) {ensureFixedDraw(day);enqueueTurn(day,currentTurn(day));}
+        if (day <= time.today) {ensureFixedDraw(day);enqueueTurn(day,currentTurn(day));}
         const draw = db.prepare("SELECT * FROM draws WHERE day=?").get(day);
         return send(200, {
           me,
+          notificationPreferences:getNotificationPreferences(db,me.id),
           shareUrl: req.bathSecure
             ? `${req.bathOrigin}/family/${familyConfig().access_token}/`
             : null,
@@ -645,10 +679,10 @@ export function createApp({
                 order: reservationOrder(day),
                 originalOrder: JSON.parse(draw.order_json),
                 createdAt: draw.created_at,
-                mode: scheduleForDay(day).orderMode,
+                mode: draw.mode || scheduleForDay(day).orderMode,
               }
             : null,
-          lotteryOpen: lotteryOpen(day, now(), scheduleForDay(day)),
+          lotteryOpen: scheduleForDay(day).orderMode !== "fixed" && lotteryOpen(day, now(), scheduleForDay(day), currentTime().today),
           skips: db
             .prepare(
               "SELECT member_id FROM bath_skips WHERE day=? ORDER BY member_id",
@@ -688,14 +722,14 @@ export function createApp({
         const day = validDay(body.day);
         if (scheduleForDay(day).orderMode === "fixed")
           fail(409, "固定順モードなので、抽選は不要です。");
-        if (!lotteryOpen(day, now(), scheduleForDay(day)))
-          fail(403, "設定された当日の抽選時間内に操作してください。");
+        if (!lotteryOpen(day, now(), scheduleForDay(day), currentTime().today))
+          fail(403, "当日分を選び、設定された抽選時間内に操作してください。");
         const order = shuffle(allMembers().map((m) => m.id));
         const result = db
-          .prepare("INSERT OR IGNORE INTO draws VALUES (?,?,?)")
-          .run(day, JSON.stringify(order), now().toISOString());
+          .prepare("INSERT OR IGNORE INTO draws(day,order_json,created_at,mode) VALUES(?,?,?,?)")
+          .run(day, JSON.stringify(order), now().toISOString(), "random");
         if (!result.changes)
-          fail(409, "今日はすでに抽選済みです。結果を更新します。");
+          fail(409, "この夜はすでに抽選済みです。結果を更新します。");
         enqueueTurn(day);
         return send(200, { ok: true });
       }
@@ -751,7 +785,7 @@ export function createApp({
         return send(200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/wish") {
-        const day = validDay(body.day),
+        const day = validDay(body.day,true),
           { start, duration } = body,
           note = body.note ?? "";
         if (
@@ -773,14 +807,14 @@ export function createApp({
         )
           fail(409, "予約済みです。時間の変更は自分の予約から行ってください。");
         db.prepare(
-          "INSERT INTO wishes(day,member_id,start,duration,note) VALUES(?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note",
-        ).run(day, me.id, start, duration, note.trim());
+          "INSERT INTO wishes(day,member_id,start,duration,note,revision) VALUES(?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,revision=excluded.revision",
+        ).run(day, me.id, start, duration, note.trim(),randomBytes(16).toString("hex"));
         enqueueTurn(day,currentTurn(day));
         const confirmed=db.prepare("SELECT auto_confirmed FROM bookings WHERE day=? AND member_id=?").get(day,me.id);
         return send(200, { ok: true, autoConfirmed:!!confirmed?.auto_confirmed });
       }
       if (req.method === "POST" && url.pathname === "/api/wish/cancel") {
-        const day = validDay(body.day), previous=currentTurn(day);
+        const day = validDay(body.day,true), previous=currentTurn(day);
         db.prepare("DELETE FROM wishes WHERE day=? AND member_id=?").run(
           day,
           me.id,
@@ -825,7 +859,7 @@ export function createApp({
           );
         try {
           db.prepare(
-            "INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation) VALUES (?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,no_negotiation=excluded.no_negotiation,auto_confirmed=0",
+            "INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation) VALUES (?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,no_negotiation=excluded.no_negotiation,auto_confirmed=0,auto_revision=NULL",
           ).run(
             day,
             me.id,
@@ -889,9 +923,12 @@ export function createApp({
     getServerSettings: serverSettings.get,
     saveServerSettings: (payload) => {
       const time = currentTime();
-      const days = [time.today, time.yesterday];
+      const days = [time.today, time.yesterday, time.tomorrow, time.dayAfterTomorrow];
       const before = days.map(currentTurn);
       const result = serverSettings.save(payload);
+      // Changing the independent rollover time also moves pending opening alerts.
+      for(const job of db.prepare("SELECT id,day FROM notification_queue WHERE attempts=0").all())
+        db.prepare("UPDATE notification_queue SET next_attempt=? WHERE id=?").run(Math.max(0,bookingOpensAt(job.day)>now().getTime()?bookingOpensAt(job.day):0),job.id);
       days.forEach((day, i) => enqueueTurn(day, before[i]));
       onNotificationQueued();
       return result;
@@ -899,7 +936,7 @@ export function createApp({
     flushNotifications,
     notificationDueAt: () =>
       db
-        .prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0)")
+        .prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM wish_notification_jobs WHERE sent=0)")
         .get().due,
     setFamilyPassword,
     familyConfigured: () => !!familyConfig().password_hash,

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 export const DEFAULT_SCHEDULE = Object.freeze({
+  dayRollover: 120,
   bathStart: 900,
   bathEnd: 1860,
   lotteryTimeRestricted: false,
@@ -24,6 +25,7 @@ export function validateSchedule(schedule) {
   if (!schedule || typeof schedule !== "object")
     throw new Error("時間設定を確認してください。");
   const numericKeys = [
+    "dayRollover",
     "bathStart",
     "bathEnd",
     "lotteryStart",
@@ -34,6 +36,7 @@ export function validateSchedule(schedule) {
   ];
   const result = {
     ...Object.fromEntries(numericKeys.map((key) => [key, schedule[key]])),
+    dayRollover: schedule.dayRollover ?? 120,
     lotteryTimeRestricted: schedule.lotteryTimeRestricted ?? false,
     orderMode: schedule.orderMode || "random",
     fixedOrder: [],
@@ -42,6 +45,8 @@ export function validateSchedule(schedule) {
     throw new Error("抽選時間の制限を確認してください。");
   if (!["random", "fixed"].includes(result.orderMode))
     throw new Error("予約順は抽選または固定順から選んでください。");
+  if (result.dayRollover < 0 || result.dayRollover >= 1440)
+    throw new Error("日付の切り替えは0:00〜23:59で設定してください。");
   if (numericKeys.some((key) => !Number.isInteger(result[key])))
     throw new Error("時刻と時間は分単位の整数で設定してください。");
   const {

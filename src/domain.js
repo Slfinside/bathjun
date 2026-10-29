@@ -1,3 +1,4 @@
+import { bathCalendar } from './bath-calendar.js';
 import { randomInt } from "node:crypto";
 import { DEFAULT_SCHEDULE } from "./server-settings.js";
 
@@ -18,16 +19,14 @@ export function japanTime(now = new Date(), schedule = DEFAULT_SCHEDULE) {
         : today,
   };
 }
-export function lotteryOpen(day, now, schedule = DEFAULT_SCHEDULE) {
-  const t = japanTime(now);
-  if (!schedule.lotteryTimeRestricted)
-    return (day === t.today || day === t.yesterday) && slotDate(day, schedule.bathEnd) > now;
-  return (
-    day === t.today &&
-    t.minute >= schedule.lotteryStart &&
-    t.minute < schedule.lotteryEnd
-  );
+export function lotteryOpen(day, now, schedule = DEFAULT_SCHEDULE, referenceDay) {
+  const t = bathCalendar(now, schedule.dayRollover);
+  const today=referenceDay || t.today;
+  if (day !== today || slotDate(day, schedule.bathEnd) <= now) return false;
+  return !schedule.lotteryTimeRestricted ||
+    (t.minute >= schedule.lotteryStart && t.minute < schedule.lotteryEnd);
 }
+
 export function slotDate(day, minutes) {
   return new Date(
     new Date(`${day}T00:00:00+09:00`).getTime() + minutes * 60000,

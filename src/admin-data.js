@@ -49,7 +49,7 @@ export function createAdminData({db,setFamilyPassword,getSettings,onNotification
     const keys=generateKeys(),accessToken=randomBytes(32).toString("hex");
     db.exec("BEGIN IMMEDIATE");
     try {
-      for(const table of ["booking_reminders","notification_queue","push_subscriptions","passkey_challenges","passkey_credentials","passkey_accounts","sessions","family_sessions","bookings","wishes","bath_skips","draws","members","schedule_settings","family_config"])
+      for(const table of ["wish_notification_jobs","wish_outcomes","notification_preferences","booking_reminders","notification_queue","push_subscriptions","passkey_challenges","passkey_credentials","passkey_accounts","sessions","family_sessions","bookings","wishes","bath_skips","draws","members","schedule_settings","family_config"])
         db.exec(`DELETE FROM ${table}`);
       db.prepare("INSERT INTO family_config(id,access_token,vapid_public,vapid_private) VALUES(1,?,?,?)").run(accessToken,keys.publicKey,keys.privateKey);
       db.prepare("INSERT INTO schedule_settings VALUES(?,?)").run("0000-01-01",JSON.stringify(DEFAULT_SCHEDULE));

@@ -36,6 +36,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .\native-test\bin\DashboardTest.exe .\native-test\fixture.json .\native-test\screens
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $compiler /nologo /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:.\native-test\bin\Bathjun-Server.exe /out:.\native-test\bin\MemberEntryTest.exe .\packaging\windows\tests\MemberEntryTest.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\native-test\bin\MemberEntryTest.exe .\native-test\screens
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   release:
     needs: dashboard-windows
     runs-on: ubuntu-24.04
