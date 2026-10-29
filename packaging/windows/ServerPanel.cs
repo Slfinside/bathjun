@@ -52,7 +52,7 @@ public sealed class PanelOutbox : IDisposable {
 }
 public sealed class Member {public int id;public string name;public bool active;}
 public sealed class Schedule {public int dayRollover,bathStart,bathEnd,lotteryStart,lotteryEnd,minDuration,maxDuration,step;public bool lotteryTimeRestricted;public string orderMode;public int[] fixedOrder;}
-public sealed class Settings {public Member[] members;public Schedule current,upcoming;public string effectiveDay;}
+public sealed class Settings {public Member[] members;public Schedule current,upcoming;public string effectiveDay;public bool ignoreLowerPriorityWishes;}
 public sealed class ServerState {public string phase,detail,url;public int pid;}
 public sealed class SecurityMember {public int id;public string name;public bool passwordSet;}
 public sealed class SecurityInfo {public bool familyConfigured;public SecurityMember[] members;}
@@ -72,7 +72,7 @@ internal sealed class PanelForm : Form {
     bool publicMode,updatePreparing;int serverPid;
     DashboardForm dashboard;readonly CheckBox presenceEnabled=new CheckBox();
     readonly DateTimePicker dayRollover=Clock(),bathStart=Clock(),bathEnd=Clock(),drawStart=Clock(),drawEnd=Clock();
-    readonly CheckBox nextDay=new CheckBox(),drawRestricted=new CheckBox();
+    readonly CheckBox nextDay=new CheckBox(),drawRestricted=new CheckBox(),ignoreLowerPriorityWishes=new CheckBox();
     readonly NumericUpDown minimum=Number(),maximum=Number();readonly ComboBox step=new ComboBox(),orderMode=new ComboBox();
     readonly ComboBox passwordTarget=new ComboBox();
     readonly TextBox passwordInput=new TextBox(),passwordConfirm=new TextBox();
@@ -164,6 +164,8 @@ internal sealed class PanelForm : Form {
         var orderRow=new FlowLayoutPanel{Width=550,AutoSize=true};orderMode.DropDownStyle=ComboBoxStyle.DropDownList;orderMode.Items.AddRange(new object[]{"毎日抽選","固定順"});orderMode.Width=140;orderMode.SelectedIndexChanged+=delegate{UpdateDrawControls();};orderRow.Controls.Add(orderMode);var up=ActionButton("選択行を上へ");var down=ActionButton("選択行を下へ");up.Click+=delegate{MoveMember(-1);};down.Click+=delegate{MoveMember(1);};orderRow.Controls.Add(up);orderRow.Controls.Add(down);box.Controls.Add(orderRow);
         box.Controls.Add(TextLabel("固定順は表の上から順です。「入らない/様子見」の人は末尾へ、利用停止の人は対象外にします。切り替えは翌日分から反映します。",64));
         box.Controls.Add(TextLabel("名前を入力して「メンバーを追加」→「設定を保存」。使わない人は「利用する」を外します。既存の予約と履歴は残ります。",68));
+        ignoreLowerPriorityWishes.Text="下位の人の希望と重なっても自動確定する";ignoreLowerPriorityWishes.AutoSize=true;box.Controls.Add(ignoreLowerPriorityWishes);
+        box.Controls.Add(TextLabel("この設定は保存後すぐ反映します。確定済みの予約とは重ねません。終了時刻と次の開始時刻が同じ場合は重複になりません。",64));
         var rolloverRow=new FlowLayoutPanel{Width=550,AutoSize=true};rolloverRow.Controls.Add(new Label{Text="日付の切り替え",AutoSize=true,Margin=new Padding(0,7,15,0)});rolloverRow.Controls.Add(dayRollover);rolloverRow.Controls.Add(new Label{Text="（入浴時間帯とは別）",AutoSize=true,Margin=new Padding(8,7,0,0)});box.Controls.Add(rolloverRow);
         var timeRow=new FlowLayoutPanel{Width=550,AutoSize=true};timeRow.Controls.Add(TextLabel("入浴",30));timeRow.Controls.Add(bathStart);timeRow.Controls.Add(new Label{Text="〜",AutoSize=true});timeRow.Controls.Add(bathEnd);nextDay.Text="翌日終了";nextDay.AutoSize=true;timeRow.Controls.Add(nextDay);box.Controls.Add(timeRow);
         drawRestricted.Text="抽選できる時間帯を制限する";drawRestricted.AutoSize=true;drawRestricted.CheckedChanged+=delegate{UpdateDrawControls();};box.Controls.Add(drawRestricted);
@@ -225,6 +227,7 @@ internal sealed class PanelForm : Form {
     void FillSettings(Settings settings) {
         members.Rows.Clear();foreach(var member in settings.members)members.Rows.Add(member.id,member.name,member.active);
         settingsLoaded=true;newMemberName.Enabled=addMember.Enabled=true;
+        ignoreLowerPriorityWishes.Checked=settings.ignoreLowerPriorityWishes;
         var rule=settings.upcoming;drawRestricted.Checked=rule.lotteryTimeRestricted;orderMode.SelectedIndex=rule.orderMode=="fixed"?1:0;dayRollover.Value=ToClock(rule.dayRollover);bathStart.Value=ToClock(rule.bathStart);bathEnd.Value=ToClock(rule.bathEnd);nextDay.Checked=rule.bathEnd>=1440;drawStart.Value=ToClock(rule.lotteryStart);drawEnd.Value=ToClock(rule.lotteryEnd);minimum.Value=rule.minDuration;maximum.Value=rule.maxDuration;step.SelectedItem=rule.step;
         saveState.Text="時間の設定は "+settings.effectiveDay+" 分から反映します。今日の予約・時間設定は変えません。追加メンバーは次の順番決定から参加します。";save.Enabled=true;
     }
@@ -258,7 +261,7 @@ internal sealed class PanelForm : Form {
         var rows=new List<object>();
         foreach(DataGridViewRow row in members.Rows){if(row.IsNewRow)continue;string name=Convert.ToString(row.Cells["Name"].Value);int id=row.Cells["Id"].Value==null?0:Convert.ToInt32(row.Cells["Id"].Value);if(id==0 && string.IsNullOrWhiteSpace(name))continue;rows.Add(new{id=id,name=name,active=Convert.ToBoolean(row.Cells["Active"].Value)});}
         var schedule=new Schedule{dayRollover=Minutes(dayRollover),bathStart=Minutes(bathStart),bathEnd=Minutes(bathEnd)+(nextDay.Checked?1440:0),lotteryTimeRestricted=drawRestricted.Checked,lotteryStart=Minutes(drawStart),lotteryEnd=Minutes(drawEnd),minDuration=(int)minimum.Value,maxDuration=(int)maximum.Value,step=step.SelectedItem==null?15:(int)step.SelectedItem,orderMode=orderMode.SelectedIndex==1?"fixed":"random"};
-        if(pendingSecurity!=null)return;save.Enabled=false;saveState.Text="保存しています…";pendingSave=Send("settings/save",new{members=rows,schedule=schedule});if(pendingSave!=null)saveTimeout.Start();else save.Enabled=true;
+        if(pendingSecurity!=null)return;save.Enabled=false;saveState.Text="保存しています…";pendingSave=Send("settings/save",new{members=rows,schedule=schedule,ignoreLowerPriorityWishes=ignoreLowerPriorityWishes.Checked});if(pendingSave!=null)saveTimeout.Start();else save.Enabled=true;
     }
     string Send(string command,object payload) {
         string id=Interlocked.Increment(ref sequence).ToString();

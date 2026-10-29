@@ -133,6 +133,10 @@ export function createServerSettings(db, now) {
       throw error;
     }
   }
+  if (!db.prepare("PRAGMA table_info(members)").all().some(column=>column.name==="auto_standby"))
+    db.exec("ALTER TABLE members ADD COLUMN auto_standby INTEGER NOT NULL DEFAULT 0 CHECK(auto_standby IN (0,1))");
+  db.exec(readFileSync(new URL('../migrations/0009_auto_standby.sql',import.meta.url),'utf8'));
+  const ignoreLowerPriorityWishes=()=>!!db.prepare('SELECT ignore_lower_priority_wishes FROM reservation_policy WHERE id=1').get().ignore_lower_priority_wishes;
   const scheduleForDay = (day) => ({
     ...DEFAULT_SCHEDULE,
     ...JSON.parse(
@@ -159,7 +163,7 @@ export function createServerSettings(db, now) {
         };
         return rank(a.id) - rank(b.id);
       });
-    return { members, current: scheduleForDay(today), upcoming, effectiveDay };
+    return { members, current: scheduleForDay(today), upcoming, effectiveDay, ignoreLowerPriorityWishes:ignoreLowerPriorityWishes() };
   }
   function save(payload) {
     if (
@@ -168,6 +172,8 @@ export function createServerSettings(db, now) {
       payload.members.length > 50
     )
       throw new Error("メンバーは1〜50人で設定してください。");
+    const priorityPolicy=payload.ignoreLowerPriorityWishes===undefined?ignoreLowerPriorityWishes():payload.ignoreLowerPriorityWishes;
+    if(typeof priorityPolicy!=='boolean')throw new Error('下位の希望を許容する設定は有効・無効で選んでください。');
     const schedule = validateSchedule(payload.schedule),
       existing = db.prepare("SELECT id,active FROM members").all();
     const members = payload.members.map((member) => {
@@ -202,6 +208,7 @@ export function createServerSettings(db, now) {
       );
     db.exec("BEGIN IMMEDIATE");
     try {
+      db.prepare("UPDATE reservation_policy SET ignore_lower_priority_wishes=? WHERE id=1").run(priorityPolicy?1:0);
       const temporary = "__bathjun_" + randomBytes(16).toString("hex") + "_";
       for (const member of members)
         if (member.id)
@@ -242,5 +249,5 @@ export function createServerSettings(db, now) {
     }
     return get();
   }
-  return { scheduleForDay, get, save };
+  return { scheduleForDay, get, save, ignoreLowerPriorityWishes };
 }

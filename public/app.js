@@ -262,6 +262,17 @@ function notificationPreferencesForm() {
   const settings=state.notificationPreferences||{};
   return `<form id="notification-preference-form" class="notification-preferences"><h3>通知の種類</h3>${[['wishConfirmed','事前希望が確定した'],['wishUnconfirmed','事前希望を確定できなかった'],['reservationTurn','予約の順番が回ってきた'],['bathReminder','入浴開始前のお知らせ']].map(([key,label])=>`<label class="notification-choice"><input type="checkbox" name="${key}" ${settings[key]!==false?'checked':''}><span>${label}</span></label>`).join('')}<label class="reminder-minutes">入浴の何分前に通知するか<input type="number" name="reminderMinutes" min="1" max="180" step="1" required value="${Number(settings.reminderMinutes)||10}"><span>分前</span></label><p class="muted">種類と分数は、自分の端末間で共通です。通知の許可は端末ごとに必要です。</p><button type="submit" class="primary">通知設定を保存</button><p class="form-error" role="alert"></p></form>`;
 }
+function autoStandbyForm() {
+  return `<form id="auto-standby-form" class="notification-preferences"><h3>毎日の予約設定</h3><label class="notification-choice"><input type="checkbox" name="enabled" ${state.autoStandby?'checked':''}><span>自動で「入らない/様子見」にする</span></label><p class="muted">次に順番を決める夜から、予約順の末尾へ回ります。予約や希望は取り消しません。順番が決まっている今日分は「入らない/様子見」や「通常の順番に戻す」で変更できます。</p><button type="submit" class="primary">予約設定を保存</button><p class="form-error" role="alert"></p></form>`;
+}
+document.querySelector('.app-shell').addEventListener('submit',async event=>{
+  if(event.target.id!=='auto-standby-form')return;
+  event.preventDefault();if(busy)return;busy=true;
+  const form=event.target,button=form.querySelector('[type=submit]');button.disabled=true;
+  try {const result=await api('auto-standby',{enabled:new FormData(form).has('enabled')});await refresh(true);notify('毎日の予約設定を保存しました。'+dateLabel(result.appliesFrom)+'の夜分から反映します。');}
+  catch(error){form.querySelector('.form-error').textContent=error.message;}
+  finally{busy=false;button.disabled=false;}
+});
 document.querySelector('.app-shell').addEventListener('submit',async event=>{
   if(event.target.id!=='notification-preference-form')return;
   event.preventDefault();if(busy)return;busy=true;
@@ -386,6 +397,8 @@ async function refresh(force = false) {
       data.settings,
       data.lotteryOpen,
       data.notificationPreferences,
+      data.autoStandby,
+      data.ignoreLowerPriorityWishes,
       Math.floor(new Date(data.now).getTime() / 60000),
     ]);
     const before = previousTurn;
@@ -406,7 +419,7 @@ async function refresh(force = false) {
     members = data.members;
     me = data.me;
     selectedDay = data.day;
-    if ((force || signature !== lastSignature) && (force || !document.activeElement?.closest("#notification-preference-form"))) {
+    if ((force || signature !== lastSignature) && (force || !document.activeElement?.closest("#notification-preference-form, #auto-standby-form"))) {
       renderDashboard();
       lastSignature = signature;
     }
@@ -446,7 +459,7 @@ function renderDashboard() {
       )}</ol>${state.settings.orderMode === "fixed" ? '<p class="fine-print">固定順は全端末で共通。「入らない/様子見」は末尾へ回ります。</p>' : ""}`
       : state.settings.orderMode === "fixed" ? '<h2>予約の順番</h2><p class="muted">固定順は当日に確定します。時刻の予約も当日からです。</p>'
       : `<div class="draw-illustration" aria-hidden="true">${icon("shuffle")}<span>?</span></div><h2>この夜の順番、くじで決めよう。</h2><p class="muted">${activeMembers().length}人の予約する順番をランダムに決定。<br>だれか1人が引けば、みんなに共有されます。</p><button class="primary" data-action="draw" ${state.lotteryOpen ? "" : "disabled"}>${icon("shuffle")}${state.lotteryOpen ? "この夜の順番を抽選する" : "抽選できる時間を待ってね"}</button><p class="fine-print">${icon("clock")}${state.settings.lotteryTimeRestricted ? `抽選できる時間：当日 ${time(state.settings.lotteryStart)}〜${time(state.settings.lotteryEnd)}（締切）` : "当日分を抽選できます（対象日のおふろ終了まで）"}</p>${state.settings.lotteryTimeRestricted && !state.lotteryOpen && state.day === state.today && state.minute >= state.settings.lotteryEnd ? '<p class="form-error">今日は抽選時間が終了しました。次は明日の抽選時間に操作してください。</p>' : ""}`
-  }</section>${renderWishes()}${passkeyCard()}${notificationCard()}${`<details class="configured-settings"><summary>ログイン・通知の設定</summary><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${state.passkeyCount ? passkeyCard(true) : ""}${notificationStatus === "有効" ? notificationCard(true) : ""}${notificationPreferencesForm()}</details>`}${state.shareUrl ? '<aside class="share-card"><button data-action="copy-link">家族用リンクをコピー</button><p>リンクと合い言葉は、家族だけに共有してください。</p></aside>' : ""}
+  }</section>${renderWishes()}${passkeyCard()}${notificationCard()}${`<details class="configured-settings"><summary>ログイン・通知の設定</summary><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${state.passkeyCount ? passkeyCard(true) : ""}${notificationStatus === "有効" ? notificationCard(true) : ""}${notificationPreferencesForm()}${autoStandbyForm()}</details>`}${state.shareUrl ? '<aside class="share-card"><button data-action="copy-link">家族用リンクをコピー</button><p>リンクと合い言葉は、家族だけに共有してください。</p></aside>' : ""}
   <aside class="rules-card"><span class="rules-icon">♨</span><div><h3>わが家のおふろルール</h3><p>1回 <strong>${state.settings.minDuration}〜${state.settings.maxDuration}分</strong>、${state.settings.step}分刻みで予約。<br>脱衣所に入ってから、出るまでの時間です。<br>1人1枠。予約後も、開始前なら変更できます。</p></div></aside></div>
   <div class="right-column">${renderBookingBanner(booking, turn, expired, canEdit)}
   <section class="schedule-card"><div class="card-title"><h2>スケジュール</h2><span class="count">${state.bookings.length} 人予約${state.skips.filter((id) => !state.bookings.some((b) => b.memberId === id)).length ? ` · ${state.skips.filter((id) => !state.bookings.some((b) => b.memberId === id)).length} 人様子見` : ""}</span></div><div id="connection-status" class="connection-status" role="status">共有データを更新済み</div><div class="schedule"><div class="timeline-label"><span class="timeline-dot"></span>${time(state.settings.bathStart)}<span>おふろ、はじまり</span></div>${renderSchedule()}<div class="timeline-label end"><span class="timeline-dot"></span>${time(state.settings.bathEnd)}</div></div></section></div></div>`;
@@ -474,7 +487,7 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
 function renderWishes() {
   const expired = slotDate(state.settings.bathEnd) <= serverNow();
   const own = ownWish();
-  return `<section class="wishes-card"><div class="card-title"><h2>事前希望</h2></div><p class="muted">順番が回ってきたとき、ほかの予約・希望のどちらとも重ならなければ、自動で確定します。</p>${!expired && !ownBooking() ? `<button class="primary wish-action" data-action="wish">${icon("clock")}${own ? "自分の希望を変更" : "希望を出す"}</button>` : ""}<hr class="wish-divider"><h3 class="wish-list-heading">みんなの希望</h3>${state.wishes.length ? `<div class="wish-list">${state.wishes.map((w) => renderWish(w)).join("")}</div>` : '<p class="empty-wish">まだ希望はありません。</p>'}</section>`;
+  return `<section class="wishes-card"><div class="card-title"><h2>事前希望</h2></div><p class="muted">${state.ignoreLowerPriorityWishes?"順番が回ってきたとき、予約と重ならなければ自動で確定します。下位の人の希望より予約順を優先します。":"順番が回ってきたとき、ほかの予約・希望のどちらとも重ならなければ、自動で確定します。"}</p>${!expired && !ownBooking() ? `<button class="primary wish-action" data-action="wish">${icon("clock")}${own ? "自分の希望を変更" : "希望を出す"}</button>` : ""}<hr class="wish-divider"><h3 class="wish-list-heading">みんなの希望</h3>${state.wishes.length ? `<div class="wish-list">${state.wishes.map((w) => renderWish(w)).join("")}</div>` : '<p class="empty-wish">まだ希望はありません。</p>'}</section>`;
 }
 function renderWish(w) {
   const conflict = state.bookings.some(

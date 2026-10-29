@@ -13,7 +13,7 @@ async function fixture(t,{subscribe=true}={}) {
  const dir=mkdtempSync(join(tmpdir(),'bathjun-planning-')),database=join(dir,'test.sqlite');let clock=at('2026-10-27T08:00:00'),server,app,failWish=false;
  const sent=[];
  const open=()=>createApp({database,requireFamily:false,now:()=>clock,deliverPush:async(sub,payload,keys,options)=>{if(failWish&&payload.tag.startsWith('bath-wish-'))throw Object.assign(new Error('test'),{statusCode:503});sent.push({endpoint:sub.endpoint,payload,options});}});
- app=open();app.saveServerSettings({members:[1,2,3].map(i=>({name:`利用者${i}`,active:true})),schedule:{...DEFAULT_SCHEDULE,orderMode:'fixed'}});clock=at('2026-10-28T08:00:00');
+ app=open();app.saveServerSettings({ignoreLowerPriorityWishes:false,members:[1,2,3].map(i=>({name:`利用者${i}`,active:true})),schedule:{...DEFAULT_SCHEDULE,orderMode:'fixed'}});clock=at('2026-10-28T08:00:00');
  async function listen(){server=createServer(app.handle);await new Promise(r=>server.listen(0,'127.0.0.1',r));}await listen();
  t.after(async()=>{await new Promise(r=>server.close(r));app.close();rmSync(dir,{recursive:true,force:true});});
  const cookies={};

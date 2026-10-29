@@ -1,3 +1,4 @@
+import {createAutoStandby} from './auto-standby.js';
 import { getNotificationPreferences, saveNotificationPreferences } from './notification-preferences.js';
 import { createWishNotifications } from './wish-notifications.js';
 import { DatabaseSync } from "node:sqlite";
@@ -122,16 +123,9 @@ export function createApp({
       .get(day);
     if (!draw) return [];
     const original = JSON.parse(draw.order_json);
-    const deferred = db
-      .prepare(
-        "SELECT member_id FROM bath_skips WHERE day=? ORDER BY tail_order,member_id",
-      )
-      .all(day)
-      .map((row) => row.member_id);
-    return [
-      ...original.filter((id) => !deferred.includes(id)),
-      ...deferred.filter((id) => original.includes(id)),
-    ];
+    const rows=db.prepare('SELECT member_id,automatic FROM bath_skips WHERE day=? ORDER BY tail_order,member_id').all(day);
+    const deferred=[...original.filter(id=>rows.some(row=>row.member_id===id&&row.automatic)),...rows.filter(row=>!row.automatic).map(row=>row.member_id)];
+    return [...original.filter(id=>!deferred.includes(id)),...deferred.filter(id=>original.includes(id))];
   };
   const currentTurn = (day) => {
     if (slotDate(day, scheduleForDay(day).bathEnd) <= now()) return null;
@@ -153,8 +147,14 @@ export function createApp({
       if(!id)return null;
       const wish=db.prepare("SELECT * FROM wishes WHERE day=? AND member_id=?").get(day,id);
       if(!wish || !validateSlot(wish.start,wish.duration,scheduleForDay(day)) || slotDate(day,wish.start)<=now())return null;
-      for(const table of ["bookings","wishes"])
-        if(db.prepare(`SELECT member_id FROM ${table} WHERE day=? AND member_id!=? AND start<? AND start+duration>? LIMIT 1`).get(day,id,wish.start+wish.duration,wish.start))return null;
+      // Half-open intervals: another bath may start exactly when this one ends.
+      if(db.prepare('SELECT 1 FROM bookings WHERE day=? AND member_id!=? AND start<? AND start+duration>? LIMIT 1').get(day,id,wish.start+wish.duration,wish.start))return null;
+      const order=reservationOrder(day),rank=order.indexOf(id);
+      const conflicts=db.prepare('SELECT w.member_id FROM wishes w JOIN members m ON m.id=w.member_id WHERE w.day=? AND w.member_id!=? AND m.active=1 AND w.start<? AND w.start+w.duration>?').all(day,id,wish.start+wish.duration,wish.start);
+      for(const other of conflicts) {
+        const otherRank=order.indexOf(other.member_id);
+        if(!serverSettings.ignoreLowerPriorityWishes()||otherRank<=rank)return null;
+      }
       return wish;
     }
     if(day>currentTime().today)return;
@@ -322,6 +322,7 @@ export function createApp({
 
   if (!db.prepare("PRAGMA table_info(bookings)").all().some(column=>column.name==="auto_revision"))db.exec("ALTER TABLE bookings ADD COLUMN auto_revision TEXT");
   const wishNotifications=createWishNotifications({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn});
+  const autoStandby=createAutoStandby(db);
   const scheduleForDay = serverSettings.scheduleForDay;
   const reminders=createBookingReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed});
   const currentTime = () => {
@@ -331,6 +332,14 @@ export function createApp({
     return {...time,activeDay};
   };
   const bookingOpensAt = day => slotDate(day,scheduleForDay(day).dayRollover).getTime();
+  function applyDailyStandby(notify=true) {
+    const day=currentTime().today;
+    if(!db.prepare("SELECT 1 FROM draws WHERE day=?").get(day))return;
+    if(slotDate(day,scheduleForDay(day).bathEnd)<=now())return;
+    const before=currentTurn(day);
+    if(autoStandby.apply(day)&&notify)enqueueTurn(day,before);
+  }
+
   const allMembers = (onlyActive = true) =>
     db
       .prepare(
@@ -353,7 +362,7 @@ export function createApp({
     const created = db
       .prepare("INSERT OR IGNORE INTO draws(day,order_json,created_at,mode) VALUES(?,?,?,?)")
       .run(day, JSON.stringify(order), now().toISOString(), "fixed");
-    if (created.changes) enqueueTurn(day);
+    if (created.changes) {if(day===currentTime().today)applyDailyStandby(false);enqueueTurn(day);}
   };
   const memberFor = (req) => {
     const token = (req.headers.cookie || "")
@@ -371,6 +380,7 @@ export function createApp({
     );
   };
   const validDay = (day, allowTomorrow = false) => {
+    applyDailyStandby();
     const time = currentTime();
     if (day !== time.today && day !== time.yesterday && !(allowTomorrow && [time.tomorrow,time.dayAfterTomorrow].includes(day)))
       fail(400, "表示できる日付、または受付中の日付を選んでください。");
@@ -568,6 +578,12 @@ export function createApp({
       }
       const me = memberFor(req);
       if (!me) fail(401, "ログインしてください。");
+      if(req.method==="POST"&&url.pathname==="/api/auto-standby") {
+        if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||typeof body.enabled!=='boolean')fail(400,'自動で様子見にする設定を確認してください。');
+        applyDailyStandby(); // Keep an already-decided night's explicit choices.
+        const time=currentTime(),decided=!!db.prepare("SELECT 1 FROM draws WHERE day=?").get(time.today);
+        return send(200,{autoStandby:autoStandby.set(me.id,body.enabled),appliesFrom:decided?time.tomorrow:time.today});
+      }
       if(req.method==="POST" && url.pathname==="/api/notification-preferences") {
         let result;const before=getNotificationPreferences(db,me.id);
         try{result=saveNotificationPreferences(db,me.id,body);}catch(error){fail(400,error.message);}
@@ -661,6 +677,8 @@ export function createApp({
         return send(200, {
           me,
           notificationPreferences:getNotificationPreferences(db,me.id),
+          autoStandby:autoStandby.enabled(me.id),
+          ignoreLowerPriorityWishes:serverSettings.ignoreLowerPriorityWishes(),
           shareUrl: req.bathSecure
             ? `${req.bathOrigin}/family/${familyConfig().access_token}/`
             : null,
@@ -730,6 +748,7 @@ export function createApp({
           .run(day, JSON.stringify(order), now().toISOString(), "random");
         if (!result.changes)
           fail(409, "この夜はすでに抽選済みです。結果を更新します。");
+        applyDailyStandby(false);
         enqueueTurn(day);
         return send(200, { ok: true });
       }
@@ -748,6 +767,7 @@ export function createApp({
         const previous = currentTurn(day);
         db.exec("BEGIN IMMEDIATE");
         try {
+          db.prepare("INSERT OR IGNORE INTO daily_standby_state VALUES(?,?,0)").run(day,me.id);
           if (body.skip) {
             const deferred = db
               .prepare(
@@ -909,11 +929,13 @@ export function createApp({
       });
     }
   }
+  applyDailyStandby();
   reminders.restore();
   return {
     ...createAdminData({db,setFamilyPassword,getSettings:serverSettings.get,onNotificationsChanged:onNotificationQueued}),
     handle,
     getDashboard: () => {
+      applyDailyStandby();
       const time=currentTime(),day=time.activeDay;
       return {day,now:now().toISOString(),settings:scheduleForDay(day),members:allMembers(false).map(({id,name,active,emoji,color})=>({id,name,active,emoji,color})),
         bookings:db.prepare("SELECT member_id AS memberId,start,duration FROM bookings WHERE day=? ORDER BY start").all(day),
@@ -926,6 +948,7 @@ export function createApp({
       const days = [time.today, time.yesterday, time.tomorrow, time.dayAfterTomorrow];
       const before = days.map(currentTurn);
       const result = serverSettings.save(payload);
+      applyDailyStandby();
       // Changing the independent rollover time also moves pending opening alerts.
       for(const job of db.prepare("SELECT id,day FROM notification_queue WHERE attempts=0").all())
         db.prepare("UPDATE notification_queue SET next_attempt=? WHERE id=?").run(Math.max(0,bookingOpensAt(job.day)>now().getTime()?bookingOpensAt(job.day):0),job.id);
