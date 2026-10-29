@@ -28,13 +28,13 @@ jobs:
           New-Item -ItemType Directory -Force native-test/bin,native-test/app/public,native-test/screens | Out-Null
           Copy-Item -Recurse public/fonts native-test/app/public/fonts
           $compiler = "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
-          & $compiler /nologo /target:winexe /platform:x64 /warnaserror+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /out:native-test/bin/Bathjun-Server.exe packaging/windows/ServerPanel.cs packaging/windows/Dashboard.cs packaging/windows/HumanPresenceReader.cs packaging/windows/ServerUpdate.cs
+          & $compiler /nologo /target:winexe /platform:x64 /warnaserror+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /out:.\native-test\bin\Bathjun-Server.exe .\packaging\windows\ServerPanel.cs .\packaging\windows\Dashboard.cs .\packaging\windows\HumanPresenceReader.cs .\packaging\windows\ServerUpdate.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $compiler /nologo /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:native-test/bin/Bathjun-Server.exe /out:native-test/bin/DashboardTest.exe packaging/windows/tests/DashboardTest.cs
+          & $compiler /nologo /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:.\native-test\bin\Bathjun-Server.exe /out:.\native-test\bin\DashboardTest.exe .\packaging\windows\tests\DashboardTest.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node packaging/windows/tests/create-dashboard-fixture.mjs native-test/fixture.json
+          node .\packaging\windows\tests\create-dashboard-fixture.mjs .\native-test\fixture.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & native-test/bin/DashboardTest.exe native-test/fixture.json native-test/screens
+          & .\native-test\bin\DashboardTest.exe .\native-test\fixture.json .\native-test\screens
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   release:
     needs: dashboard-windows
