@@ -6,6 +6,8 @@ const equal = (a, b) =>
   Buffer.byteLength(a) === Buffer.byteLength(b) &&
   timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const assets = {
+  "/fonts/NotoSansJP-Regular.520ea0779f08.woff2": ["fonts/NotoSansJP-Regular.520ea0779f08.woff2", "font/woff2"],
+  "/fonts/NotoSansJP-Bold.ac652431d4be.woff2": ["fonts/NotoSansJP-Bold.ac652431d4be.woff2", "font/woff2"],
   "/": ["index.html", "text/html; charset=utf-8"],
   "/profile-picker.js": ["profile-picker.js", "text/javascript; charset=utf-8"],
   "/schedule-layout.js": ["schedule-layout.js", "text/javascript; charset=utf-8"],
@@ -79,6 +81,7 @@ export function createHttpServer(
         manifest.scope = "/";
         content = Buffer.from(JSON.stringify(manifest));
       }
+      if (asset[1] === "font/woff2") res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
       res.writeHead(200, { "Content-Type": asset[1] });
       res.end(req.method === "HEAD" ? undefined : content);
     } catch {

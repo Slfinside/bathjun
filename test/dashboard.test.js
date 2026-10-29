@@ -10,7 +10,8 @@ const snapshot=(now='2026-10-28T19:00:00+09:00')=>({day:'2026-10-28',now,setting
  bookings:[{memberId:1,start:1080,duration:30},{memberId:2,start:1140,duration:30},{memberId:3,start:1200,duration:30}],
  wishes:[{memberId:4,start:1260,duration:30}],skips:[5]});
 test('ダッシュボードは予約時刻で状態と次・現在を判定し、希望と様子見を区別する',()=>{
- const s=snapshot(),v=dashboardView(s);
+ const s=snapshot();s.members[1].emoji="🌷";s.members[1].color="#d67f79";const v=dashboardView(s);
+ assert.equal(v.current.emoji,"🌷");assert.equal(v.members[1].color,"#d67f79");
  assert.equal(v.current.name,'利用者2');assert.equal(v.next.name,'利用者3');
  assert.deepEqual(v.members.map(m=>m.status),['入浴済','入浴中','予約済','未確定','未入力']);
  assert.equal(v.members[4].deferred,true);assert.equal(v.entries[3].kind,'希望・未確定');
@@ -41,7 +42,7 @@ test('ローカルのスナップショットは夜を切り替え、表示だ�
  const app=createApp({now:()=>clock});t.after(()=>app.close());
  app.saveServerSettings({members:[{name:'テスト利用者',active:true}],schedule:{...DEFAULT_SCHEDULE,orderMode:'fixed'}});
  clock=new Date('2026-10-28T18:00:00+09:00');
- const s=app.getDashboard();assert.equal(s.day,'2026-10-28');assert.equal(s.bookings.length,0);assert.deepEqual(Object.keys(s.members[0]).sort(),['active','id','name']);
+ const s=app.getDashboard();assert.equal(s.day,'2026-10-28');assert.equal(s.bookings.length,0);assert.deepEqual(Object.keys(s.members[0]).sort(),['active','color','emoji','id','name']);
  clock=new Date('2026-10-29T06:59:00+09:00');assert.equal(app.getDashboard().day,'2026-10-28');
  clock=new Date('2026-10-29T07:00:00+09:00');assert.equal(app.getDashboard().day,'2026-10-29');
  const server=createServer(app.handle);await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));

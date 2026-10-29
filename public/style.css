@@ -1,3 +1,18 @@
+/* Same static typefaces as the native server dashboard. Hosted by this app. */
+@font-face {
+  font-family: "Bathjun Sans";
+  src: url("/fonts/NotoSansJP-Regular.520ea0779f08.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bathjun Sans";
+  src: url("/fonts/NotoSansJP-Bold.ac652431d4be.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600 900;
+  font-display: swap;
+}
 :root {
   color-scheme: light;
   --bg: #f6f5f0;
@@ -12,7 +27,7 @@
   --pink: #f5e8e3;
   --purple: #ede8f3;
   font-family:
-    -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
+    "Bathjun Sans", -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
     "Noto Sans JP", sans-serif;
   font-synthesis: none;
 }

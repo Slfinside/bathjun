@@ -145,7 +145,7 @@ internal sealed class PanelForm : Form {
             finally{updatePreparing=false;UseWaitCursor=false;}
         }
     }
-    void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);presenceEnabled.Enabled=false;screen.Enabled=false;dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
+    void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}try{dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);}catch{MessageBox.Show(this,"ダッシュボードのフォントを読み込めませんでした。アプリを上書きインストールするか、ZIPをすべて展開し直してください。");return;}presenceEnabled.Enabled=false;screen.Enabled=false;dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
     void ShowPowerState(){powerState.Text=powerHeld?"自動スリープ防止：有効（サーバー終了時に解除）\nAC電源で使ってください。電源ボタン・カバー閉じの手動スリープは防ぎません。":"自動スリープ防止を有効にできませんでした。\nWindowsの電源設定を確認してください。消灯ボタンは使えません。";powerState.ForeColor=powerHeld?Color.DarkGreen:Color.Firebrick;}
     void ShowPanel(){Show();WindowState=FormWindowState.Normal;Activate();}
     bool OnAC(){return SystemInformation.PowerStatus.PowerLineStatus==PowerLineStatus.Online;}

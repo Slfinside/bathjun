@@ -8,6 +8,8 @@ export function dashboardView(snapshot) {
   const instant=new Date(now).getTime();
   const timed=(item,kind)=>({...item,kind,
     name:members.find(m=>m.id===item.memberId)?.name || '利用停止メンバー',
+    emoji:members.find(m=>m.id===item.memberId)?.emoji||null,
+    color:members.find(m=>m.id===item.memberId)?.color||null,
     startsAt:slotDate(day,item.start).toISOString(),
     endsAt:slotDate(day,item.start+item.duration).toISOString()});
   const confirmed=bookings.map(b=>timed(b,'予約'));
@@ -20,7 +22,7 @@ export function dashboardView(snapshot) {
     entries,
     members:members.filter(m=>m.active).map(m=>{
       const b=confirmed.find(b=>b.memberId===m.id);
-      return {id:m.id,name:m.name,status:b
+      return {id:m.id,name:m.name,emoji:m.emoji||null,color:m.color||null,status:b
         ? instant>=Date.parse(b.endsAt)?'入浴済':instant>=Date.parse(b.startsAt)?'入浴中':'予約済'
         : wishes.some(w=>w.memberId===m.id)?'未確定':'未入力',
         deferred:skips.includes(m.id)};
