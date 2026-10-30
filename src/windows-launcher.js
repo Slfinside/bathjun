@@ -9,10 +9,14 @@ if (!["public", "local", "password"].includes(mode))
 if (mode === "local") process.env.HOST = "127.0.0.1";
 let panel;
 async function adminCall(operation) {
-  const running=getRunningApplication();
-  if(running)return operation(running);
-  const app=openApplication();
-  try{return await operation(app);}finally{app.close();}
+  const running = getRunningApplication();
+  if (running) return operation(running);
+  const app = openApplication();
+  try {
+    return await operation(app);
+  } finally {
+    app.close();
+  }
 }
 try {
   if (mode !== "password" && (await showExistingWindowsPanel()))
@@ -32,13 +36,23 @@ try {
   if (mode !== "password")
     panel = await startWindowsPanel({
       mode,
-      onGetDashboard:()=>adminCall(app=>app.getDashboard()),
-      onGetSettings:()=>adminCall(app=>app.getServerSettings()),
-      onSaveSettings:payload=>adminCall(app=>app.saveServerSettings(payload)),
-      onGetSecurity:()=>adminCall(app=>app.getSecurity()),
-      onVerifyPassword:payload=>adminCall(app=>app.verifyPassword(payload)),
-      onChangePassword:payload=>adminCall(app=>app.changePassword(payload)),
-      onResetData:payload=>adminCall(app=>app.resetAllData(payload)),
+      onGetRewards: () => adminCall((app) => app.getRewardsAdmin()),
+      onSaveRewardSettings: (payload) =>
+        adminCall((app) => app.saveRewardSettings(payload)),
+      onDistributeItems: (payload) =>
+        adminCall((app) => app.distributeItems(payload)),
+      onCompleteBath: (payload) =>
+        adminCall((app) => app.completeBath(payload)),
+      onGetDashboard: () => adminCall((app) => app.getDashboard()),
+      onGetSettings: () => adminCall((app) => app.getServerSettings()),
+      onSaveSettings: (payload) =>
+        adminCall((app) => app.saveServerSettings(payload)),
+      onGetSecurity: () => adminCall((app) => app.getSecurity()),
+      onVerifyPassword: (payload) =>
+        adminCall((app) => app.verifyPassword(payload)),
+      onChangePassword: (payload) =>
+        adminCall((app) => app.changePassword(payload)),
+      onResetData: (payload) => adminCall((app) => app.resetAllData(payload)),
       onStop: (code = 0) => {
         if (!process.emit("SIGINT")) process.exit(code);
       },

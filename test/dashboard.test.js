@@ -50,3 +50,14 @@ test('ローカルのスナップショットは夜を切り替え、表示だ�
  const response=await fetch(`http://127.0.0.1:${server.address().port}/api/dashboard`);
  assert.notEqual(response.status,200);
 });
+
+test('簡易表示の次の2人は入力順に依存せず、希望の重なりは端点の接触を除く',()=>{
+ const s=snapshot('2026-10-28T17:00:00+09:00');
+ s.bookings.reverse();
+ s.wishes=[{memberId:4,start:1095,duration:45},{memberId:5,start:1110,duration:45}];
+ const v=dashboardView(s);
+ assert.equal(v.next.memberId,1);assert.equal(v.afterNext.memberId,2);
+ assert.deepEqual(v.entries.find(e=>e.memberId===4).overlaps,[{memberId:1,start:1095,end:1110},{memberId:5,start:1110,end:1140}]);
+ assert.deepEqual(v.entries.find(e=>e.memberId===2).overlaps,[{memberId:5,start:1140,end:1155}]);
+ assert.equal(dashboardView(snapshot('2026-10-28T21:00:00+09:00')).afterNext,null);
+});

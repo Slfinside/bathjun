@@ -1,4 +1,4 @@
-import { dashboardView, dashboardQr } from './dashboard.js';
+import { dashboardView, dashboardQr } from "./dashboard.js";
 import { createServer, connect } from "node:net";
 import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +18,10 @@ export function createPanelController({
   path,
   token,
   onGetDashboard,
+  onGetRewards,
+  onSaveRewardSettings,
+  onDistributeItems,
+  onCompleteBath,
   onGetSettings,
   onSaveSettings,
   onGetSecurity,
@@ -78,8 +82,45 @@ export function createPanelController({
         if (message.command === "status")
           send(socket, { id: message.id, ok: true, state });
         else if (message.command === "dashboard/get")
-          send(socket,{id:message.id,ok:true,dashboard:{...dashboardView(await onGetDashboard()),...dashboardQr(state),phase:state.phase}});
-        else if (message.command === "settings/get")
+          send(socket, {
+            id: message.id,
+            ok: true,
+            dashboard: {
+              ...dashboardView(await onGetDashboard()),
+              ...dashboardQr(state),
+              phase: state.phase,
+            },
+          });
+        else if (message.command === "items/get")
+          send(socket, {
+            id: message.id,
+            ok: true,
+            rewards: await onGetRewards(),
+          });
+        else if (message.command === "items/distribute")
+          send(socket, {
+            id: message.id,
+            ok: true,
+            rewards: await onDistributeItems(message.payload),
+          });
+        else if (message.command === "items/settings")
+          send(socket, {
+            id: message.id,
+            ok: true,
+            rewards: await onSaveRewardSettings(message.payload),
+          });
+        else if (message.command === "bath/complete") {
+          await onCompleteBath(message.payload);
+          send(socket, {
+            id: message.id,
+            ok: true,
+            dashboard: {
+              ...dashboardView(await onGetDashboard()),
+              ...dashboardQr(state),
+              phase: state.phase,
+            },
+          });
+        } else if (message.command === "settings/get")
           send(socket, {
             id: message.id,
             ok: true,
@@ -91,15 +132,45 @@ export function createPanelController({
             ok: true,
             settings: await onSaveSettings(message.payload),
           });
-        else if(message.command==="security/get")send(socket,{id:message.id,ok:true,security:await onGetSecurity()});
-        else if(message.command==="security/verify")send(socket,{id:message.id,ok:true,verification:await onVerifyPassword(message.payload)});
-        else if(message.command==="security/password")send(socket,{id:message.id,ok:true,security:await onChangePassword(message.payload),notice:"パスワードを変更しました。対象のログインとパスキーを解除しました。"});
-        else if(message.command==="data/reset") {
-          const result=await onResetData(message.payload);
-          if(state.url){const url=new URL(state.url);if(url.pathname.startsWith("/family/")){url.pathname=`/family/${result.accessToken}/`;state={...state,url:url.href};}}
-          send(socket,{id:message.id,ok:true,settings:result.settings,security:result.security,state,notice:"全データをリセットしました。家族の合い言葉とメンバーを設定してください。"});
-        }
-        else if (message.command === "show") {
+        else if (message.command === "security/get")
+          send(socket, {
+            id: message.id,
+            ok: true,
+            security: await onGetSecurity(),
+          });
+        else if (message.command === "security/verify")
+          send(socket, {
+            id: message.id,
+            ok: true,
+            verification: await onVerifyPassword(message.payload),
+          });
+        else if (message.command === "security/password")
+          send(socket, {
+            id: message.id,
+            ok: true,
+            security: await onChangePassword(message.payload),
+            notice:
+              "パスワードを変更しました。対象のログインとパスキーを解除しました。",
+          });
+        else if (message.command === "data/reset") {
+          const result = await onResetData(message.payload);
+          if (state.url) {
+            const url = new URL(state.url);
+            if (url.pathname.startsWith("/family/")) {
+              url.pathname = `/family/${result.accessToken}/`;
+              state = { ...state, url: url.href };
+            }
+          }
+          send(socket, {
+            id: message.id,
+            ok: true,
+            settings: result.settings,
+            security: result.security,
+            state,
+            notice:
+              "全データをリセットしました。家族の合い言葉とメンバーを設定してください。",
+          });
+        } else if (message.command === "show") {
           for (const client of clients)
             if (client.panelAuthenticated)
               send(client, { ok: true, show: true });
@@ -198,7 +269,7 @@ export async function startWindowsPanel(handlers) {
     [
       name,
       token,
-      ...(handlers.mode==="public"?["--public"]:[]),
+      ...(handlers.mode === "public" ? ["--public"] : []),
       ...(process.env.BATHJUN_AUTOSTART === "1" ? ["--minimized"] : []),
     ],
     { stdio: "ignore", windowsHide: true },

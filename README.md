@@ -22,6 +22,7 @@ Windows 10/11の64bit版、.NET Framework 4.7.2以降が必要です。Node.js�
 - **[利用者向け：iPhoneでの初回設定・予約・通知](docs/user-guide.md)**
 - **[管理者向け：導入・メンバー設定・外部公開・ダッシュボード・更新](docs/administrator-guide.md)**
 - [開発者向け：ソース・テスト・ビルド](docs/development.md)
+- [v2.0.0向け開発版：週間カード・アイテム・新メニューの使い方](docs/v2-preview-guide.md)（公開版には未収録）
 - [更新履歴](CHANGELOG.md)
 
 ## できること

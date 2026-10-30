@@ -1,3 +1,4 @@
+import {createRewards} from './rewards.js';
 import {createAutoStandby} from './auto-standby.js';
 import { getNotificationPreferences, saveNotificationPreferences } from './notification-preferences.js';
 import { createWishNotifications } from './wish-notifications.js';
@@ -146,7 +147,8 @@ export function createApp({
       const id=currentTurn(day);
       if(!id)return null;
       const wish=db.prepare("SELECT * FROM wishes WHERE day=? AND member_id=?").get(day,id);
-      if(!wish || !validateSlot(wish.start,wish.duration,scheduleForDay(day)) || slotDate(day,wish.start)<=now())return null;
+      if(!wish || slotDate(day,wish.start)<=now())return null;
+      try{if(!validateSlot(wish.start,wish.duration,rewards.bookingRule(day,id,wish.ticket)))return null;}catch{return null;}
       // Half-open intervals: another bath may start exactly when this one ends.
       if(db.prepare('SELECT 1 FROM bookings WHERE day=? AND member_id!=? AND start<? AND start+duration>? LIMIT 1').get(day,id,wish.start+wish.duration,wish.start))return null;
       const order=reservationOrder(day),rank=order.indexOf(id);
@@ -167,7 +169,8 @@ export function createApp({
     try {
       let wish;
       while((wish=candidate())) {
-        db.prepare("INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,auto_confirmed,auto_revision) VALUES(?,?,?,?,?,0,1,?)").run(day,wish.member_id,wish.start,wish.duration,wish.note,wish.revision);
+        const applied=rewards.commitTicket(day,wish.member_id,wish.ticket);
+        db.prepare("INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,auto_confirmed,auto_revision,ticket,ticket_extension,revision) VALUES(?,?,?,?,?,0,1,?,?,?,?)").run(day,wish.member_id,wish.start,wish.duration,wish.note,wish.revision,applied.kind,applied.extension,randomBytes(16).toString('hex'));
         wishNotifications.record(wish,"wishConfirmed");
         db.prepare("DELETE FROM wishes WHERE day=? AND member_id=?").run(day,wish.member_id);
       }
@@ -324,6 +327,7 @@ export function createApp({
   const wishNotifications=createWishNotifications({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn});
   const autoStandby=createAutoStandby(db);
   const scheduleForDay = serverSettings.scheduleForDay;
+  const rewards=createRewards({db,now,scheduleForDay});
   const reminders=createBookingReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed});
   const currentTime = () => {
     const time=bathCalendar(now(),scheduleForDay(rawJapanDate(now())).dayRollover);
@@ -578,6 +582,12 @@ export function createApp({
       }
       const me = memberFor(req);
       if (!me) fail(401, "ログインしてください。");
+      if(req.method==='GET'&&url.pathname==='/api/rewards'){const day=url.searchParams.get('week')||validDay(url.searchParams.get('day')||currentTime().activeDay,true);if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day)))fail(400,'週を確認してください。');return send(200,rewards.view(me.id,day));}
+      if(req.method==='POST'&&url.pathname==='/api/gifts/receive')return send(200,rewards.receive(me.id,body?.id));
+      if(req.method==='POST'&&url.pathname==='/api/items/boost')return send(200,rewards.activate(me.id,body?.requestId));
+      if(req.method==='POST'&&url.pathname==='/api/rewards/celebrate')return send(200,rewards.celebrate(me.id,body?.week));
+      if(req.method==='POST'&&url.pathname==='/api/rewards/claim')return send(200,rewards.claim(me.id,body?.week));
+      if(req.method==='POST'&&url.pathname==='/api/complete')return send(200,rewards.complete(me.id,body));
       if(req.method==="POST"&&url.pathname==="/api/auto-standby") {
         if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||typeof body.enabled!=='boolean')fail(400,'自動で様子見にする設定を確認してください。');
         applyDailyStandby(); // Keep an already-decided night's explicit choices.
@@ -588,7 +598,8 @@ export function createApp({
         let result;const before=getNotificationPreferences(db,me.id);
         try{result=saveNotificationPreferences(db,me.id,body);}catch(error){fail(400,error.message);}
         if(!result.reservationTurn)db.prepare("DELETE FROM notification_queue WHERE member_id=?").run(me.id);
-        for(const key of ['wishConfirmed','wishUnconfirmed'])if(!result[key])db.prepare("DELETE FROM wish_notification_jobs WHERE sent=0 AND event_id IN (SELECT id FROM wish_outcomes WHERE member_id=? AND kind=?)").run(me.id,key);
+        for(const key of ['wishConfirmed','wishUnconfirmed'])if(!result[key])db.prepare("DELETE FROM wish_notification_jobs WHERE sent=0 AND event_id IN (SELECT id FROM wish_outcomes WHERE member_id=? AND kind=? AND displaced=0)").run(me.id,key);
+        if(!result.bookingDisplaced)db.prepare("DELETE FROM wish_notification_jobs WHERE sent=0 AND event_id IN (SELECT id FROM wish_outcomes WHERE member_id=? AND displaced=1)").run(me.id);
         reminders.restore(me.id);
         if(result.reservationTurn&&!before.reservationTurn){const time=currentTime();enqueueTurn(time.today);if(time.activeDay!==time.today)enqueueTurn(time.activeDay);}
         onNotificationQueued();
@@ -676,6 +687,7 @@ export function createApp({
         const draw = db.prepare("SELECT * FROM draws WHERE day=?").get(day);
         return send(200, {
           me,
+          rewards:rewards.view(me.id,day),
           notificationPreferences:getNotificationPreferences(db,me.id),
           autoStandby:autoStandby.enabled(me.id),
           ignoreLowerPriorityWishes:serverSettings.ignoreLowerPriorityWishes(),
@@ -709,12 +721,12 @@ export function createApp({
             .map((row) => row.member_id),
           wishes: db
             .prepare(
-              "SELECT member_id AS memberId,start,duration,note FROM wishes WHERE day=? ORDER BY start,member_id",
+              "SELECT member_id AS memberId,start,duration,note,ticket,displaced FROM wishes WHERE day=? ORDER BY start,member_id",
             )
             .all(day),
           bookings: db
             .prepare(
-              "SELECT member_id AS memberId,start,duration,note,no_negotiation AS noNegotiation,auto_confirmed AS autoConfirmed FROM bookings WHERE day=? ORDER BY start",
+              "SELECT member_id AS memberId,start,duration,note,no_negotiation AS noNegotiation,auto_confirmed AS autoConfirmed,ticket,ticket_extension AS ticketExtension,revision,(SELECT reported_at FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id) AS completedAt FROM bookings WHERE day=? ORDER BY start",
             )
             .all(day),
         });
@@ -742,12 +754,13 @@ export function createApp({
           fail(409, "固定順モードなので、抽選は不要です。");
         if (!lotteryOpen(day, now(), scheduleForDay(day), currentTime().today))
           fail(403, "当日分を選び、設定された抽選時間内に操作してください。");
-        const order = shuffle(allMembers().map((m) => m.id));
-        const result = db
-          .prepare("INSERT OR IGNORE INTO draws(day,order_json,created_at,mode) VALUES(?,?,?,?)")
-          .run(day, JSON.stringify(order), now().toISOString(), "random");
-        if (!result.changes)
-          fail(409, "この夜はすでに抽選済みです。結果を更新します。");
+        const ids=allMembers().map(m=>m.id);
+        const order = rewards.draw(ids);
+        rewards.transaction(()=>{
+          const result=db.prepare('INSERT OR IGNORE INTO draws(day,order_json,created_at,mode) VALUES(?,?,?,?)').run(day,JSON.stringify(order),now().toISOString(),'random');
+          if(!result.changes)fail(409,'この夜はすでに抽選済みです。結果を更新します。');
+          rewards.consumeDraw(ids);
+        });
         applyDailyStandby(false);
         enqueueTurn(day);
         return send(200, { ok: true });
@@ -809,7 +822,7 @@ export function createApp({
           { start, duration } = body,
           note = body.note ?? "";
         if (
-          !validateSlot(start, duration, scheduleForDay(day)) ||
+          !validateSlot(start, duration, rewards.bookingRule(day,me.id,body.ticket)) ||
           slotDate(day, start) <= now()
         )
           fail(
@@ -826,9 +839,10 @@ export function createApp({
             .get(day, me.id)
         )
           fail(409, "予約済みです。時間の変更は自分の予約から行ってください。");
+        const selectedTicket=rewards.ticket(body.ticket);if(selectedTicket==='skip')fail(400,'順番抜かしは予約を確定するときに使用してください。');
         db.prepare(
-          "INSERT INTO wishes(day,member_id,start,duration,note,revision) VALUES(?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,revision=excluded.revision",
-        ).run(day, me.id, start, duration, note.trim(),randomBytes(16).toString("hex"));
+          "INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced) VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,revision=excluded.revision,ticket=excluded.ticket,displaced=0",
+        ).run(day, me.id, start, duration, note.trim(),randomBytes(16).toString("hex"),selectedTicket);
         enqueueTurn(day,currentTurn(day));
         const confirmed=db.prepare("SELECT auto_confirmed FROM bookings WHERE day=? AND member_id=?").get(day,me.id);
         return send(200, { ok: true, autoConfirmed:!!confirmed?.auto_confirmed });
@@ -845,21 +859,13 @@ export function createApp({
       if (req.method === "POST" && url.pathname === "/api/book") {
         const day = validDay(body.day);
         const { start, duration } = body;
-        if (!validateSlot(start, duration, scheduleForDay(day)))
-          fail(
-            400,
-            "この日の設定に合い、入浴時間帯の終了までに収まる予約を選んでください。",
-          );
-        if (slotDate(day, start) <= now())
-          fail(400, "これからの時刻を選んでください。");
+        const existing=db.prepare('SELECT * FROM bookings WHERE day=? AND member_id=?').get(day,me.id);
+        const selectedTicket=body.ticket===undefined?existing?.ticket:rewards.ticket(body.ticket);
+        if(!validateSlot(start,duration,rewards.bookingRule(day,me.id,selectedTicket,existing)))fail(400,'この日の設定に合う時間と長さを選んでください。');
+        if(slotDate(day,start)<=now())fail(400,'これからの時刻を選んでください。');
         ensureFixedDraw(day);
-        const draw = db
-          .prepare("SELECT order_json FROM draws WHERE day=?")
-          .get(day);
-        if (!draw) fail(409, "先に抽選してください。");
-        const existing = db
-          .prepare("SELECT * FROM bookings WHERE day=? AND member_id=?")
-          .get(day, me.id);
+        const draw=db.prepare('SELECT order_json FROM draws WHERE day=?').get(day);
+        if(!draw)fail(409,'先に抽選してください。');
         const note = body.note === undefined ? existing?.note || "" : body.note;
         const noNegotiation =
           body.noNegotiation === undefined
@@ -872,34 +878,28 @@ export function createApp({
         if (existing && slotDate(day, existing.start) <= now())
           fail(409, "開始済みの予約は変更できません。");
         const turn = currentTurn(day);
-        if (!existing && turn !== me.id)
+        if (!existing && turn !== me.id && selectedTicket!=='skip')
           fail(
             403,
             "まだ予約の順番ではありません。前の人の予約を待ってください。",
           );
         try {
-          db.prepare(
-            "INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation) VALUES (?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,no_negotiation=excluded.no_negotiation,auto_confirmed=0,auto_revision=NULL",
-          ).run(
-            day,
-            me.id,
-            start,
-            duration,
-            note.trim(),
-            noNegotiation ? 1 : 0,
-          );
-        } catch (error) {
-          if (String(error).includes("booking_overlap"))
-            fail(
-              409,
-              "ほかの人の予約と重なっています。別の時刻を選んでください。",
-            );
-          throw error;
-        }
-        db.prepare("DELETE FROM wishes WHERE day=? AND member_id=?").run(
-          day,
-          me.id,
-        );
+          rewards.transaction(()=>{
+            const overlaps=db.prepare('SELECT * FROM bookings WHERE day=? AND member_id!=? AND start<? AND start+duration>?').all(day,me.id,start+duration,start);
+            if(selectedTicket==='skip') {
+              if(overlaps.some(b=>b.ticket==='guard'))fail(409,'ガード付きの予約とは重ねられません。');
+              for(const other of overlaps){
+                const revision=randomBytes(16).toString('hex');
+                db.prepare('INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced) VALUES(?,?,?,?,?,?,NULL,1) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,revision=excluded.revision,ticket=NULL,displaced=1').run(day,other.member_id,other.start,other.duration,other.note,revision);
+                db.prepare('DELETE FROM bookings WHERE day=? AND member_id=?').run(day,other.member_id);
+                wishNotifications.record({day,member_id:other.member_id,start:other.start,duration:other.duration,revision},'wishUnconfirmed');
+              }
+            }
+            const applied=rewards.commitTicket(day,me.id,selectedTicket,existing);
+            db.prepare('INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,ticket,ticket_extension,revision) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,no_negotiation=excluded.no_negotiation,auto_confirmed=0,auto_revision=NULL,ticket=excluded.ticket,ticket_extension=excluded.ticket_extension,revision=excluded.revision').run(day,me.id,start,duration,note.trim(),noNegotiation?1:0,applied.kind,applied.extension,randomBytes(16).toString('hex'));
+            db.prepare('DELETE FROM wishes WHERE day=? AND member_id=?').run(day,me.id);
+          });
+        }catch(error){if(String(error).includes('booking_overlap'))fail(409,'ほかの人の予約と重なっています。');throw error;}
         enqueueTurn(day, turn);
         return send(200, { ok: true });
       }
@@ -936,12 +936,18 @@ export function createApp({
     handle,
     getDashboard: () => {
       applyDailyStandby();
-      const time=currentTime(),day=time.activeDay;
+      const time=currentTime();let day=time.activeDay;
+      const previous=time.yesterday;
+      if(previous!==day&&db.prepare('SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)').all(previous).some(b=>slotDate(previous,b.start+b.duration)<=now()&&now().getTime()<=slotDate(previous,b.start+b.duration).getTime()+60000))day=previous;
       return {day,now:now().toISOString(),settings:scheduleForDay(day),members:allMembers(false).map(({id,name,active,emoji,color})=>({id,name,active,emoji,color})),
-        bookings:db.prepare("SELECT member_id AS memberId,start,duration FROM bookings WHERE day=? ORDER BY start").all(day),
+        bookings:db.prepare("SELECT member_id AS memberId,start,duration,ticket,revision,(SELECT reported_at FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id) AS completedAt FROM bookings WHERE day=? ORDER BY start").all(day),
         wishes:db.prepare("SELECT member_id AS memberId,start,duration FROM wishes WHERE day=? ORDER BY start,member_id").all(day),
         skips:db.prepare("SELECT member_id FROM bath_skips WHERE day=?").all(day).map(r=>r.member_id)};
     },
+    getRewardsAdmin:rewards.admin,
+    distributeItems:rewards.distribute,
+    saveRewardSettings:rewards.saveSettings,
+    completeBath:payload=>{if(!Number.isInteger(payload?.memberId))fail(400,'報告するメンバーを確認してください。');return rewards.complete(payload.memberId,payload,'dashboard');},
     getServerSettings: serverSettings.get,
     saveServerSettings: (payload) => {
       const time = currentTime();

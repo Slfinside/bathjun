@@ -58,7 +58,12 @@ public sealed class SecurityMember {public int id;public string name;public bool
 public sealed class SecurityInfo {public bool familyConfigured;public SecurityMember[] members;}
 public sealed class Verification {public bool matches,configured;}
 public sealed class AccountChoice {public object Target;public string Title;public bool Configured;public override string ToString(){return Title+(Configured?"（設定済み）":"（未設定）");}}
-public sealed class Reply {public string id;public bool ok,show;public string error,notice;public ServerState state;public Settings settings;public SecurityInfo security;public Verification verification;public DashboardData dashboard;}
+public sealed class ItemCount {public string kind;public int quantity;}
+public sealed class ItemMember {public int id,boostRemaining;public string name;public ItemCount[] wallet;public override string ToString(){return name;}}
+public sealed class RewardSettings {public int extensionMinutes,boostDraws;public Dictionary<string,int> quantities,weights;}
+public sealed class GiftRecord {public string id,name,kind,createdAt,receivedAt;public int memberId,quantity;}
+public sealed class RewardsAdmin {public RewardSettings settings;public ItemMember[] members;public GiftRecord[] history;}
+public sealed class Reply {public string id;public bool ok,show;public string error,notice;public ServerState state;public Settings settings;public SecurityInfo security;public Verification verification;public DashboardData dashboard;public RewardsAdmin rewards;}
 internal sealed class PanelForm : Form {
     readonly JavaScriptSerializer json=new JavaScriptSerializer();
     readonly string pipeName,token;
@@ -70,7 +75,16 @@ internal sealed class PanelForm : Form {
     readonly Button addMember=ActionButton("メンバーを追加");
     bool settingsLoaded;
     bool publicMode,updatePreparing;int serverPid;
+    readonly CheckedListBox giftTargets=new CheckedListBox{Width=550,Height=130,CheckOnClick=true},giftKinds=new CheckedListBox{Width=550,Height=95,CheckOnClick=true};
+    readonly NumericUpDown giftQuantity=new NumericUpDown{Minimum=1,Maximum=999,Value=1,Width=85},rewardExtension=new NumericUpDown{Minimum=5,Maximum=180,Increment=5,Value=30,Width=85},rewardDraws=new NumericUpDown{Minimum=1,Maximum=100,Value=3,Width=85};
+    readonly Dictionary<string,NumericUpDown> rewardQuantities=new Dictionary<string,NumericUpDown>(),rewardWeights=new Dictionary<string,NumericUpDown>();
+    readonly DataGridView itemInventory=new DataGridView(),giftHistory=new DataGridView();readonly Label itemFeedback=new Label();
+    readonly Button distributeItems=ActionButton("配布"),saveRewards=ActionButton("特典設定を保存");
+    static readonly string[] ItemKinds={"skip","extend","boost","guard"};
+    static string ItemTitle(string kind){return kind=="skip"?"順番抜かしチケット":kind=="extend"?"時間延長チケット":kind=="boost"?"抽選確率UPチケット":"順番抜かしガード";}
     DashboardForm dashboard;readonly CheckBox presenceEnabled=new CheckBox();
+    readonly CheckBox dashboardFixed=new CheckBox();
+    readonly NumericUpDown dashboardMinutes=new NumericUpDown{Minimum=1,Maximum=60,Value=1,Width=85};
     readonly DateTimePicker dayRollover=Clock(),bathStart=Clock(),bathEnd=Clock(),drawStart=Clock(),drawEnd=Clock();
     readonly CheckBox nextDay=new CheckBox(),drawRestricted=new CheckBox(),ignoreLowerPriorityWishes=new CheckBox();
     readonly NumericUpDown minimum=Number(),maximum=Number();readonly ComboBox step=new ComboBox(),orderMode=new ComboBox();
@@ -113,13 +127,53 @@ internal sealed class PanelForm : Form {
         var update=ActionButton("インストーラーを選んで更新");update.Click+=delegate{UpdateServer();};layout.Controls.Add(update);
         var stop=ActionButton("サーバーを停止して終了");stop.Click+=delegate{StopServer();};layout.Controls.Add(stop);
         layout.Controls.Add(TextLabel("×は通知領域にしまいます。スリープ防止はサーバー稼働中だけ有効で、終了すると解除します。AC電源につないで使ってください。",68));
-        BuildSettings(config);var security=new TabPage("パスワード・リセット"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(security);BuildSecurity(security);
+        BuildSettings(config);var displayTab=new TabPage("ダッシュボード"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(displayTab);BuildDashboardSettings(displayTab);var itemsTab=new TabPage("アイテム・特典"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(itemsTab);BuildItems(itemsTab);var security=new TabPage("パスワード・リセット"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(security);BuildSecurity(security);
         var menu=new ContextMenuStrip();menu.Items.Add("操作画面を開く",null,delegate{ShowPanel();});menu.Items.Add("画面だけ消す",null,delegate{TurnScreenOff();});menu.Items.Add("サーバーを停止",null,delegate{StopServer();});tray.Icon=Icon;tray.Text="ふろじゅん サーバー";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowPanel();};tray.Visible=true;
         Load+=delegate{powerHeld=power.Acquire();ShowPowerState();BeginRead();};
         Shown+=delegate{if(minimized){WindowState=FormWindowState.Minimized;Hide();}};
         FormClosing+=delegate(object sender,FormClosingEventArgs e){if(!canClose && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();tray.ShowBalloonTip(2500,"ふろじゅん","サーバーは継続しています。通知領域のアイコンから操作画面に戻れます。",ToolTipIcon.Info);}};
         FormClosed+=delegate{closing=true;if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();power.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
         ResumeLayout(true);
+    }
+    void BuildItems(TabPage page) {
+        var box=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,FlowDirection=FlowDirection.TopDown,WrapContents=false};page.Controls.Add(box);
+        box.Controls.Add(TextLabel("メンバーの持ち物",36));itemInventory.Size=new Size(550,180);itemInventory.ReadOnly=true;itemInventory.AllowUserToAddRows=itemInventory.AllowUserToDeleteRows=false;itemInventory.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;itemInventory.RowHeadersVisible=false;
+        foreach(string key in new[]{"メンバー","順番抜かし","時間延長","確率UP","ガード","UP残回数"})itemInventory.Columns.Add(key,key);box.Controls.Add(itemInventory);
+        box.Controls.Add(TextLabel("対象",32));box.Controls.Add(giftTargets);box.Controls.Add(TextLabel("内容",32));foreach(string kind in ItemKinds)giftKinds.Items.Add(ItemTitle(kind));box.Controls.Add(giftKinds);
+        var countRow=new FlowLayoutPanel{Width=550,AutoSize=true};countRow.Controls.Add(new Label{Text="個数（各アイテム・各メンバーへ）",AutoSize=true});countRow.Controls.Add(giftQuantity);box.Controls.Add(countRow);box.Controls.Add(distributeItems);
+        distributeItems.Click+=delegate{
+            var ids=new List<int>();foreach(ItemMember person in giftTargets.CheckedItems)ids.Add(person.id);var kinds=new List<string>();for(int i=0;i<4;i++)if(giftKinds.GetItemChecked(i))kinds.Add(ItemKinds[i]);
+            if(ids.Count==0||kinds.Count==0){itemFeedback.Text="対象と内容を選んでください。";return;}
+            distributeItems.Enabled=false;if(Send("items/distribute",new{recipients=ids.ToArray(),kinds=kinds.ToArray(),quantity=(int)giftQuantity.Value,requestId=Guid.NewGuid().ToString("N")})==null)distributeItems.Enabled=true;
+        };
+        itemFeedback.Size=new Size(550,50);box.Controls.Add(itemFeedback);
+        box.Controls.Add(TextLabel("配布履歴（全メンバー）",36));giftHistory.Size=new Size(550,180);giftHistory.ReadOnly=true;giftHistory.AllowUserToAddRows=giftHistory.AllowUserToDeleteRows=false;giftHistory.RowHeadersVisible=false;giftHistory.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;
+        foreach(string key in new[]{"配布日時","対象","内容","個数","受取状態"})giftHistory.Columns.Add(key,key);box.Controls.Add(giftHistory);
+        box.Controls.Add(TextLabel("週間特典の設定",36));var duration=new FlowLayoutPanel{Width=550,AutoSize=true};duration.Controls.Add(new Label{Text="時間延長（分）",AutoSize=true});duration.Controls.Add(rewardExtension);duration.Controls.Add(new Label{Text="確率UP（抽選回数）",AutoSize=true});duration.Controls.Add(rewardDraws);box.Controls.Add(duration);
+        foreach(string kind in ItemKinds){var row=new FlowLayoutPanel{Width=550,AutoSize=true};row.Controls.Add(new Label{Text=ItemTitle(kind),Width=210});var quantity=new NumericUpDown{Minimum=1,Maximum=99,Value=kind=="guard"?2:1,Width=65};var weight=new NumericUpDown{Minimum=0,Maximum=100,Value=1,Width=65};rewardQuantities.Add(kind,quantity);rewardWeights.Add(kind,weight);row.Controls.Add(new Label{Text="枚数",AutoSize=true});row.Controls.Add(quantity);row.Controls.Add(new Label{Text="出現比率",AutoSize=true});row.Controls.Add(weight);box.Controls.Add(row);}
+        box.Controls.Add(saveRewards);saveRewards.Click+=delegate{var quantities=new Dictionary<string,int>();var weights=new Dictionary<string,int>();foreach(string kind in ItemKinds){quantities[kind]=(int)rewardQuantities[kind].Value;weights[kind]=(int)rewardWeights[kind].Value;}saveRewards.Enabled=false;if(Send("items/settings",new{extensionMinutes=(int)rewardExtension.Value,boostDraws=(int)rewardDraws.Value,quantities=quantities,weights=weights})==null)saveRewards.Enabled=true;};
+        var reload=ActionButton("持ち物・配布履歴を再読込");reload.Click+=delegate{Send("items/get",null);};box.Controls.Add(reload);
+    }
+    void FillRewards(RewardsAdmin value) {
+        distributeItems.Enabled=saveRewards.Enabled=true;itemFeedback.Text="持ち物・配布履歴を更新しました。";
+        var checkedIds=new HashSet<int>();foreach(ItemMember member in giftTargets.CheckedItems)checkedIds.Add(member.id);giftTargets.Items.Clear();itemInventory.Rows.Clear();
+        foreach(var person in value.members){giftTargets.Items.Add(person,checkedIds.Contains(person.id));var counts=new int[4];foreach(var item in person.wallet){int index=Array.IndexOf(ItemKinds,item.kind);if(index>=0)counts[index]=item.quantity;}itemInventory.Rows.Add(person.name,counts[0],counts[1],counts[2],counts[3],person.boostRemaining);}
+        giftHistory.Rows.Clear();foreach(var gift in value.history)giftHistory.Rows.Add(DateTime.Parse(gift.createdAt).ToUniversalTime().AddHours(9).ToString("MM/dd HH:mm"),gift.name,ItemTitle(gift.kind),gift.quantity,gift.receivedAt==null?"未受取":"受取済み");
+        rewardExtension.Value=value.settings.extensionMinutes;rewardDraws.Value=value.settings.boostDraws;foreach(string kind in ItemKinds){rewardQuantities[kind].Value=value.settings.quantities[kind];rewardWeights[kind].Value=value.settings.weights[kind];}
+    }
+    void BuildDashboardSettings(TabPage page) {
+        var box=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,FlowDirection=FlowDirection.TopDown,WrapContents=false};page.Controls.Add(box);
+        box.Controls.Add(TextLabel("ダッシュボードの表示",38));
+        dashboardFixed.Text="詳細表示に固定する";dashboardFixed.AutoSize=true;box.Controls.Add(dashboardFixed);
+        var row=new FlowLayoutPanel{Width=550,AutoSize=true};row.Controls.Add(new Label{Text="最後の操作から簡易表示に戻るまで",AutoSize=true,Margin=new Padding(0,7,10,0)});row.Controls.Add(dashboardMinutes);row.Controls.Add(new Label{Text="分",AutoSize=true,Margin=new Padding(8,7,0,0)});box.Controls.Add(row);
+        dashboardFixed.CheckedChanged+=delegate{dashboardMinutes.Enabled=!dashboardFixed.Checked;};
+        var value=DashboardPreferences.Read();dashboardMinutes.Value=value.returnMinutes;dashboardFixed.Checked=value.fixedDetails;
+        box.Controls.Add(TextLabel("簡易表示をタッチすると詳細表示に切り替わります。設定はこのサーバーPCに保存され、次回起動後も引き継ぎます。",70));
+        var feedback=TextLabel("",34);var button=ActionButton("表示設定を保存");box.Controls.Add(button);box.Controls.Add(feedback);
+        button.Click+=delegate{
+            try{var preference=new DashboardPreferences{fixedDetails=dashboardFixed.Checked,returnMinutes=(int)dashboardMinutes.Value};preference.Save();if(dashboard!=null)dashboard.ApplyPreferences(preference);feedback.Text="表示設定を保存しました。";}
+            catch{feedback.Text="表示設定を保存できませんでした。";}
+        };
     }
     static string PresencePreferencePath(){return Path.Combine(Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BathjunData"),"dashboard-presence.txt");}
     static bool ReadPresencePreference(){try{return File.ReadAllText(PresencePreferencePath()).Trim()=="enabled";}catch{return false;}}
@@ -145,7 +199,7 @@ internal sealed class PanelForm : Form {
             finally{updatePreparing=false;UseWaitCursor=false;}
         }
     }
-    void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}try{dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);}catch{MessageBox.Show(this,"ダッシュボードのフォントを読み込めませんでした。アプリを上書きインストールするか、ZIPをすべて展開し直してください。");return;}presenceEnabled.Enabled=false;screen.Enabled=false;dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
+    void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}try{dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);dashboard.ApplyPreferences(DashboardPreferences.Read());dashboard.Report=entry=>Send("bath/complete",new{memberId=entry.memberId,day=entry.day,revision=entry.revision});}catch{MessageBox.Show(this,"ダッシュボードのフォントを読み込めませんでした。アプリを上書きインストールするか、ZIPをすべて展開し直してください。");return;}presenceEnabled.Enabled=false;screen.Enabled=false;dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
     void ShowPowerState(){powerState.Text=powerHeld?"自動スリープ防止：有効（サーバー終了時に解除）\nAC電源で使ってください。電源ボタン・カバー閉じの手動スリープは防ぎません。":"自動スリープ防止を有効にできませんでした。\nWindowsの電源設定を確認してください。消灯ボタンは使えません。";powerState.ForeColor=powerHeld?Color.DarkGreen:Color.Firebrick;}
     void ShowPanel(){Show();WindowState=FormWindowState.Normal;Activate();}
     bool OnAC(){return SystemInformation.PowerStatus.PowerLineStatus==PowerLineStatus.Online;}
@@ -228,6 +282,7 @@ internal sealed class PanelForm : Form {
         members.Rows.Clear();foreach(var member in settings.members)members.Rows.Add(member.id,member.name,member.active);
         settingsLoaded=true;newMemberName.Enabled=addMember.Enabled=true;
         ignoreLowerPriorityWishes.Checked=settings.ignoreLowerPriorityWishes;
+        rewardExtension.Increment=settings.current.step;
         var rule=settings.upcoming;drawRestricted.Checked=rule.lotteryTimeRestricted;orderMode.SelectedIndex=rule.orderMode=="fixed"?1:0;dayRollover.Value=ToClock(rule.dayRollover);bathStart.Value=ToClock(rule.bathStart);bathEnd.Value=ToClock(rule.bathEnd);nextDay.Checked=rule.bathEnd>=1440;drawStart.Value=ToClock(rule.lotteryStart);drawEnd.Value=ToClock(rule.lotteryEnd);minimum.Value=rule.minDuration;maximum.Value=rule.maxDuration;step.SelectedItem=rule.step;
         saveState.Text="時間の設定は "+settings.effectiveDay+" 分から反映します。今日の予約・時間設定は変えません。追加メンバーは次の順番決定から参加します。";save.Enabled=true;
     }
@@ -269,7 +324,7 @@ internal sealed class PanelForm : Form {
         saveState.Text="サーバーに送信できませんでした。接続を確認してください。";return null;
     }
     void WriteFailed(Exception error){try{BeginInvoke((MethodInvoker)delegate{if(closing)return;saveTimeout.Stop();pendingSave=null;pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);save.Enabled=connected;saveState.Text="サーバーに送信できませんでした。再起動してください。";});}catch{}}
-    void BeginRead(){reader=new Thread(delegate(){try{pipe=new NamedPipeClientStream(".",pipeName,PipeDirection.InOut,PipeOptions.Asynchronous);pipe.Connect(10000);writer=new StreamWriter(pipe,new UTF8Encoding(false),4096,true);var input=new StreamReader(pipe,Encoding.UTF8,false,4096,true);outbox=new PanelOutbox(outgoing=>{writer.WriteLine(outgoing);writer.Flush();},WriteFailed);connected=true;Send("status",null);Send("settings/get",null);Send("security/get",null);string line;while((line=input.ReadLine())!=null){var reply=json.Deserialize<Reply>(line);BeginInvoke((MethodInvoker)delegate{if(closing)return;if(reply.show)ShowPanel();if(reply.dashboard!=null&&dashboard!=null)dashboard.UpdateData(reply.dashboard);bool secured=reply.id==pendingSecurity&&pendingSecurity!=null;if(secured){pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);}bool saved=reply.id==pendingSave&&pendingSave!=null;if(saved){pendingSave=null;saveTimeout.Stop();save.Enabled=true;}if(!reply.ok){if(dashboard!=null)dashboard.Fail("データを更新できませんでした");save.Enabled=true;MessageBox.Show(this,reply.error ?? "操作を完了できませんでした。","ふろじゅん");}if(reply.state!=null){currentPhase=reply.state.phase;serverPid=reply.state.pid;status.Text=reply.state.phase=="ready"?"● サーバー稼働中":reply.state.phase=="stopping"?"停止しています…":"準備中";detail.Text=reply.state.detail;link.Text=reply.state.url??"";copy.Enabled=open.Enabled=link.Text.Length>0;screen.Enabled=dashboard==null&&powerHeld&&OnAC()&&reply.state.phase=="ready";}if(reply.settings!=null){FillSettings(reply.settings);if(pendingSave!=null||pendingSecurity!=null)save.Enabled=false;}if(reply.security!=null)FillSecurity(reply.security);if(reply.verification!=null)securityState.Text=reply.verification.matches?"入力したパスワードは現在のものと一致しています。":reply.verification.configured?"入力したパスワードは一致しません。新しいものへ変更できます。":"パスワードはまだ設定されていません。";if(reply.notice!=null){securityState.Text=reply.notice;passwordInput.Clear();passwordConfirm.Clear();}if(secured&&!reply.ok)securityState.Text=reply.error;if(saved&&reply.ok){saveState.Text="保存しました。時間の設定は "+reply.settings.effectiveDay+" 分から反映します。";Send("security/get",null);}});}}catch{}finally{connected=false;try{BeginInvoke((MethodInvoker)delegate{canClose=true;Close();});}catch{}}});reader.IsBackground=true;reader.Start();}
+    void BeginRead(){reader=new Thread(delegate(){try{pipe=new NamedPipeClientStream(".",pipeName,PipeDirection.InOut,PipeOptions.Asynchronous);pipe.Connect(10000);writer=new StreamWriter(pipe,new UTF8Encoding(false),4096,true);var input=new StreamReader(pipe,Encoding.UTF8,false,4096,true);outbox=new PanelOutbox(outgoing=>{writer.WriteLine(outgoing);writer.Flush();},WriteFailed);connected=true;Send("status",null);Send("settings/get",null);Send("security/get",null);Send("items/get",null);string line;while((line=input.ReadLine())!=null){var reply=json.Deserialize<Reply>(line);BeginInvoke((MethodInvoker)delegate{if(closing)return;if(reply.show)ShowPanel();if(reply.rewards!=null)FillRewards(reply.rewards);if(reply.dashboard!=null&&dashboard!=null)dashboard.UpdateData(reply.dashboard);bool secured=reply.id==pendingSecurity&&pendingSecurity!=null;if(secured){pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);}bool saved=reply.id==pendingSave&&pendingSave!=null;if(saved){pendingSave=null;saveTimeout.Stop();save.Enabled=true;}if(!reply.ok){distributeItems.Enabled=saveRewards.Enabled=true;if(dashboard!=null)dashboard.Fail("データを更新できませんでした");save.Enabled=true;MessageBox.Show(this,reply.error ?? "操作を完了できませんでした。","ふろじゅん");}if(reply.state!=null){currentPhase=reply.state.phase;serverPid=reply.state.pid;status.Text=reply.state.phase=="ready"?"● サーバー稼働中":reply.state.phase=="stopping"?"停止しています…":"準備中";detail.Text=reply.state.detail;link.Text=reply.state.url??"";copy.Enabled=open.Enabled=link.Text.Length>0;screen.Enabled=dashboard==null&&powerHeld&&OnAC()&&reply.state.phase=="ready";}if(reply.settings!=null){FillSettings(reply.settings);if(pendingSave!=null||pendingSecurity!=null)save.Enabled=false;}if(reply.security!=null)FillSecurity(reply.security);if(reply.verification!=null)securityState.Text=reply.verification.matches?"入力したパスワードは現在のものと一致しています。":reply.verification.configured?"入力したパスワードは一致しません。新しいものへ変更できます。":"パスワードはまだ設定されていません。";if(reply.notice!=null){securityState.Text=reply.notice;passwordInput.Clear();passwordConfirm.Clear();}if(secured&&!reply.ok)securityState.Text=reply.error;if(saved&&reply.ok){saveState.Text="保存しました。時間の設定は "+reply.settings.effectiveDay+" 分から反映します。";Send("security/get",null);}});}}catch{}finally{connected=false;try{BeginInvoke((MethodInvoker)delegate{canClose=true;Close();});}catch{}}});reader.IsBackground=true;reader.Start();}
 }
 internal static class Program {
     [STAThread] static void Main(string[] args){if(args.Length>0&&args[0]=="--apply-update"){ServerUpdate.Run(args);return;}if(args.Length<2)return;Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);var panel=new PanelForm(args[0],args[1],Array.IndexOf(args,"--minimized")>=0);panel.SetPublicMode(Array.IndexOf(args,"--public")>=0);Application.Run(panel);}
