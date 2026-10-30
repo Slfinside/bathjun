@@ -68,7 +68,7 @@ internal sealed class DashboardForm : Form {
 
     }
     protected override void Dispose(bool disposing) {
-        if(disposing&&!disposed){disposed=true;clock.Stop();clock.Dispose();animation.Stop();animation.Dispose();presence.Dispose();display.Dispose();foreach(var font in textFonts.Values)font.Dispose();textFonts.Clear();}
+        if(disposing&&!disposed){disposed=true;clock.Stop();clock.Dispose();animation.Stop();animation.Dispose();presence.Dispose();display.Dispose();foreach(var font in textFonts.Values)font.Dispose();textFonts.Clear();foreach(var icon in emojiImages.Values)if(icon!=null)icon.Dispose();emojiImages.Clear();}
         base.Dispose(disposing);
     }
     Font TextFont(float size,bool bold) {
@@ -112,13 +112,28 @@ internal sealed class DashboardForm : Form {
     }
     void Divider(Graphics g,float x,float y,float width){using(var pen=new Pen(Line,1))g.DrawLine(pen,x,y,x+width,y);}
     void Badge(Graphics g,string text,RectangleF rect,Color fg,Color fill) {Box(g,rect,fill,fill,8);Write(g,text,12,fg,new RectangleF(rect.X+9,rect.Y+5,rect.Width-15,22),true);}
+    readonly Dictionary<string,Bitmap> emojiImages=new Dictionary<string,Bitmap>();
+    static string EmojiKey(string value) {
+        var parts=new List<string>();
+        for(int i=0;i<value.Length;i++){int code=char.ConvertToUtf32(value,i);if(char.IsHighSurrogate(value[i]))i++;if(code!=0xfe0f)parts.Add(code.ToString("x",CultureInfo.InvariantCulture));}
+        return string.Join("-",parts.ToArray());
+    }
+    Bitmap EmojiImage(string value) {
+        Bitmap icon;if(emojiImages.TryGetValue(value,out icon))return icon;
+        try{string path=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"..","app","public","emoji",EmojiKey(value)+".png");if(File.Exists(path))using(var source=new Bitmap(path))icon=new Bitmap(source);}
+        catch(ArgumentException){}catch(IOException){}catch(UnauthorizedAccessException){}
+        emojiImages[value]=icon;return icon;
+    }
     void Avatar(Graphics g,string emoji,string color,float x,float y,float diameter,bool vivid) {
         Color fill=Color.FromArgb(77,83,73);
         if(color!=null&&System.Text.RegularExpressions.Regex.IsMatch(color,"^#[a-fA-F0-9]{6}$")) {
             var c=ColorTranslator.FromHtml(color);fill=vivid?c:Color.FromArgb((c.R+48)/2,(c.G+58)/2,(c.B+43)/2);
         }
         using(var brush=new SolidBrush(fill))g.FillEllipse(brush,x,y,diameter,diameter);
-        using(var font=new Font(Font.FontFamily,diameter*.45f,FontStyle.Regular,GraphicsUnit.Pixel))
+        var icon=string.IsNullOrEmpty(emoji)?null:EmojiImage(emoji);
+        if(icon!=null){var saved=g.Save();g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;float inset=diameter*.16f;g.DrawImage(icon,new RectangleF(x+inset,y+inset,diameter-2*inset,diameter-2*inset));g.Restore(saved);return;}
+        // Custom emoji use the system emoji font rather than the Japanese private font.
+        using(var font=new Font(string.IsNullOrEmpty(emoji)?Font.FontFamily.Name:"Segoe UI Emoji",diameter*.52f,FontStyle.Regular,GraphicsUnit.Pixel))
         using(var brush=new SolidBrush(Ink))using(var format=new StringFormat{Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center})g.DrawString(string.IsNullOrEmpty(emoji)?"?":emoji,font,brush,new RectangleF(x,y,diameter,diameter),format);
     }
     protected override void OnPaint(PaintEventArgs e) {
@@ -256,11 +271,17 @@ internal sealed class DashboardForm : Form {
         Box(g,rect,Color.FromArgb(66,85,49),Green,10);Write(g,reportBusy?"送信中…":"完了を報告",14,Ink,new RectangleF(rect.X+10,rect.Y+10,rect.Width-16,28),true);
         reportAreas.Add(new KeyValuePair<RectangleF,DashboardEntry>(new RectangleF((rect.X+paintDx)*paintScale,(rect.Y+paintDy)*paintScale,rect.Width*paintScale,rect.Height*paintScale),entry));
     }
-    string UpcomingTime(DashboardEntry entry,DateTime now){return MinutesUntil(Instant(entry.startsAt),now)+"分後 | "+Time(entry.start)+" 〜 "+Time(entry.start+entry.duration);}
+    static string CountdownText(int minutes){return minutes<60?minutes+"分":minutes/60+"時間"+(minutes%60==0?"":minutes%60+"分");}
+    string[] RemainingParts(DashboardEntry entry,DateTime now) {
+        int minutes=MinutesUntil(Instant(entry.endsAt),now);string suffix=" | 〜"+Time(entry.start+entry.duration);
+        if(minutes<60)return new[]{"あと ",minutes.ToString(CultureInfo.InvariantCulture)," 分"+suffix};
+        if(minutes%60==0)return new[]{"あと ",(minutes/60).ToString(CultureInfo.InvariantCulture)," 時間"+suffix};
+        return new[]{"あと ",(minutes/60).ToString(CultureInfo.InvariantCulture)," 時間 ",(minutes%60).ToString(CultureInfo.InvariantCulture)," 分"+suffix};
+    }
+    string UpcomingTime(DashboardEntry entry,DateTime now){return CountdownText(MinutesUntil(Instant(entry.startsAt),now))+"後 | "+Time(entry.start)+" 〜 "+Time(entry.start+entry.duration);}
     float RemainingWidth(Graphics g,DashboardEntry entry,DateTime now,float small,float large) {
-        string number=MinutesUntil(Instant(entry.endsAt),now).ToString(CultureInfo.InvariantCulture);
-        string[] parts={"あと ",number," 分 | 〜"+Time(entry.start+entry.duration)};float[] sizes={small,large,small};float width=0;
-        for(int i=0;i<parts.Length;i++)width+=g.MeasureString(parts[i],TextFont(sizes[i],true),int.MaxValue,StringFormat.GenericTypographic).Width+2;
+        string[] parts=RemainingParts(entry,now);float width=0;
+        for(int i=0;i<parts.Length;i++)width+=g.MeasureString(parts[i],TextFont(i%2==1?large:small,true),int.MaxValue,StringFormat.GenericTypographic).Width+2;
         return width;
     }
     bool RemainingFits(Graphics g,DashboardEntry entry,DateTime now,float width,out float nameWidth) {
@@ -270,12 +291,11 @@ internal sealed class DashboardForm : Form {
     float Baseline(float size){return size*Font.FontFamily.GetCellAscent(FontStyle.Bold)/Font.FontFamily.GetEmHeight(FontStyle.Bold);}
     void DrawRemaining(Graphics g,DashboardEntry entry,DateTime now,float x,float y,float width) {
         float small=Mix(24,15),large=Mix(80,29),height=Mix(106,40);
-        string number=MinutesUntil(Instant(entry.endsAt),now).ToString(CultureInfo.InvariantCulture);
-        string[] parts={"あと ",number," 分 | 〜"+Time(entry.start+entry.duration)};
-        float[] sizes={small,large,small};float cursor=x;
+        string[] parts=RemainingParts(entry,now);float cursor=x;
         for(int i=0;i<parts.Length;i++) {
-            float measured=g.MeasureString(parts[i],TextFont(sizes[i],true),int.MaxValue,StringFormat.GenericTypographic).Width+2;
-            Write(g,parts[i],sizes[i],Green,new RectangleF(cursor,y+Baseline(large)-Baseline(sizes[i]),Math.Max(0,width-(cursor-x)),height),true);cursor+=measured;
+            float size=i%2==1?large:small;
+            float measured=g.MeasureString(parts[i],TextFont(size,true),int.MaxValue,StringFormat.GenericTypographic).Width+2;
+            Write(g,parts[i],size,Green,new RectangleF(cursor,y+Baseline(large)-Baseline(size),Math.Max(0,width-(cursor-x)),height),true);cursor+=measured;
         }
     }
     void DrawPeople(Graphics g,RectangleF rect,Color fg,bool vivid,double age) {
@@ -303,7 +323,7 @@ internal sealed class DashboardForm : Form {
         var secondName=MixRect(new RectangleF(x,divider+65,w,70),new RectangleF(x,divider+37,Math.Min(150,w*.3f),30),(float)transition);
         var secondTime=MixRect(new RectangleF(x,divider+137,w,58),new RectangleF(x+Math.Min(150,w*.3f)+18,divider+37,w-Math.Min(150,w*.3f)-18,30),(float)transition);
         Write(g,age>20?"更新待ち":second==null?"次の予約はありません":second.name,Mix(44,17),fg,secondName,true);
-        Write(g,age>20||second==null?"":pending!=null&&second==current?"あと "+MinutesUntil(Instant(current.endsAt),now)+"分 | 〜"+Time(current.start+current.duration):UpcomingTime(second,now),Mix(31,18),Green,secondTime,true);
+        Write(g,age>20||second==null?"":pending!=null&&second==current?"あと "+CountdownText(MinutesUntil(Instant(current.endsAt),now))+" | 〜"+Time(current.start+current.duration):UpcomingTime(second,now),Mix(31,18),Green,secondTime,true);
         if(age<=20&&pending!=null&&current!=null)ReportButton(g,current,new RectangleF(x+w-154,divider+Mix(16,76),154,44));
     }
     sealed class ChartPart {public int start,end;public double weight;}

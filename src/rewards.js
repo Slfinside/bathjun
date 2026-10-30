@@ -88,37 +88,51 @@ export function createRewards({ db, now, scheduleForDay }) {
         );
     }
   }
-  // Upgrade RC's draw-count effects once, preserving their remaining value as days.
+  // Handle databases from the unreleased time-based preview without losing effects.
   if (
-    !db
+    db
       .prepare("PRAGMA table_info(lottery_boosts)")
       .all()
       .some((c) => c.name === "expires_at")
   ) {
     transaction(() => {
-      db.exec("ALTER TABLE lottery_boosts ADD COLUMN expires_at TEXT");
-      const update = db.prepare(
-        "UPDATE lottery_boosts SET expires_at=? WHERE member_id=?",
-      );
       for (const row of db
-        .prepare(
-          "SELECT member_id,remaining FROM lottery_boosts WHERE remaining>0",
-        )
+        .prepare("SELECT * FROM lottery_boosts WHERE expires_at IS NOT NULL")
         .all())
-        update.run(
-          new Date(now().getTime() + row.remaining * 86400000).toISOString(),
+        db.prepare(
+          "UPDATE lottery_boosts SET remaining=?,expires_at=NULL WHERE member_id=?",
+        ).run(
+          Math.max(
+            row.remaining,
+            0,
+            Math.ceil(
+              (Date.parse(row.expires_at) - now().getTime()) / 86400000,
+            ),
+          ),
           row.member_id,
         );
     });
   }
+  if (
+    !db
+      .prepare("PRAGMA table_info(weekly_rewards)")
+      .all()
+      .some((c) => c.name === "reward_mode")
+  )
+    db.exec(
+      "ALTER TABLE weekly_rewards ADD COLUMN reward_mode TEXT NOT NULL DEFAULT 'roulette'",
+    );
   const defaults = () => ({
     extensionMinutes: 30,
-    boostDays: 3,
+    boostDraws: 3,
     extensionBlocked: true,
     extensionBlockedStart: 19 * 60,
     extensionBlockedEnd: 23 * 60,
     extensionNoticeMinutes: 120,
     skipNoticeMinutes: 120,
+    rewardMode: "roulette",
+    fixedKind: "extend",
+    fixedQuantity: 1,
     quantities: { skip: 1, extend: 1, boost: 1, guard: 2 },
     weights: { skip: 1, extend: 1, boost: 1, guard: 1 },
   });
@@ -130,7 +144,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     return {
       ...defaults(),
       ...saved,
-      boostDays: saved.boostDays ?? saved.boostDraws ?? 3,
+      boostDraws: saved.boostDraws ?? saved.boostDays ?? 3,
     };
   };
   function transaction(fn) {
@@ -150,11 +164,11 @@ export function createRewards({ db, now, scheduleForDay }) {
       !Number.isInteger(value.extensionMinutes) ||
       value.extensionMinutes < 5 ||
       value.extensionMinutes > 180 ||
-      !Number.isInteger(value.boostDays) ||
-      value.boostDays < 1 ||
-      value.boostDays > 100
+      !Number.isInteger(value.boostDraws) ||
+      value.boostDraws < 1 ||
+      value.boostDraws > 100
     )
-      bad("延長分数・効果の日数を確認してください。");
+      bad("延長分数・抽選回数を確認してください。");
     if (
       value.extensionMinutes %
       scheduleForDay(
@@ -172,7 +186,21 @@ export function createRewards({ db, now, scheduleForDay }) {
         value.weights[kind] > 100
       )
         bad("受取枚数・出現率を確認してください。");
-    if (!ITEM_KINDS.some((k) => value.weights[k] > 0))
+    const rewardMode = value.rewardMode ?? settings().rewardMode;
+    const fixedKind = value.fixedKind ?? settings().fixedKind;
+    const fixedQuantity = value.fixedQuantity ?? settings().fixedQuantity;
+    if (
+      !["roulette", "fixed"].includes(rewardMode) ||
+      !ITEM_KINDS.includes(fixedKind) ||
+      !Number.isInteger(fixedQuantity) ||
+      fixedQuantity < 1 ||
+      fixedQuantity > 99
+    )
+      bad("達成報酬の方式・種類・枚数を確認してください。");
+    if (
+      rewardMode === "roulette" &&
+      !ITEM_KINDS.some((k) => value.weights[k] > 0)
+    )
       bad("1種類以上の出現率を有効にしてください。");
     const limits = Object.fromEntries(
       [
@@ -203,8 +231,11 @@ export function createRewards({ db, now, scheduleForDay }) {
       bad("チケットの使用制限を確認してください。");
     const normalized = {
       ...limits,
+      rewardMode,
+      fixedKind,
+      fixedQuantity,
       extensionMinutes: value.extensionMinutes,
-      boostDays: value.boostDays,
+      boostDraws: value.boostDraws,
       quantities: Object.fromEntries(
         ITEM_KINDS.map((k) => [k, value.quantities[k]]),
       ),
@@ -417,35 +448,27 @@ export function createRewards({ db, now, scheduleForDay }) {
       );
       spend(member, "boost", "activate");
       db.prepare(
-        "INSERT INTO lottery_boosts(member_id,remaining,expires_at) VALUES(?,0,?) ON CONFLICT(member_id) DO UPDATE SET remaining=0,expires_at=excluded.expires_at",
-      ).run(
-        member,
-        new Date(
-          Math.max(now().getTime(), Date.parse(boostExpiresAt(member)) || 0) +
-            settings().boostDays * 86400000,
-        ).toISOString(),
-      );
+        "INSERT INTO lottery_boosts(member_id,remaining) VALUES(?,?) ON CONFLICT(member_id) DO UPDATE SET remaining=remaining+excluded.remaining",
+      ).run(member, settings().boostDraws);
       return { ok: true };
     });
   }
-  const boostExpiresAt = (member) =>
-    db
-      .prepare("SELECT expires_at FROM lottery_boosts WHERE member_id=?")
-      .get(member)?.expires_at || null;
   const boostRemaining = (member) =>
-    Math.max(
-      0,
-      Math.ceil(
-        ((Date.parse(boostExpiresAt(member)) || 0) - now().getTime()) /
-          86400000,
-      ),
-    );
+    db
+      .prepare("SELECT remaining FROM lottery_boosts WHERE member_id=?")
+      .get(member)?.remaining || 0;
   function draw(ids) {
     const boosted = ids.filter((id) => boostRemaining(id) > 0);
     const first = weightedFirst(ids, boosted);
     return first == null
       ? []
       : [first, ...shuffle(ids.filter((id) => id !== first))];
+  }
+  function consumeDraw(ids) {
+    for (const id of ids)
+      db.prepare(
+        "UPDATE lottery_boosts SET remaining=MAX(0,remaining-1) WHERE member_id=?",
+      ).run(id);
   }
   function complete(member, payload, source = "client") {
     const { day, revision } = payload || {};
@@ -523,7 +546,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     const claimed =
       db
         .prepare(
-          "SELECT kind,quantity FROM weekly_rewards WHERE week=? AND member_id=?",
+          "SELECT kind,quantity,reward_mode AS mode FROM weekly_rewards WHERE week=? AND member_id=?",
         )
         .get(week, member) || null;
     return {
@@ -537,28 +560,33 @@ export function createRewards({ db, now, scheduleForDay }) {
   function queueWeekly(member, week) {
     const existing = db
       .prepare(
-        "SELECT kind,quantity FROM weekly_rewards WHERE week=? AND member_id=?",
+        "SELECT kind,quantity,reward_mode AS mode FROM weekly_rewards WHERE week=? AND member_id=?",
       )
       .get(week, member);
     if (existing) return existing;
     const config = settings();
-    let number = randomInt(
+    let kind = config.fixedKind;
+    if (config.rewardMode === "roulette") {
+      let number = randomInt(
         ITEM_KINDS.reduce((sum, k) => sum + config.weights[k], 0),
-      ),
-      kind = ITEM_KINDS[0];
-    for (const k of ITEM_KINDS) {
-      number -= config.weights[k];
-      if (number < 0) {
-        kind = k;
-        break;
+      );
+      for (const k of ITEM_KINDS) {
+        number -= config.weights[k];
+        if (number < 0) {
+          kind = k;
+          break;
+        }
       }
     }
-    const quantity = config.quantities[kind],
+    const quantity =
+        config.rewardMode === "fixed"
+          ? config.fixedQuantity
+          : config.quantities[kind],
       created = now().toISOString(),
       batch = "weekly:" + week + ":" + member;
     db.prepare(
-      "INSERT INTO weekly_rewards(week,member_id,kind,quantity,claimed_at) VALUES(?,?,?,?,?)",
-    ).run(week, member, kind, quantity, created);
+      "INSERT INTO weekly_rewards(week,member_id,kind,quantity,claimed_at,reward_mode) VALUES(?,?,?,?,?,?)",
+    ).run(week, member, kind, quantity, created, config.rewardMode);
     db.prepare("INSERT INTO item_batches VALUES(?,?)").run(batch, created);
     db.prepare(
       "INSERT INTO item_gifts(id,batch_id,member_id,kind,quantity,created_at,reward_week) VALUES(?,?,?,?,?,?,?)",
@@ -571,7 +599,7 @@ export function createRewards({ db, now, scheduleForDay }) {
       created,
       week,
     );
-    return { kind, quantity };
+    return { kind, quantity, mode: config.rewardMode };
   }
   function claim(member, week) {
     if (
@@ -590,7 +618,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     return {
       celebrations: db
         .prepare(
-          "SELECT week,kind,quantity FROM weekly_rewards WHERE member_id=? AND celebrated_at IS NULL ORDER BY week",
+          "SELECT week,kind,quantity,reward_mode AS mode FROM weekly_rewards WHERE member_id=? AND celebrated_at IS NULL ORDER BY week",
         )
         .all(member),
       pendingGifts: db
@@ -604,7 +632,6 @@ export function createRewards({ db, now, scheduleForDay }) {
         quantity: balance(member, kind),
       })),
       boostRemaining: boostRemaining(member),
-      boostExpiresAt: boostExpiresAt(member),
       gifts: gifts(member),
       card: card(member, day),
     };
@@ -622,7 +649,6 @@ export function createRewards({ db, now, scheduleForDay }) {
             quantity: balance(m.id, kind),
           })),
           boostRemaining: boostRemaining(m.id),
-          boostExpiresAt: boostExpiresAt(m.id),
         })),
       history: db
         .prepare(
@@ -652,6 +678,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     receive,
     activate,
     draw,
+    consumeDraw,
     complete,
     card,
     claim,

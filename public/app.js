@@ -1305,7 +1305,7 @@ function renderSecondaryPage() {
   if (pageView === "settings")
     html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoStandbyForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
   if (pageView === "inventory")
-    html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}枚</span></button>`).join("")}</div>${state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：残り${state.rewards.boostRemaining}日</p>` : ""}</section>`;
+    html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}枚</span></button>`).join("")}</div>${state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
   if (["gifts", "history"].includes(pageView)) {
     const history = pageView === "history",
       gifts = state.rewards.gifts.filter((g) => history || !g.receivedAt);
@@ -1320,7 +1320,7 @@ function showItem(kind) {
   const description = {
     skip: "順番を待たずに予約できます。重なる既存の予約は事前希望へ戻します。ガード付きの予約とは重ねられません。",
     extend: `予約できる時間の上限を${Math.floor(config.extensionMinutes / state.settings.step) * state.settings.step}分伸ばします。ほかの予約との重なりや入浴時間帯のはみ出しはできません。`,
-    boost: `予約順が1番になる確率が、使っていない人の3倍になります。効果は${config.boostDays}日間つづきます。`,
+    boost: `予約順が1番になる確率が、使っていない人の3倍になります。効果は${config.boostDraws}回分の抽選に有効です。`,
     guard:
       "確定した予約を順番抜かしから守ります。事前希望への指定では消費せず、確定時に消費します。",
   }[kind];
@@ -1437,7 +1437,8 @@ function maybeCelebrate() {
   celebrationWeek = pending.week;
   celebrating.add(pending.week);
   dialog.dataset.mode = "celebration";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">1週間達成、おめでとう！</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p><div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel">${["skip", "extend", "boost", "guard"].map((k) => `<span>${itemIcon(k)}</span>`).join("")}</div></div><div class="roulette-result celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}枚 獲得！</strong></div><button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
+  const roulette = pending.mode !== "fixed";
+  dialog.innerHTML = `<div class="sheet-heading"><h2 class="celebration-heading" id="booking-title"><span>1週間達成、</span><span>おめでとう！</span></h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p>${roulette ? `<div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel">${["skip", "extend", "boost", "guard"].map((k) => `<span>${itemIcon(k)}</span>`).join("")}</div></div>` : ""}<div class="${roulette ? "roulette-result" : "fixed-result"} celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}枚 獲得！</strong></div><button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
   dialog.showModal();
   requestAnimationFrame(() => {
     const wheel = dialog.querySelector(".roulette-wheel");

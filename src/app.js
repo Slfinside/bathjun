@@ -759,6 +759,7 @@ export function createApp({
         rewards.transaction(()=>{
           const result=db.prepare('INSERT OR IGNORE INTO draws(day,order_json,created_at,mode) VALUES(?,?,?,?)').run(day,JSON.stringify(order),now().toISOString(),'random');
           if(!result.changes)fail(409,'この夜はすでに抽選済みです。結果を更新します。');
+          rewards.consumeDraw(ids);
         });
         applyDailyStandby(false);
         enqueueTurn(day);

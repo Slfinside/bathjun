@@ -24,7 +24,7 @@ internal static class DashboardTest {
                 if(((NumericUpDown)Get(panel,"dashboardMinutes")).Enabled)throw new Exception("Fixed mode did not disable timeout input");
                 ClickSave(panel);
                 var counts=new Dictionary<string,int>{{"skip",1},{"extend",1},{"boost",1},{"guard",2}};var weights=new Dictionary<string,int>{{"skip",1},{"extend",1},{"boost",1},{"guard",1}};
-                Call(panel,"FillRewards",new RewardsAdmin{settings=new RewardSettings{extensionMinutes=30,boostDays=3,extensionBlocked=true,extensionBlockedStart=1140,extensionBlockedEnd=1380,extensionNoticeMinutes=120,skipNoticeMinutes=120,quantities=counts,weights=weights},members=new[]{new ItemMember{id=1,name="テスト利用者",wallet=new[]{new ItemCount{kind="guard",quantity=2}}}},history=new GiftRecord[0]});
+                Call(panel,"FillRewards",new RewardsAdmin{settings=new RewardSettings{extensionMinutes=30,boostDraws=3,rewardMode="fixed",fixedKind="guard",fixedQuantity=2,extensionBlocked=true,extensionBlockedStart=1140,extensionBlockedEnd=1380,extensionNoticeMinutes=120,skipNoticeMinutes=120,quantities=counts,weights=weights},members=new[]{new ItemMember{id=1,name="テスト利用者",wallet=new[]{new ItemCount{kind="guard",quantity=2}}}},history=new GiftRecord[0]});
                 if(!((CheckBox)Get(panel,"extensionBlocked")).Checked||((NumericUpDown)Get(panel,"extensionNotice")).Value!=120||((DateTimePicker)Get(panel,"extensionBlockedStart")).Value.Hour!=19)throw new Exception("Ticket limits not loaded into controls");
                 ((CheckBox)Get(panel,"extensionBlocked")).Checked=false;
                 if(((DateTimePicker)Get(panel,"extensionBlockedStart")).Enabled)throw new Exception("Disabled limits still editable");
@@ -32,7 +32,7 @@ internal static class DashboardTest {
                 panel.PerformLayout();foreach(Control control in panel.Controls)if(control is TabControl){var tabs=(TabControl)control;var section=tabs.TabPages[3].Controls[0];section.Dock=DockStyle.None;section.Width=560;section.PerformLayout();using(var image=new Bitmap(section.Width,section.Height)){section.DrawToBitmap(image,new Rectangle(Point.Empty,section.Size));image.Save(Path.Combine(screenshots,"admin-items.png"));}}
                 var targets=(CheckedListBox)Get(panel,"giftTargets");var kinds=(CheckedListBox)Get(panel,"giftKinds");targets.SetItemChecked(0,true);kinds.SetItemChecked(0,true);kinds.SetItemChecked(3,true);((NumericUpDown)Get(panel,"giftQuantity")).Value=2;
                 string outgoing=null;using(var done=new ManualResetEvent(false)){var outbox=new PanelOutbox(line=>{outgoing=line;done.Set();},error=>{throw error;});Set(panel,"outbox",outbox);typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(Get(panel,"distributeItems"),new object[]{EventArgs.Empty});if(!done.WaitOne(2000)||!outgoing.Contains("items/distribute")||!outgoing.Contains("\"quantity\":2")||!outgoing.Contains("guard")||!outgoing.Contains("skip"))throw new Exception("Item distribution did not serialize checked targets, kinds and quantity");outbox.Dispose();Set(panel,"outbox",null);}
-                string settingsJson=null;using(var done=new ManualResetEvent(false)){var outbox=new PanelOutbox(line=>{settingsJson=line;done.Set();},error=>{throw error;});Set(panel,"outbox",outbox);typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(Get(panel,"saveRewards"),new object[]{EventArgs.Empty});if(!done.WaitOne(2000)||!settingsJson.Contains("items/settings")||!settingsJson.Contains("\"extensionNoticeMinutes\":120")||!settingsJson.Contains("\"extensionBlockedStart\":1140")||!settingsJson.Contains("\"boostDays\":3"))throw new Exception("Ticket limits did not serialize for saving");outbox.Dispose();Set(panel,"outbox",null);}
+                string settingsJson=null;using(var done=new ManualResetEvent(false)){var outbox=new PanelOutbox(line=>{settingsJson=line;done.Set();},error=>{throw error;});Set(panel,"outbox",outbox);typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(Get(panel,"saveRewards"),new object[]{EventArgs.Empty});if(!done.WaitOne(2000)||!settingsJson.Contains("items/settings")||!settingsJson.Contains("\"extensionNoticeMinutes\":120")||!settingsJson.Contains("\"extensionBlockedStart\":1140")||!settingsJson.Contains("\"boostDraws\":3")||!settingsJson.Contains("\"rewardMode\":\"fixed\"")||!settingsJson.Contains("\"fixedKind\":\"guard\"")||!settingsJson.Contains("\"fixedQuantity\":2"))throw new Exception("Ticket limits did not serialize for saving");outbox.Dispose();Set(panel,"outbox",null);}
                 if(((DataGridView)Get(panel,"itemInventory")).Rows.Count!=1)throw new Exception("Member inventory did not render");
             }finally{((NotifyIcon)Get(panel,"tray")).Dispose();((System.Windows.Forms.Timer)Get(panel,"saveTimeout")).Dispose();((System.Windows.Forms.Timer)Get(panel,"securityTimeout")).Dispose();panel.Dispose();}
             value=DashboardPreferences.Read();if(!value.fixedDetails||value.returnMinutes!=7)throw new Exception("Display preferences did not persist");
@@ -59,6 +59,15 @@ internal static class DashboardTest {
             var longName=new object[]{graphics,new DashboardEntry{name=new string('名',30),endsAt=data.entries[0].endsAt},DateTime.UtcNow,500f,0f};
             if(!(bool)fits.Invoke(form,shortName)||(bool)fits.Invoke(form,longName))throw new Exception("Countdown inline/fallback layout did not follow available width");
         }
+        var format=type.GetMethod("CountdownText",BindingFlags.Static|BindingFlags.NonPublic);
+        var cases=new Dictionary<int,string>{{0,"0分"},{59,"59分"},{60,"1時間"},{90,"1時間30分"},{120,"2時間"},{135,"2時間15分"},{1440,"24時間"}};
+        foreach(var item in cases)if((string)format.Invoke(null,new object[]{item.Key})!=item.Value)throw new Exception("Countdown duration format failed: "+item.Key);
+        var emoji=type.GetMethod("EmojiImage",BindingFlags.Instance|BindingFlags.NonPublic);
+        foreach(string value in new[]{"🐶","🐱","🌷","🌙","☀️","🛁"})if(emoji.Invoke(form,new object[]{value})==null)throw new Exception("Bundled emoji missing: "+value);
+        var parts=type.GetMethod("RemainingParts",BindingFlags.Instance|BindingFlags.NonPublic);
+        var reference=new DateTime(2026,10,29,8,0,0,DateTimeKind.Utc);
+        string longRemaining=string.Join("",(string[])parts.Invoke(form,new object[]{new DashboardEntry{endsAt=reference.AddMinutes(135).ToString("o"),start=1000,duration=135},reference}));
+        if(!longRemaining.Contains("2 時間 15 分"))throw new Exception("Remaining label did not format hours and minutes");
         var method=type.GetMethod("MinutesUntil",BindingFlags.Static|BindingFlags.NonPublic);
         DateTime now=new DateTime(2026,10,28,23,59,30,DateTimeKind.Utc);
         foreach(int seconds in new[]{-1,0,1,30,60,61,3600}) {
@@ -126,6 +135,9 @@ internal static class DashboardTest {
                         var idle=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));idle.now="2026-10-29T18:45:00+09:00";
                         type.GetMethod("UpdateData").Invoke(form,new object[]{idle});
                         using(var bitmap=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,size));bitmap.Save(Path.Combine(args[1],"dashboard-idle.png"));}
+                        var hours=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));hours.now="2026-10-29T16:15:00+09:00";hours.entries[0].start=960;hours.entries[0].duration=150;hours.entries[0].startsAt="2026-10-29T16:00:00+09:00";
+                        type.GetMethod("UpdateData").Invoke(form,new object[]{hours});
+                        using(var bitmap=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,size));bitmap.Save(Path.Combine(args[1],"dashboard-hours.png"));}
                         type.GetMethod("UpdateData").Invoke(form,new object[]{data});
                     }
                     if(compact){Set(form,"transition",.5d);using(var bitmap=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,size));bitmap.Save(Path.Combine(args[1],"dashboard-"+size.Width+"x"+size.Height+"-transition.png"));}}

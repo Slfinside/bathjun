@@ -2580,3 +2580,7 @@ footer .site-credit {
 .stamp-period small { font-size: 11px; color: #7a856d; }
 .week-navigation .stamp-period { align-items: center; }
 .stamp-card > h3 { margin: 24px 0 10px; font-size: 16px; }
+
+.fixed-result { animation: reward-reveal 0.5s ease-out; text-align: center; margin: 24px 0; }
+
+.celebration-heading span { display: block; white-space: nowrap; }

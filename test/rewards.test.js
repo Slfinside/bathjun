@@ -310,6 +310,7 @@ test("土曜分は日曜朝まで受付し、達成特典を自動送付・お�
     await f.api("complete", { day, revision: b.revision });
   }
   const card = (await f.api("rewards?week=2026-10-25")).card;
+  assert.equal(card.claimed.mode, "roulette");
   assert.equal(card.achieved, true);
   assert.equal(card.failed, false);
   const rewardState = (await f.state()).rewards;
@@ -337,7 +338,7 @@ test("土曜分は日曜朝まで受付し、達成特典を自動送付・お�
   assert.deepEqual(await f.api("rewards/claim", { week: card.week }), first);
   assert.equal((await f.api("rewards?week=2026-11-01")).card.achieved, false);
 });
-test("確率UPは使用から3日間、再送で重複消費せず、抽選回数で減らさない", async (t) => {
+test("確率UPは3回、同じ使用の再送で二重消費せず、抽選の閲覧や重複抽選で減らさない", async (t) => {
   const f = await fixture(t, { random: true });
   await f.grant(1, ["boost"], 2);
   const requestId = randomUUID();
@@ -350,13 +351,16 @@ test("確率UPは使用から3日間、再送で重複消費せず、抽選回�
   );
   await f.api("draw", { day: "2026-10-25" });
   await f.state();
-  assert.equal((await f.state()).rewards.boostRemaining, 3);
+  assert.equal((await f.state()).rewards.boostRemaining, 2);
   assert.equal((await f.request("draw", { day: "2026-10-25" })).status, 409);
-  assert.equal((await f.state()).rewards.boostRemaining, 3);
-  f.time("2026-10-28T07:59:59");
-  assert.equal((await f.state()).rewards.boostRemaining, 1);
-  await f.restart();
+  assert.equal((await f.state()).rewards.boostRemaining, 2);
   f.time("2026-10-28T08:00:00");
+  await f.restart();
+  assert.equal((await f.state()).rewards.boostRemaining, 2);
+  await f.api("draw", { day: "2026-10-28" });
+  assert.equal((await f.state()).rewards.boostRemaining, 1);
+  f.time("2026-10-29T08:00:00");
+  await f.api("draw", { day: "2026-10-29" });
   assert.equal((await f.state()).rewards.boostRemaining, 0);
 });
 test("1番になる確率は重み3:1で、ユーザーの例を厳密に満たす", () => {
@@ -383,7 +387,7 @@ test("全リセットはチケット・配布・完了報告・週間報酬も�
   const admin = f.app.getRewardsAdmin();
   assert.equal(admin.members.length, 0);
   assert.equal(admin.history.length, 0);
-  assert.equal(admin.settings.boostDays, 3);
+  assert.equal(admin.settings.boostDraws, 3);
 });
 
 test("ダッシュボードは朝の入浴終了後も完了報告の1分間は前夜を表示する", async (t) => {
@@ -501,46 +505,88 @@ test("希望の確定時にも直前制限を確認し、禁止時間帯は日�
   );
 });
 
-test("旧RCの残回数を日数へ一度だけ移行し、既存の設定と持ち物を保つ", async (t) => {
+test("未公開の日数制データを一度だけ回数制へ戻し、残効果と設定を保つ", async (t) => {
   const f = await fixture(t);
   await f.grant(1, ["boost"], 2);
-  const legacy = { ...f.app.getRewardsAdmin().settings, boostDraws: 7 };
-  delete legacy.boostDays;
-  for (const key of [
-    "extensionBlocked",
-    "extensionBlockedStart",
-    "extensionBlockedEnd",
-    "extensionNoticeMinutes",
-    "skipNoticeMinutes",
-  ])
-    delete legacy[key];
+  const legacy = { ...f.app.getRewardsAdmin().settings, boostDays: 7 };
+  delete legacy.boostDraws;
   const db = new DatabaseSync(f.database);
-  db.exec("ALTER TABLE lottery_boosts DROP COLUMN expires_at");
-  db.prepare("INSERT INTO lottery_boosts(member_id,remaining) VALUES(?,?)").run(
-    1,
-    2,
-  );
+  db.exec("ALTER TABLE lottery_boosts ADD COLUMN expires_at TEXT");
+  db.prepare(
+    "INSERT INTO lottery_boosts(member_id,remaining,expires_at) VALUES(?,0,?)",
+  ).run(1, "2026-10-27T08:00:00+09:00");
   db.prepare(
     "INSERT INTO reward_settings VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value_json=excluded.value_json",
   ).run(JSON.stringify(legacy));
   db.close();
   await f.restart();
-  let reward = (await f.state()).rewards;
-  assert.equal(reward.boostRemaining, 2);
-  assert.equal(reward.settings.boostDays, 7);
-  assert.equal(reward.settings.skipNoticeMinutes, 120);
-  const expiry = reward.boostExpiresAt;
+  assert.equal((await f.state()).rewards.boostRemaining, 2);
+  assert.equal((await f.state()).rewards.settings.boostDraws, 7);
   f.time("2026-10-26T08:00:00");
   await f.restart();
-  assert.equal((await f.state()).rewards.boostRemaining, 1);
-  assert.equal((await f.state()).rewards.boostExpiresAt, expiry);
+  assert.equal((await f.state()).rewards.boostRemaining, 2);
   const requestId = randomUUID();
   await f.api("items/boost", { requestId });
-  assert.equal((await f.state()).rewards.boostRemaining, 8);
   await f.api("items/boost", { requestId });
-  assert.equal((await f.state()).rewards.boostRemaining, 8);
+  assert.equal((await f.state()).rewards.boostRemaining, 9);
   assert.equal(
     (await f.state()).rewards.wallet.find((x) => x.kind === "boost").quantity,
     1,
+  );
+});
+
+test("固定報酬は指定の種類・枚数を一度だけ送り、設定変更・再起動後も確定内容を保つ", async (t) => {
+  const f = await fixture(t),
+    config = f.app.getRewardsAdmin().settings;
+  assert.equal(config.rewardMode, "roulette");
+  const weights = Object.fromEntries(
+    Object.keys(config.weights).map((k) => [k, 0]),
+  );
+  f.app.saveRewardSettings({
+    ...config,
+    rewardMode: "fixed",
+    fixedKind: "guard",
+    fixedQuantity: 4,
+    weights,
+  });
+  for (let i = 0; i < 7; i++) {
+    const day = addDay("2026-10-25", i);
+    f.time(day + "T08:00:00");
+    await f.book(1, 1080, 30, null, day);
+    const booking = (await f.api("state?day=" + day)).bookings.find(
+      (b) => b.memberId === 1,
+    );
+    f.time(day + "T18:15:00");
+    await f.api("complete", { day, revision: booking.revision });
+  }
+  const reward = (await f.state()).rewards;
+  assert.equal(reward.pendingGifts, 1);
+  assert.deepEqual(reward.celebrations, [
+    { week: "2026-10-25", kind: "guard", quantity: 4, mode: "fixed" },
+  ]);
+  assert.equal(reward.wallet.find((x) => x.kind === "guard").quantity, 0);
+  f.app.saveRewardSettings({ ...config, rewardMode: "roulette" });
+  await f.restart();
+  const chosen = await f.api("rewards/claim", { week: "2026-10-25" });
+  assert.deepEqual(chosen, { kind: "guard", quantity: 4, mode: "fixed" });
+  const gifts = (await f.state()).rewards.gifts;
+  assert.equal(gifts.length, 1);
+  await f.api("gifts/receive", { id: gifts[0].id });
+  await f.api("gifts/receive", { id: gifts[0].id });
+  assert.equal(
+    (await f.state()).rewards.wallet.find((x) => x.kind === "guard").quantity,
+    4,
+  );
+  assert.throws(() =>
+    f.app.saveRewardSettings({ ...config, rewardMode: "other" }),
+  );
+  assert.throws(() =>
+    f.app.saveRewardSettings({ ...config, fixedKind: "other" }),
+  );
+  assert.throws(() =>
+    f.app.saveRewardSettings({ ...config, fixedQuantity: 0 }),
+  );
+  assert.throws(() =>
+    f.app.saveRewardSettings({ ...config, rewardMode: "roulette", weights }),
   );
 });
