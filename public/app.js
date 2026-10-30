@@ -31,7 +31,9 @@ const itemName = (kind) =>
     guard: "順番抜かしガード",
   })[kind] || "";
 const itemIcon = (kind) =>
-  ({ skip: "↗", extend: "＋", boost: "✦", guard: "◇" })[kind] || "🎁";
+  ["skip", "extend", "boost", "guard"].includes(kind)
+    ? `<img class="item-art" src="/items/${kind}.svg" alt="" aria-hidden="true" width="80" height="64">`
+    : "🎁";
 const owned = (kind) =>
   state.rewards?.wallet.find((x) => x.kind === kind)?.quantity || 0;
 let familyAuthenticated = false;
@@ -537,7 +539,11 @@ async function refresh(force = false) {
       selectedDay = undefined;
       data = await api("state");
     }
-    if (pageView === "stamps" && stampWeek && data.rewards.card.week !== stampWeek)
+    if (
+      pageView === "stamps" &&
+      stampWeek &&
+      data.rewards.card.week !== stampWeek
+    )
       data.rewards.card = (
         await api("rewards?week=" + encodeURIComponent(stampWeek))
       ).card;
@@ -959,7 +965,7 @@ document
         await api("logout", {});
         me = null;
         state = null;
-      resetNavigation();
+        resetNavigation();
         notificationStatus = "未設定";
         previousTurn = null;
         passkeyList = null;
@@ -1373,7 +1379,7 @@ function maybeCelebrate() {
   celebrationWeek = pending.week;
   celebrating.add(pending.week);
   dialog.dataset.mode = "celebration";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">1週間達成、おめでとう！</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p><div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel">${["skip", "extend", "boost", "guard"].map((k) => `<span>${itemIcon(k)}</span>`).join("")}</div></div><div class="roulette-result celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}枚 獲得！</strong><p>プレゼントボックスに届いています。</p></div><button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">1週間達成、おめでとう！</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p><div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel">${["skip", "extend", "boost", "guard"].map((k) => `<span>${itemIcon(k)}</span>`).join("")}</div></div><div class="roulette-result celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}枚 獲得！</strong></div><button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
   dialog.showModal();
   requestAnimationFrame(() => {
     const wheel = dialog.querySelector(".roulette-wheel");
@@ -1408,4 +1414,10 @@ document.addEventListener("keydown", (event) => {
     document.querySelector(".account-menu")?.removeAttribute("open");
 });
 
-function resetNavigation(){pageView='home';pendingItem=null;stampWeek=null;celebrationWeek=null;celebrating.clear();}
+function resetNavigation() {
+  pageView = "home";
+  pendingItem = null;
+  stampWeek = null;
+  celebrationWeek = null;
+  celebrating.clear();
+}
