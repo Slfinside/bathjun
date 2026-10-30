@@ -88,9 +88,37 @@ export function createRewards({ db, now, scheduleForDay }) {
         );
     }
   }
+  // Upgrade RC's draw-count effects once, preserving their remaining value as days.
+  if (
+    !db
+      .prepare("PRAGMA table_info(lottery_boosts)")
+      .all()
+      .some((c) => c.name === "expires_at")
+  ) {
+    transaction(() => {
+      db.exec("ALTER TABLE lottery_boosts ADD COLUMN expires_at TEXT");
+      const update = db.prepare(
+        "UPDATE lottery_boosts SET expires_at=? WHERE member_id=?",
+      );
+      for (const row of db
+        .prepare(
+          "SELECT member_id,remaining FROM lottery_boosts WHERE remaining>0",
+        )
+        .all())
+        update.run(
+          new Date(now().getTime() + row.remaining * 86400000).toISOString(),
+          row.member_id,
+        );
+    });
+  }
   const defaults = () => ({
     extensionMinutes: 30,
-    boostDraws: 3,
+    boostDays: 3,
+    extensionBlocked: true,
+    extensionBlockedStart: 19 * 60,
+    extensionBlockedEnd: 23 * 60,
+    extensionNoticeMinutes: 120,
+    skipNoticeMinutes: 120,
     quantities: { skip: 1, extend: 1, boost: 1, guard: 2 },
     weights: { skip: 1, extend: 1, boost: 1, guard: 1 },
   });
@@ -98,7 +126,12 @@ export function createRewards({ db, now, scheduleForDay }) {
     const row = db
       .prepare("SELECT value_json FROM reward_settings WHERE id=1")
       .get();
-    return row ? JSON.parse(row.value_json) : defaults();
+    const saved = row ? JSON.parse(row.value_json) : {};
+    return {
+      ...defaults(),
+      ...saved,
+      boostDays: saved.boostDays ?? saved.boostDraws ?? 3,
+    };
   };
   function transaction(fn) {
     db.exec("SAVEPOINT rewards_transaction");
@@ -117,11 +150,11 @@ export function createRewards({ db, now, scheduleForDay }) {
       !Number.isInteger(value.extensionMinutes) ||
       value.extensionMinutes < 5 ||
       value.extensionMinutes > 180 ||
-      !Number.isInteger(value.boostDraws) ||
-      value.boostDraws < 1 ||
-      value.boostDraws > 100
+      !Number.isInteger(value.boostDays) ||
+      value.boostDays < 1 ||
+      value.boostDays > 100
     )
-      bad("延長分数・抽選回数を確認してください。");
+      bad("延長分数・効果の日数を確認してください。");
     if (
       value.extensionMinutes %
       scheduleForDay(
@@ -141,9 +174,37 @@ export function createRewards({ db, now, scheduleForDay }) {
         bad("受取枚数・出現率を確認してください。");
     if (!ITEM_KINDS.some((k) => value.weights[k] > 0))
       bad("1種類以上の出現率を有効にしてください。");
+    const limits = Object.fromEntries(
+      [
+        "extensionBlocked",
+        "extensionBlockedStart",
+        "extensionBlockedEnd",
+        "extensionNoticeMinutes",
+        "skipNoticeMinutes",
+      ].map((key) => [key, value[key] ?? settings()[key]]),
+    );
+    if (
+      typeof limits.extensionBlocked !== "boolean" ||
+      !["extensionBlockedStart", "extensionBlockedEnd"].every(
+        (key) =>
+          Number.isInteger(limits[key]) &&
+          limits[key] >= 0 &&
+          limits[key] < 1440,
+      ) ||
+      (limits.extensionBlocked &&
+        limits.extensionBlockedStart === limits.extensionBlockedEnd) ||
+      !["extensionNoticeMinutes", "skipNoticeMinutes"].every(
+        (key) =>
+          Number.isInteger(limits[key]) &&
+          limits[key] >= 0 &&
+          limits[key] <= 1440,
+      )
+    )
+      bad("チケットの使用制限を確認してください。");
     const normalized = {
+      ...limits,
       extensionMinutes: value.extensionMinutes,
-      boostDraws: value.boostDraws,
+      boostDays: value.boostDays,
       quantities: Object.fromEntries(
         ITEM_KINDS.map((k) => [k, value.quantities[k]]),
       ),
@@ -206,6 +267,44 @@ export function createRewards({ db, now, scheduleForDay }) {
         bad("管理画面で延長分数を予約の刻み幅に合わせてください。", 409);
     }
     return { ...rule, maxDuration: rule.maxDuration + extra };
+  }
+  function checkTicketSlot(day, selected, start, duration, existing = null) {
+    const kind = ticket(selected) || existing?.ticket;
+    if (kind !== "extend" && kind !== "skip") return;
+    // Keeping the time unchanged may update notes without invalidating an existing booking.
+    if (
+      existing?.ticket === kind &&
+      existing.start === start &&
+      existing.duration === duration
+    )
+      return;
+    const config = settings();
+    const lead =
+      kind === "extend"
+        ? config.extensionNoticeMinutes
+        : config.skipNoticeMinutes;
+    if (
+      lead > 0 &&
+      slotDate(day, start).getTime() - now().getTime() <= lead * 60000
+    )
+      bad(`このチケットは、開始まで${lead}分以下の予約には使えません。`);
+    if (kind === "extend" && config.extensionBlocked) {
+      for (
+        let offset = Math.floor(start / 1440) - 1;
+        offset <= Math.floor((start + duration) / 1440);
+        offset++
+      ) {
+        const from = offset * 1440 + config.extensionBlockedStart;
+        const to =
+          offset * 1440 +
+          config.extensionBlockedEnd +
+          (config.extensionBlockedEnd < config.extensionBlockedStart
+            ? 1440
+            : 0);
+        if (start < to && start + duration > from)
+          bad("延長チケットを使えない時間帯と重なっています。");
+      }
+    }
   }
   function commitTicket(day, member, selected, existing = null) {
     const kind = ticket(selected) || existing?.ticket || null;
@@ -318,28 +417,35 @@ export function createRewards({ db, now, scheduleForDay }) {
       );
       spend(member, "boost", "activate");
       db.prepare(
-        "INSERT INTO lottery_boosts VALUES(?,?) ON CONFLICT(member_id) DO UPDATE SET remaining=remaining+excluded.remaining",
-      ).run(member, settings().boostDraws);
+        "INSERT INTO lottery_boosts(member_id,remaining,expires_at) VALUES(?,0,?) ON CONFLICT(member_id) DO UPDATE SET remaining=0,expires_at=excluded.expires_at",
+      ).run(
+        member,
+        new Date(
+          Math.max(now().getTime(), Date.parse(boostExpiresAt(member)) || 0) +
+            settings().boostDays * 86400000,
+        ).toISOString(),
+      );
       return { ok: true };
     });
   }
-  function draw(ids) {
-    const boosted = ids.filter(
-      (id) =>
-        (db
-          .prepare("SELECT remaining FROM lottery_boosts WHERE member_id=?")
-          .get(id)?.remaining || 0) > 0,
+  const boostExpiresAt = (member) =>
+    db
+      .prepare("SELECT expires_at FROM lottery_boosts WHERE member_id=?")
+      .get(member)?.expires_at || null;
+  const boostRemaining = (member) =>
+    Math.max(
+      0,
+      Math.ceil(
+        ((Date.parse(boostExpiresAt(member)) || 0) - now().getTime()) /
+          86400000,
+      ),
     );
+  function draw(ids) {
+    const boosted = ids.filter((id) => boostRemaining(id) > 0);
     const first = weightedFirst(ids, boosted);
     return first == null
       ? []
       : [first, ...shuffle(ids.filter((id) => id !== first))];
-  }
-  function consumeDraw(ids) {
-    for (const id of ids)
-      db.prepare(
-        "UPDATE lottery_boosts SET remaining=MAX(0,remaining-1) WHERE member_id=?",
-      ).run(id);
   }
   function complete(member, payload, source = "client") {
     const { day, revision } = payload || {};
@@ -497,10 +603,8 @@ export function createRewards({ db, now, scheduleForDay }) {
         kind,
         quantity: balance(member, kind),
       })),
-      boostRemaining:
-        db
-          .prepare("SELECT remaining FROM lottery_boosts WHERE member_id=?")
-          .get(member)?.remaining || 0,
+      boostRemaining: boostRemaining(member),
+      boostExpiresAt: boostExpiresAt(member),
       gifts: gifts(member),
       card: card(member, day),
     };
@@ -517,10 +621,8 @@ export function createRewards({ db, now, scheduleForDay }) {
             kind,
             quantity: balance(m.id, kind),
           })),
-          boostRemaining:
-            db
-              .prepare("SELECT remaining FROM lottery_boosts WHERE member_id=?")
-              .get(m.id)?.remaining || 0,
+          boostRemaining: boostRemaining(m.id),
+          boostExpiresAt: boostExpiresAt(m.id),
         })),
       history: db
         .prepare(
@@ -545,11 +647,11 @@ export function createRewards({ db, now, scheduleForDay }) {
     ticket,
     bookingRule,
     commitTicket,
+    checkTicketSlot,
     distribute,
     receive,
     activate,
     draw,
-    consumeDraw,
     complete,
     card,
     claim,

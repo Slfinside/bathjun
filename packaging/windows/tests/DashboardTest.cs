@@ -12,7 +12,7 @@ internal static class DashboardTest {
     static object Get(object target,string name){return target.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).GetValue(target);}
     static void Call(object target,string name,params object[] values){target.GetType().GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic).Invoke(target,values);}
     static bool ClickSave(Control root){foreach(Control control in root.Controls){if(control is Button&&control.Text=="表示設定を保存"){typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(control,new object[]{EventArgs.Empty});return true;}if(ClickSave(control))return true;}return false;}
-    static void Preferences(){
+    static void Preferences(string screenshots){
         string previous=Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR"),folder=Path.Combine(Path.GetTempPath(),"bathjun-display-test-"+Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("BATHJUN_DATA_DIR",folder);
         try{
@@ -24,9 +24,15 @@ internal static class DashboardTest {
                 if(((NumericUpDown)Get(panel,"dashboardMinutes")).Enabled)throw new Exception("Fixed mode did not disable timeout input");
                 ClickSave(panel);
                 var counts=new Dictionary<string,int>{{"skip",1},{"extend",1},{"boost",1},{"guard",2}};var weights=new Dictionary<string,int>{{"skip",1},{"extend",1},{"boost",1},{"guard",1}};
-                Call(panel,"FillRewards",new RewardsAdmin{settings=new RewardSettings{extensionMinutes=30,boostDraws=3,quantities=counts,weights=weights},members=new[]{new ItemMember{id=1,name="テスト利用者",wallet=new[]{new ItemCount{kind="guard",quantity=2}}}},history=new GiftRecord[0]});
+                Call(panel,"FillRewards",new RewardsAdmin{settings=new RewardSettings{extensionMinutes=30,boostDays=3,extensionBlocked=true,extensionBlockedStart=1140,extensionBlockedEnd=1380,extensionNoticeMinutes=120,skipNoticeMinutes=120,quantities=counts,weights=weights},members=new[]{new ItemMember{id=1,name="テスト利用者",wallet=new[]{new ItemCount{kind="guard",quantity=2}}}},history=new GiftRecord[0]});
+                if(!((CheckBox)Get(panel,"extensionBlocked")).Checked||((NumericUpDown)Get(panel,"extensionNotice")).Value!=120||((DateTimePicker)Get(panel,"extensionBlockedStart")).Value.Hour!=19)throw new Exception("Ticket limits not loaded into controls");
+                ((CheckBox)Get(panel,"extensionBlocked")).Checked=false;
+                if(((DateTimePicker)Get(panel,"extensionBlockedStart")).Enabled)throw new Exception("Disabled limits still editable");
+                ((CheckBox)Get(panel,"extensionBlocked")).Checked=true;
+                panel.PerformLayout();foreach(Control control in panel.Controls)if(control is TabControl){var tabs=(TabControl)control;var section=tabs.TabPages[3].Controls[0];section.Dock=DockStyle.None;section.Width=560;section.PerformLayout();using(var image=new Bitmap(section.Width,section.Height)){section.DrawToBitmap(image,new Rectangle(Point.Empty,section.Size));image.Save(Path.Combine(screenshots,"admin-items.png"));}}
                 var targets=(CheckedListBox)Get(panel,"giftTargets");var kinds=(CheckedListBox)Get(panel,"giftKinds");targets.SetItemChecked(0,true);kinds.SetItemChecked(0,true);kinds.SetItemChecked(3,true);((NumericUpDown)Get(panel,"giftQuantity")).Value=2;
                 string outgoing=null;using(var done=new ManualResetEvent(false)){var outbox=new PanelOutbox(line=>{outgoing=line;done.Set();},error=>{throw error;});Set(panel,"outbox",outbox);typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(Get(panel,"distributeItems"),new object[]{EventArgs.Empty});if(!done.WaitOne(2000)||!outgoing.Contains("items/distribute")||!outgoing.Contains("\"quantity\":2")||!outgoing.Contains("guard")||!outgoing.Contains("skip"))throw new Exception("Item distribution did not serialize checked targets, kinds and quantity");outbox.Dispose();Set(panel,"outbox",null);}
+                string settingsJson=null;using(var done=new ManualResetEvent(false)){var outbox=new PanelOutbox(line=>{settingsJson=line;done.Set();},error=>{throw error;});Set(panel,"outbox",outbox);typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(Get(panel,"saveRewards"),new object[]{EventArgs.Empty});if(!done.WaitOne(2000)||!settingsJson.Contains("items/settings")||!settingsJson.Contains("\"extensionNoticeMinutes\":120")||!settingsJson.Contains("\"extensionBlockedStart\":1140")||!settingsJson.Contains("\"boostDays\":3"))throw new Exception("Ticket limits did not serialize for saving");outbox.Dispose();Set(panel,"outbox",null);}
                 if(((DataGridView)Get(panel,"itemInventory")).Rows.Count!=1)throw new Exception("Member inventory did not render");
             }finally{((NotifyIcon)Get(panel,"tray")).Dispose();((System.Windows.Forms.Timer)Get(panel,"saveTimeout")).Dispose();((System.Windows.Forms.Timer)Get(panel,"securityTimeout")).Dispose();panel.Dispose();}
             value=DashboardPreferences.Read();if(!value.fixedDetails||value.returnMinutes!=7)throw new Exception("Display preferences did not persist");
@@ -72,7 +78,7 @@ internal static class DashboardTest {
     }
     [STAThread] static void Main(string[] args) {
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-        Preferences();
+        Preferences(args[1]);
         var type=typeof(DashboardData).Assembly.GetType("DashboardForm");
         var data=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));
         foreach(var size in new[]{new Size(1280,720),new Size(1280,800),new Size(1440,960),new Size(1920,1080),new Size(1920,1280)}) {

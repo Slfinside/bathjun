@@ -2557,3 +2557,26 @@ footer .site-credit {
 .item-art[src$="/skip.svg"],
 .item-art[src$="/extend.svg"] { transform: rotate(-12deg); }
 .item-art[src$="/guard.svg"] { transform: none; }
+
+/* Reward screens share aligned text rows, including compact iPhone widths. */
+.stamp-card .card-title { margin-bottom: 12px; }
+.stamp-card .card-title h2, .inventory-page h2, .gift-page h2 { margin: 0; }
+.stamp-card > .muted { margin: 0 0 18px; font-variant-numeric: tabular-nums; }
+.stamp-cell { justify-content: center; gap: 6px; padding: 12px 0; }
+.stamp-cell > span, .stamp-cell small { line-height: 1.4; }
+.stamp-cell strong { display: grid; place-items: center; height: 32px; line-height: 1; }
+.stamp-card > p:last-child { margin-bottom: 0; }
+.week-navigation { margin-bottom: 18px; }
+.week-navigation p { margin: 0; text-align: center; font-variant-numeric: tabular-nums; }
+.item-card { text-align: center; }
+.item-card strong { display: flex; align-items: center; justify-content: center; min-height: 3em; line-height: 1.5; }
+.item-card > span:last-child { margin-top: auto; font-variant-numeric: tabular-nums; }
+.stamp-history { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 6px 16px; }
+.stamp-history small { margin-top: 0; font-variant-numeric: tabular-nums; }
+.ticket-limits { padding: 12px 14px; border-radius: 12px; background: #f2eee2; color: #705e40; line-height: 1.8; font-size: 13px; }
+@media (max-width: 600px) { .stamp-history { grid-template-columns: 1fr; gap: 4px; } }
+
+.stamp-period { display: inline-flex; flex-direction: column; gap: 2px; line-height: 1.5; white-space: nowrap; }
+.stamp-period small { font-size: 11px; color: #7a856d; }
+.week-navigation .stamp-period { align-items: center; }
+.stamp-card > h3 { margin: 24px 0 10px; font-size: 16px; }

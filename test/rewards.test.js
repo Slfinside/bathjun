@@ -169,6 +169,11 @@ test("ガードは希望では未消費、確定で消費し、順番抜かし�
 });
 test("順番抜かしは開始済みも希望に戻し、延長効果を失わせ、本人へ通知を1回送る", async (t) => {
   const f = await fixture(t);
+  f.app.saveRewardSettings({
+    ...f.app.getRewardsAdmin().settings,
+    extensionBlocked: false,
+    skipNoticeMinutes: 0,
+  });
   await f.grant(1, ["extend"]);
   await f.grant(2, ["skip"]);
   await f.book(1, 1080, 120, "extend");
@@ -332,7 +337,7 @@ test("土曜分は日曜朝まで受付し、達成特典を自動送付・お�
   assert.deepEqual(await f.api("rewards/claim", { week: card.week }), first);
   assert.equal((await f.api("rewards?week=2026-11-01")).card.achieved, false);
 });
-test("確率UPは3回、同じ使用の再送で二重消費せず、抽選の閲覧や重複抽選で減らさない", async (t) => {
+test("確率UPは使用から3日間、再送で重複消費せず、抽選回数で減らさない", async (t) => {
   const f = await fixture(t, { random: true });
   await f.grant(1, ["boost"], 2);
   const requestId = randomUUID();
@@ -345,9 +350,14 @@ test("確率UPは3回、同じ使用の再送で二重消費せず、抽選の�
   );
   await f.api("draw", { day: "2026-10-25" });
   await f.state();
-  assert.equal((await f.state()).rewards.boostRemaining, 2);
+  assert.equal((await f.state()).rewards.boostRemaining, 3);
   assert.equal((await f.request("draw", { day: "2026-10-25" })).status, 409);
-  assert.equal((await f.state()).rewards.boostRemaining, 2);
+  assert.equal((await f.state()).rewards.boostRemaining, 3);
+  f.time("2026-10-28T07:59:59");
+  assert.equal((await f.state()).rewards.boostRemaining, 1);
+  await f.restart();
+  f.time("2026-10-28T08:00:00");
+  assert.equal((await f.state()).rewards.boostRemaining, 0);
 });
 test("1番になる確率は重み3:1で、ユーザーの例を厳密に満たす", () => {
   for (const [ids, boosted, total, expected] of [
@@ -373,7 +383,7 @@ test("全リセットはチケット・配布・完了報告・週間報酬も�
   const admin = f.app.getRewardsAdmin();
   assert.equal(admin.members.length, 0);
   assert.equal(admin.history.length, 0);
-  assert.equal(admin.settings.boostDraws, 3);
+  assert.equal(admin.settings.boostDays, 3);
 });
 
 test("ダッシュボードは朝の入浴終了後も完了報告の1分間は前夜を表示する", async (t) => {
@@ -383,4 +393,154 @@ test("ダッシュボードは朝の入浴終了後も完了報告の1分間は�
   assert.equal(f.app.getDashboard().day, "2026-10-25");
   f.time("2026-10-26T07:01:01");
   assert.equal(f.app.getDashboard().day, "2026-10-26");
+});
+
+test("延長と順番抜かしは直前・禁止時間帯を検証し、拒否時は消費も予約変更もしない", async (t) => {
+  const f = await fixture(t);
+  await f.grant(1, ["extend", "skip"], 3);
+  const body = (start, duration = 30, ticket = "extend") => ({
+    day: "2026-10-25",
+    start,
+    duration,
+    ticket,
+  });
+  assert.equal(f.app.getRewardsAdmin().settings.extensionNoticeMinutes, 120);
+  f.time("2026-10-25T13:00:00");
+  assert.equal((await f.request("book", body(900))).status, 400); // exactly two hours
+  f.time("2026-10-25T12:59:59");
+  await f.api("book", body(900));
+  assert.equal(
+    (await f.state()).rewards.wallet.find((x) => x.kind === "extend").quantity,
+    2,
+  );
+  // Only moving the interval invokes the limit; editing its note keeps the paid effect.
+  f.time("2026-10-25T14:00:00");
+  await f.api("book", { ...body(900), note: "変更した備考" });
+  assert.equal((await f.request("book", body(915))).status, 400);
+  f.time("2026-10-25T08:00:00");
+  assert.equal((await f.request("book", body(1110, 45))).status, 400); // 18:30–19:15
+  assert.equal((await f.request("book", body(1320, 90))).status, 400); // 22:00–23:30
+  await f.api("book", body(1110, 30)); // ends at 19:00
+  await f.api("book", body(1380)); // starts at 23:00
+  assert.equal(
+    (await f.state()).rewards.wallet.find((x) => x.kind === "extend").quantity,
+    2,
+  );
+  await f.grant(2, ["skip"]);
+  f.time("2026-10-25T21:00:00");
+  assert.equal(
+    (await f.request("book", body(1380, 30, "skip"), 2)).status,
+    400,
+  );
+  assert.equal(
+    (await f.state(2)).rewards.wallet.find((x) => x.kind === "skip").quantity,
+    1,
+  );
+  assert.equal(
+    (await f.state()).bookings.find((b) => b.memberId === 1).start,
+    1380,
+  );
+  f.time("2026-10-25T20:59:59");
+  await f.api("book", body(1380, 30, "skip"), 2);
+  assert.equal(
+    (await f.state()).wishes.find((w) => w.memberId === 1).ticket,
+    null,
+  );
+  await f.restart();
+  assert.equal(f.app.getRewardsAdmin().settings.extensionBlockedStart, 1140);
+});
+
+test("希望の確定時にも直前制限を確認し、禁止時間帯は日跨ぎ・解除設定に対応する", async (t) => {
+  const f = await fixture(t);
+  await f.grant(2, ["extend"]);
+  await f.api(
+    "wish",
+    { day: "2026-10-25", start: 1080, duration: 30, ticket: "extend" },
+    2,
+  );
+  f.time("2026-10-25T16:00:00");
+  await f.book(1, 1200, 30);
+  assert.ok(!(await f.state(2)).bookings.some((b) => b.memberId === 2));
+  assert.equal(
+    (await f.state(2)).rewards.wallet.find((x) => x.kind === "extend").quantity,
+    1,
+  );
+  const config = f.app.getRewardsAdmin().settings;
+  f.app.saveRewardSettings({
+    ...config,
+    extensionNoticeMinutes: 0,
+    extensionBlockedStart: 1380,
+    extensionBlockedEnd: 60,
+  });
+  assert.equal(
+    (
+      await f.request(
+        "book",
+        { day: "2026-10-25", start: 1440, duration: 30, ticket: "extend" },
+        2,
+      )
+    ).status,
+    400,
+  );
+  await f.book(2, 1380 - 30, 30, "extend");
+  f.app.saveRewardSettings({
+    ...config,
+    extensionNoticeMinutes: 0,
+    extensionBlocked: false,
+  });
+  await f.book(2, 1440, 30, "extend");
+  assert.throws(() =>
+    f.app.saveRewardSettings({ ...config, skipNoticeMinutes: -1 }),
+  );
+  assert.throws(() =>
+    f.app.saveRewardSettings({
+      ...config,
+      extensionBlockedStart: 60,
+      extensionBlockedEnd: 60,
+    }),
+  );
+});
+
+test("旧RCの残回数を日数へ一度だけ移行し、既存の設定と持ち物を保つ", async (t) => {
+  const f = await fixture(t);
+  await f.grant(1, ["boost"], 2);
+  const legacy = { ...f.app.getRewardsAdmin().settings, boostDraws: 7 };
+  delete legacy.boostDays;
+  for (const key of [
+    "extensionBlocked",
+    "extensionBlockedStart",
+    "extensionBlockedEnd",
+    "extensionNoticeMinutes",
+    "skipNoticeMinutes",
+  ])
+    delete legacy[key];
+  const db = new DatabaseSync(f.database);
+  db.exec("ALTER TABLE lottery_boosts DROP COLUMN expires_at");
+  db.prepare("INSERT INTO lottery_boosts(member_id,remaining) VALUES(?,?)").run(
+    1,
+    2,
+  );
+  db.prepare(
+    "INSERT INTO reward_settings VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value_json=excluded.value_json",
+  ).run(JSON.stringify(legacy));
+  db.close();
+  await f.restart();
+  let reward = (await f.state()).rewards;
+  assert.equal(reward.boostRemaining, 2);
+  assert.equal(reward.settings.boostDays, 7);
+  assert.equal(reward.settings.skipNoticeMinutes, 120);
+  const expiry = reward.boostExpiresAt;
+  f.time("2026-10-26T08:00:00");
+  await f.restart();
+  assert.equal((await f.state()).rewards.boostRemaining, 1);
+  assert.equal((await f.state()).rewards.boostExpiresAt, expiry);
+  const requestId = randomUUID();
+  await f.api("items/boost", { requestId });
+  assert.equal((await f.state()).rewards.boostRemaining, 8);
+  await f.api("items/boost", { requestId });
+  assert.equal((await f.state()).rewards.boostRemaining, 8);
+  assert.equal(
+    (await f.state()).rewards.wallet.find((x) => x.kind === "boost").quantity,
+    1,
+  );
 });

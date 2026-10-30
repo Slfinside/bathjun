@@ -148,7 +148,7 @@ export function createApp({
       if(!id)return null;
       const wish=db.prepare("SELECT * FROM wishes WHERE day=? AND member_id=?").get(day,id);
       if(!wish || slotDate(day,wish.start)<=now())return null;
-      try{if(!validateSlot(wish.start,wish.duration,rewards.bookingRule(day,id,wish.ticket)))return null;}catch{return null;}
+      try{rewards.checkTicketSlot(day,wish.ticket,wish.start,wish.duration);if(!validateSlot(wish.start,wish.duration,rewards.bookingRule(day,id,wish.ticket)))return null;}catch{return null;}
       // Half-open intervals: another bath may start exactly when this one ends.
       if(db.prepare('SELECT 1 FROM bookings WHERE day=? AND member_id!=? AND start<? AND start+duration>? LIMIT 1').get(day,id,wish.start+wish.duration,wish.start))return null;
       const order=reservationOrder(day),rank=order.indexOf(id);
@@ -759,7 +759,6 @@ export function createApp({
         rewards.transaction(()=>{
           const result=db.prepare('INSERT OR IGNORE INTO draws(day,order_json,created_at,mode) VALUES(?,?,?,?)').run(day,JSON.stringify(order),now().toISOString(),'random');
           if(!result.changes)fail(409,'この夜はすでに抽選済みです。結果を更新します。');
-          rewards.consumeDraw(ids);
         });
         applyDailyStandby(false);
         enqueueTurn(day);
@@ -829,6 +828,7 @@ export function createApp({
             400,
             "この日の設定に合う、これからの時刻と所要時間を選んでください。",
           );
+        rewards.checkTicketSlot(day,body.ticket,start,duration);
         if (typeof note !== "string" || note.length > 300)
           fail(400, "希望の理由は300文字以内で入力してください。");
         if (
@@ -863,6 +863,7 @@ export function createApp({
         const selectedTicket=body.ticket===undefined?existing?.ticket:rewards.ticket(body.ticket);
         if(!validateSlot(start,duration,rewards.bookingRule(day,me.id,selectedTicket,existing)))fail(400,'この日の設定に合う時間と長さを選んでください。');
         if(slotDate(day,start)<=now())fail(400,'これからの時刻を選んでください。');
+        rewards.checkTicketSlot(day,selectedTicket,start,duration,existing);
         ensureFixedDraw(day);
         const draw=db.prepare('SELECT order_json FROM draws WHERE day=?').get(day);
         if(!draw)fail(409,'先に抽選してください。');

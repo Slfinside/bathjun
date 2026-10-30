@@ -154,14 +154,17 @@ internal sealed class DashboardForm : Form {
         // A generous moving margin changes the whole card's location, including QR and clock.
         float driftX=(shift*19%37),driftY=(shift*13%33);
         float compactTop=105+driftY,compactHeight=height*.72f;
-        var main=MixRect(new RectangleF(driftX,compactTop,left-36,compactHeight),new RectangleF(a,top,left,PendingCompletion(ServerNow)!=null?238:190),(float)transition);
-        var share=MixRect(new RectangleF(left+gap,compactTop,right-36,compactHeight),new RectangleF(b,top,right,PendingCompletion(ServerNow)!=null?238:190),(float)transition);
+        DashboardEntry layoutCurrent,layoutNext,layoutAfter;PeopleAt(ServerNow,out layoutCurrent,out layoutNext,out layoutAfter);
+        float detailHeight=PendingCompletion(ServerNow)!=null&&layoutCurrent!=null?280:232;
+        var main=MixRect(new RectangleF(driftX,compactTop,left-36,compactHeight),new RectangleF(a,top,left,detailHeight),(float)transition);
+        var share=MixRect(new RectangleF(left+gap,compactTop,right-36,compactHeight),new RectangleF(b,top,right,detailHeight),(float)transition);
         DrawPeople(g,main,fg,vivid,age);
         Box(g,share,Paper,Line);
         int qrSize=148;
-        DrawQr(g,share.X+18,share.Y+18,qrSize,Muted);
-        Write(g,"家族用リンク",Mix(19,15),Green,new RectangleF(share.X+182,share.Y+68,share.Width-200,35),true);
-        float chartHeight=Math.Max(0,share.Height-202);
+        float qrY=share.Y+Mix(18,(detailHeight-qrSize)/2);
+        DrawQr(g,share.X+18,qrY,qrSize,Muted);
+        Write(g,"家族用リンク",Mix(19,15),Green,new RectangleF(share.X+182,qrY+50,share.Width-200,35),true);
+        float chartHeight=Math.Max(0,share.Height-202)*(1-(float)transition);
         if(chartHeight>0) {
             var state=g.Save();g.SetClip(new RectangleF(share.X+12,share.Y+182,share.Width-24,chartHeight));
             DrawVerticalSchedule(g,new RectangleF(share.X+18,share.Y+182,share.Width-36,Math.Max(170,chartHeight)),fg,age);
@@ -264,6 +267,7 @@ internal sealed class DashboardForm : Form {
         nameWidth=g.MeasureString(entry.name??"",TextFont(29,true),int.MaxValue,StringFormat.GenericTypographic).Width+8;
         return 42+18+nameWidth+20+RemainingWidth(g,entry,now,15,29)+8<=width;
     }
+    float Baseline(float size){return size*Font.FontFamily.GetCellAscent(FontStyle.Bold)/Font.FontFamily.GetEmHeight(FontStyle.Bold);}
     void DrawRemaining(Graphics g,DashboardEntry entry,DateTime now,float x,float y,float width) {
         float small=Mix(24,15),large=Mix(80,29),height=Mix(106,40);
         string number=MinutesUntil(Instant(entry.endsAt),now).ToString(CultureInfo.InvariantCulture);
@@ -271,7 +275,7 @@ internal sealed class DashboardForm : Form {
         float[] sizes={small,large,small};float cursor=x;
         for(int i=0;i<parts.Length;i++) {
             float measured=g.MeasureString(parts[i],TextFont(sizes[i],true),int.MaxValue,StringFormat.GenericTypographic).Width+2;
-            Write(g,parts[i],sizes[i],Green,new RectangleF(cursor,y+(large-sizes[i])*.92f,Math.Max(0,width-(cursor-x)),height),true);cursor+=measured;
+            Write(g,parts[i],sizes[i],Green,new RectangleF(cursor,y+Baseline(large)-Baseline(sizes[i]),Math.Max(0,width-(cursor-x)),height),true);cursor+=measured;
         }
     }
     void DrawPeople(Graphics g,RectangleF rect,Color fg,bool vivid,double age) {
@@ -279,27 +283,28 @@ internal sealed class DashboardForm : Form {
         DateTime now=ServerNow;DashboardEntry current,next,afterNext;PeopleAt(now,out current,out next,out afterNext);
         var pending=PendingCompletion(now);var first=pending??current??next;var second=pending!=null?(current??next):current!=null?next:afterNext;
         float x=rect.X+24,w=rect.Width-48,y=rect.Y;
-        Write(g,pending!=null?"入浴完了":current!=null?"入浴中":"次にお風呂に入る人",Mix(24,16),Green,new RectangleF(x,y+18,w,36),true);
+        bool canReport=age<=20&&first!=null&&(pending!=null||current!=null);
+        Write(g,pending!=null?"入浴完了":current!=null?"入浴中":"次にお風呂に入る人",Mix(24,16),Green,new RectangleF(x,y+18,canReport?w-168:w,36),true);
         float avatarSize=Mix(68,42),nameX=x+avatarSize+18;
-        if(first!=null&&age<=20)Avatar(g,first.emoji,first.color,x,y+Mix(67,52),avatarSize,vivid);
-        Write(g,age>20?"更新待ち":first==null?"次の予約はありません":first.name,Mix(62,29),fg,new RectangleF(first==null?x:nameX,y+Mix(59,45),first==null?w:w-avatarSize-18,Mix(94,46)),true);
+        if(first!=null&&age<=20)Avatar(g,first.emoji,first.color,x,y+Mix(67,64),avatarSize,vivid);
+        Write(g,age>20?"更新待ち":first==null?"次の予約はありません":first.name,Mix(62,29),fg,new RectangleF(first==null?x:nameX,y+Mix(59,57),first==null?w:w-avatarSize-18,Mix(94,46)),true);
         if(age<=20&&first!=null) {
-            if(pending!=null)Write(g,"完了報告をお願いします",Mix(24,16),Green,new RectangleF(x,y+Mix(180,92),w,Mix(64,38)),true);
+            if(pending!=null)Write(g,"完了報告をお願いします",Mix(24,16),Green,new RectangleF(x,y+Mix(180,108),w,Mix(64,38)),true);
             else if(current!=null){
                 float nameWidth;bool inline=RemainingFits(g,first,now,w,out nameWidth);
-                var countdown=MixRect(new RectangleF(x,y+145,w,106),inline?new RectangleF(x+60+nameWidth+20,y+45,w-60-nameWidth-20,40):new RectangleF(x,y+90,w,40),(float)transition);
+                var countdown=MixRect(new RectangleF(x,y+145,w,106),inline?new RectangleF(x+60+nameWidth+20,y+57,w-60-nameWidth-20,40):new RectangleF(x,y+104,w,40),(float)transition);
                 DrawRemaining(g,first,now,countdown.X,countdown.Y,countdown.Width);
             }
-            else Write(g,UpcomingTime(first,now),Mix(31,18),Green,new RectangleF(x,y+Mix(185,94),w,Mix(70,36)),true);
+            else Write(g,UpcomingTime(first,now),Mix(31,18),Green,new RectangleF(x,y+Mix(185,110),w,Mix(70,36)),true);
         }
-        float divider=y+Mix(270,133);Divider(g,x,divider,w);
-        if(age<=20&&first!=null&&(pending!=null||current!=null))ReportButton(g,first,new RectangleF(x+w-154,y+Mix(214,87),154,44));
+        float divider=y+Mix(270,150);Divider(g,x,divider,w);
+        if(canReport)ReportButton(g,first,new RectangleF(x+w-154,y+14,154,44));
         Write(g,pending!=null&&current!=null?"入浴中":pending!=null||current!=null?"次に入る人":"その次に入る人",Mix(22,12),Green,new RectangleF(x,divider+Mix(23,10),w,34),true);
-        var secondName=MixRect(new RectangleF(x,divider+65,w,70),new RectangleF(x+100,divider+15,140,34),(float)transition);
-        var secondTime=MixRect(new RectangleF(x,divider+137,w,58),new RectangleF(x+245,divider+15,Math.Max(1,w-245),34),(float)transition);
+        var secondName=MixRect(new RectangleF(x,divider+65,w,70),new RectangleF(x,divider+37,Math.Min(150,w*.3f),30),(float)transition);
+        var secondTime=MixRect(new RectangleF(x,divider+137,w,58),new RectangleF(x+Math.Min(150,w*.3f)+18,divider+37,w-Math.Min(150,w*.3f)-18,30),(float)transition);
         Write(g,age>20?"更新待ち":second==null?"次の予約はありません":second.name,Mix(44,17),fg,secondName,true);
-        Write(g,age>20||second==null?"":pending!=null&&second==current?"あと "+MinutesUntil(Instant(current.endsAt),now)+"分 | 〜"+Time(current.start+current.duration):UpcomingTime(second,now),Mix(31,14),Green,secondTime,true);
-        if(age<=20&&pending!=null&&current!=null)ReportButton(g,current,new RectangleF(x+w-154,divider+Mix(16,53),154,44));
+        Write(g,age>20||second==null?"":pending!=null&&second==current?"あと "+MinutesUntil(Instant(current.endsAt),now)+"分 | 〜"+Time(current.start+current.duration):UpcomingTime(second,now),Mix(31,18),Green,secondTime,true);
+        if(age<=20&&pending!=null&&current!=null)ReportButton(g,current,new RectangleF(x+w-154,divider+Mix(16,76),154,44));
     }
     sealed class ChartPart {public int start,end;public double weight;}
     static float ChartY(int minute,List<ChartPart> parts,float top,float height) {

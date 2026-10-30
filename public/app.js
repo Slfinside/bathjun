@@ -797,10 +797,65 @@ function openBooking(mode = "booking") {
           .map((w) => renderWish(w))
           .join("")}</details>`
       : ""
-  }${pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish ? "希望する開始時刻" : "脱衣所に入る時刻"}</label><select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${booking?.noNegotiation ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "重なっている時間にも希望を出せます。重なりがある間は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
+  }${pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}${ticketLimits(pendingItem || booking?.ticket)}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish ? "希望する開始時刻" : "脱衣所に入る時刻"}</label><select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${booking?.noNegotiation ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "重なっている時間にも希望を出せます。重なりがある間は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
   updateSlots(entry?.start);
   applyMemberColors(dialog);
   dialog.showModal();
+}
+function ticketSlotAllowed(start, duration) {
+  const kind =
+    pendingItem ||
+    (dialog.dataset.mode === "booking" ? ownBooking()?.ticket : null);
+  if (!["extend", "skip"].includes(kind)) return true;
+  const existing = ownBooking();
+  if (
+    dialog.dataset.mode === "booking" &&
+    existing?.ticket === kind &&
+    existing.start === start &&
+    existing.duration === duration
+  )
+    return true;
+  const config = state.rewards.settings;
+  const lead =
+    kind === "extend"
+      ? config.extensionNoticeMinutes
+      : config.skipNoticeMinutes;
+  if (lead > 0 && slotDate(start) - serverNow() <= lead * 60000) return false;
+  if (kind === "extend" && config.extensionBlocked) {
+    for (
+      let offset = Math.floor(start / 1440) - 1;
+      offset <= Math.floor((start + duration) / 1440);
+      offset++
+    ) {
+      const from = offset * 1440 + config.extensionBlockedStart;
+      const to =
+        offset * 1440 +
+        config.extensionBlockedEnd +
+        (config.extensionBlockedEnd < config.extensionBlockedStart ? 1440 : 0);
+      if (start < to && start + duration > from) return false;
+    }
+  }
+  return true;
+}
+function ticketLimits(kind) {
+  if (!["extend", "skip"].includes(kind)) return "";
+  const config = state.rewards.settings;
+  const lead =
+    kind === "extend"
+      ? config.extensionNoticeMinutes
+      : config.skipNoticeMinutes;
+  const lines = [];
+  if (kind === "extend" && config.extensionBlocked) {
+    const clock = (n) =>
+      `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
+    lines.push(
+      `${clock(config.extensionBlockedStart)}〜${clock(config.extensionBlockedEnd)}に重なる予約には使えません。`,
+    );
+  }
+  if (lead > 0) lines.push(`開始まで${lead}分以下の予約には使えません。`);
+  return lines.length
+    ? `<p class="ticket-limits">${lines.join("<br>")}</p>`
+    : "";
 }
 function updateSlots(preferred) {
   const select = document.querySelector("#start");
@@ -813,6 +868,7 @@ function updateSlots(preferred) {
     start < state.settings.bathEnd;
     start += state.settings.step
   ) {
+    if (!ticketSlotAllowed(start, duration)) continue;
     if (
       dialog.dataset.mode === "wish"
         ? start + duration > state.settings.bathEnd ||
@@ -1238,7 +1294,9 @@ function renderStampCard(compact = true) {
   if (!card) return "";
   const earned = card.days.filter((d) => d.status === "stamp"),
     last = card.days[6].day;
-  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${card.week} 〜 ${last}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${card.week} 〜 ${last}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong>${d.status === "stamp" ? "♨" : d.status === "failed" ? "×" : "○"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : card.failed ? "この週は達成不可" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}の夜 <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
+  const shortDate = (value) => value.slice(5).replace("-", "/");
+  const period = `<span class="stamp-period"><small>${card.week.slice(0, 4)}年</small><span>${shortDate(card.week)} 〜 ${shortDate(last)}</span></span>`;
+  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong>${d.status === "stamp" ? "♨" : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}の夜 <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
 }
 function renderSecondaryPage() {
   renderHeaderAccount();
@@ -1247,7 +1305,7 @@ function renderSecondaryPage() {
   if (pageView === "settings")
     html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoStandbyForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
   if (pageView === "inventory")
-    html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}枚</span></button>`).join("")}</div>${state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
+    html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}枚</span></button>`).join("")}</div>${state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：残り${state.rewards.boostRemaining}日</p>` : ""}</section>`;
   if (["gifts", "history"].includes(pageView)) {
     const history = pageView === "history",
       gifts = state.rewards.gifts.filter((g) => history || !g.receivedAt);
@@ -1261,13 +1319,13 @@ function showItem(kind) {
   const config = state.rewards.settings;
   const description = {
     skip: "順番を待たずに予約できます。重なる既存の予約は事前希望へ戻します。ガード付きの予約とは重ねられません。",
-    extend: `この予約の上限を${Math.floor(config.extensionMinutes / state.settings.step) * state.settings.step}分延ばします。ほかの予約との重なりや入浴時間帯のはみ出しはできません。`,
-    boost: `次の${config.boostDraws}回の抽選で、1番になる確率の重みが通常の3倍になります。`,
+    extend: `予約できる時間の上限を${Math.floor(config.extensionMinutes / state.settings.step) * state.settings.step}分伸ばします。ほかの予約との重なりや入浴時間帯のはみ出しはできません。`,
+    boost: `予約順が1番になる確率が、使っていない人の3倍になります。効果は${config.boostDays}日間つづきます。`,
     guard:
       "確定した予約を順番抜かしから守ります。事前希望への指定では消費せず、確定時に消費します。",
   }[kind];
   dialog.dataset.mode = "item";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p><p>所持数：${owned(kind)}枚</p><p class="fine-print">予約に使えるアイテムは1種類です。説明を開くだけでは消費しません。</p><button class="primary" data-action="use-item" ${owned(kind) ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}枚</p><button class="primary" data-action="use-item" ${owned(kind) ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
   dialog.showModal();
 }
 async function handleRewardsAction(action, event) {
