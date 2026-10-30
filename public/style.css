@@ -2551,3 +2551,9 @@ footer .site-credit {
   margin-bottom: 14px;
 }
 .item-art{display:block;width:80px;height:64px;object-fit:contain;flex-shrink:0}.item-card>.item-icon{display:flex;align-items:center;justify-content:center;min-height:70px}.gift-entry>.item-icon .item-art{width:64px;height:52px}.item-detail-icon .item-art{width:148px;height:112px;margin:auto}.celebration-prize>.item-icon{display:flex;justify-content:center}.celebration-prize .item-art{width:112px;height:84px}.roulette-wheel .item-art{width:54px;height:40px;max-width:none;margin-left:-7px}
+
+/* A small, fixed tilt keeps the symbols legible and the cards playful. */
+.item-art[src$="/boost.svg"] { transform: rotate(-7deg); }
+.item-art[src$="/skip.svg"] { transform: rotate(6deg); }
+.item-art[src$="/extend.svg"] { transform: rotate(-5deg); }
+.item-art[src$="/guard.svg"] { transform: rotate(5deg); }
