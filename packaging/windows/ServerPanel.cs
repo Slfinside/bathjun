@@ -190,7 +190,7 @@ internal sealed class PanelForm : Form {
             try {
                 updatePreparing=true;UseWaitCursor=true;
                 string selected=picker.FileName;
-                var current=new Version(ServerUpdate.VersionAt(root));var next=await Task.Run(()=>ServerUpdate.ValidateInstaller(selected,current));
+                var current=ServerUpdate.ParseVersion(ServerUpdate.VersionAt(root));var next=await Task.Run(()=>ServerUpdate.ValidateInstaller(selected,current));
                 if(MessageBox.Show(this,"バージョン "+current+" → "+next+" に更新します。\n予約データは残し、更新中はアクセスと通知を停止します。完了後は同じ起動方法で再起動します。\n\nGitHubの公式Releaseから取得したファイルであることを確認してください。\nSHA-256ファイルを同じ場所へ置いた場合は照合します。","ふろじゅんの更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
                 var helper=await Task.Run(()=>ServerUpdate.Stage(selected,root,serverPid,publicMode));
                 if(dashboard!=null)dashboard.Close();

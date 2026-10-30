@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build an offline, per-user NSIS installer. Never package local data or keys."""
-import argparse,hashlib,json,os,pathlib,runpy,shutil,struct,subprocess,tempfile,urllib.request,zipfile
+import argparse,hashlib,json,os,pathlib,re,runpy,shutil,struct,subprocess,tempfile,urllib.request,zipfile
 ROOT=pathlib.Path(__file__).resolve().parent.parent
 
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -13,6 +13,14 @@ def fetch(url,path,expected=None):
             temporary.replace(path)
         finally:temporary.unlink(missing_ok=True)
     if expected and sha(path)!=expected:raise RuntimeError(f'Checksum mismatch: {path.name}')
+
+def windows_file_version(version):
+    match=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-rc(?:\.(\d+))?)?',version)
+    if not match:raise ValueError('Unsupported release version: '+version)
+    parts=[int(match.group(i)) for i in range(1,4)]
+    revision=int(match.group(4) or '1') if '-rc' in version else 65535
+    if any(part>65535 for part in parts) or not 1<=revision<=65535 or ('-rc' in version and revision==65535):raise ValueError('Version is outside Windows resource limits')
+    return '.'.join(map(str,[*parts,revision]))
 
 def build(args):
     assets=pathlib.Path(args.assets).resolve();assets.mkdir(parents=True,exist_ok=True)
@@ -73,7 +81,7 @@ def build(args):
             portable_output.with_suffix('.zip.sha256').write_text(sha(portable_output)+'  '+portable_output.name+'\n',encoding='ascii')
             print(f'Created {portable_output} ({portable_output.stat().st_size:,} bytes)')
 
-        subprocess.run([args.makensis,'-WX','-V2',f'-DOUTPUT={output}',f'-DPAYLOAD={payload}',f'-DVERSION={version}',f'-DFILE_VERSION={version}.0',str(ROOT/'packaging/windows/installer.nsi')],check=True)
+        subprocess.run([args.makensis,'-WX','-V2',f'-DOUTPUT={output}',f'-DPAYLOAD={payload}',f'-DVERSION={version}',f'-DFILE_VERSION={windows_file_version(version)}',str(ROOT/'packaging/windows/installer.nsi')],check=True)
     output.with_suffix('.exe.sha256').write_text(sha(output)+'  '+output.name+'\n',encoding='ascii')
     print(f'Created {output} ({output.stat().st_size:,} bytes)')
 

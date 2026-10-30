@@ -10,9 +10,16 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
 internal static class ServerUpdate {
-    internal const string ReleaseUrl="https://github.com/Slfinside/bathjun/releases/latest";
+    internal const string ReleaseUrl="https://github.com/Slfinside/bathjun/releases";
     internal static string InstallRoot {get{return Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).FullName;}}
     internal static string VersionAt(string root){var package=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.Combine(root,"app","package.json")));return Convert.ToString(package["version"]);}
+    internal static Version ParseVersion(string value) {
+        var match=Regex.Match(value??"","^(\\d+)\\.(\\d+)\\.(\\d+)(?:-rc(?:\\.(\\d+))?)?$");
+        int major,minor,patch,revision=65535;
+        if(!match.Success||!int.TryParse(match.Groups[1].Value,out major)||!int.TryParse(match.Groups[2].Value,out minor)||!int.TryParse(match.Groups[3].Value,out patch)||major>65535||minor>65535||patch>65535)throw new InvalidDataException("バージョンを確認できませんでした。");
+        if(value.Contains("-rc")){revision=1;if(match.Groups[4].Success&&!int.TryParse(match.Groups[4].Value,out revision))throw new InvalidDataException("RC番号を確認できませんでした。");if(revision<1||revision>=65535)throw new InvalidDataException("RC番号を確認できませんでした。");}
+        return new Version(major,minor,patch,revision);
+    }
     internal static string Hash(string path){using(var algorithm=SHA256.Create())using(var stream=File.OpenRead(path))return BitConverter.ToString(algorithm.ComputeHash(stream)).Replace("-","").ToLowerInvariant();}
     internal static Version ValidateInstaller(string path,Version current) {
         var info=FileVersionInfo.GetVersionInfo(path);Version candidate;
@@ -51,7 +58,7 @@ internal static class ServerUpdate {
                     int panelId,serverId;if(!int.TryParse(args[3],out panelId)||!int.TryParse(args[4],out serverId)||panelId<=0||serverId<=0)throw new InvalidDataException("更新情報を確認できませんでした。");
                     string root=Path.GetFullPath(args[2]);
                     if(!File.Exists(Path.Combine(root,"Uninstall.exe")) || !File.Exists(Path.Combine(root,"app","package.json")))throw new InvalidDataException("インストール先を確認できませんでした。");
-                    ValidateInstaller(args[1],new Version(VersionAt(root)));
+                    ValidateInstaller(args[1],ParseVersion(VersionAt(root)));
                     if(Hash(args[1])!=args[6])throw new InvalidDataException("更新ファイルが変更されています。");
                     Wait(serverId);Wait(panelId);
                     form.BeginInvoke((MethodInvoker)delegate{label.Text="更新しています。予約データは残ります。\n完了するとサーバーを再起動します。";});
