@@ -2594,3 +2594,52 @@ footer .site-credit {
 
 .nudge-button { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
 .nudge-button small { font-size: 10px; font-weight: 400; }
+
+/* The gift notice points to the menu; date tabs sit beneath the date. */
+#header-account { position: relative; }
+.gift-callout {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 12px);
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #dfd5b0;
+  border-radius: 12px;
+  background: #fff8e3;
+  box-shadow: 0 5px 18px #534b2510;
+  color: #76602d;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+}
+.gift-callout::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 24px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-top: 1px solid #dfd5b0;
+  border-left: 1px solid #dfd5b0;
+  transform: rotate(45deg);
+}
+.gift-callout > span:last-child { white-space: nowrap; }
+#header-account.menu-open .gift-callout { visibility: hidden; pointer-events: none; }
+.date-bar { flex-direction: column; align-items: stretch; gap: 16px; }
+.day-switch { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: min(100%, 440px); align-self: flex-end; }
+.day-switch button { padding: 8px; }
+@media (max-width: 779px) {
+  .site-header.has-gift-callout { margin-bottom: 64px; }
+}
+@media (max-width: 600px) {
+  .day-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; align-self: stretch; }
+}
+.date-bar > div:first-child { align-self: flex-start; max-width: 100%; }
+.account-menu { min-width: 0; max-width: 100%; }

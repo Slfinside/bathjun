@@ -111,6 +111,9 @@ function giftBadge() {
 function renderHeaderAccount() {
   const account = document.querySelector("#header-account");
   const menuOpen = !!account.querySelector("details")?.open;
+  const showGiftNotice = !!me && state?.rewards?.pendingGifts > 0 && !["gifts", "history"].includes(pageView);
+  document.querySelector(".site-header").classList.toggle("has-gift-callout", showGiftNotice);
+  account.classList.toggle("menu-open", menuOpen);
   account.hidden = !me;
   account.innerHTML = me
     ? `<details class="account-menu" ${menuOpen ? "open" : ""}><summary class="profile-button" aria-label="${menuOpen ? "メニューを閉じる" : "メニューを開く"}">${avatar(me.id, true)}<span class="profile-identity"><span class="profile-name">${escapeHTML(me.name)}</span><small>メニュー <span class="menu-glyph"><span class="menu-icon" aria-hidden="true"><span class="menu-line"></span><span class="menu-line"></span></span>${state?.rewards?.pendingGifts ? '<span class="menu-notice" aria-label="未受取のプレゼントがあります">*</span>' : ""}</span></small></span></summary><nav aria-label="メニュー">${[
@@ -125,7 +128,7 @@ function renderHeaderAccount() {
           ([key, label]) =>
             `<button data-action="nav-${key}">${label}${key === "gifts" ? giftBadge() : ""}</button>`,
         )
-        .join("")}</nav></details>`
+        .join("")}</nav></details>${showGiftNotice ? '<button class="gift-callout" data-action="nav-gifts" aria-label="プレゼントが届いています。プレゼントボックスを開く"><span aria-hidden="true">📦</span><span>プレゼントが届いています。</span></button>' : ""}`
     : "";
   if (me) applyMemberColors(account);
 }
@@ -1432,13 +1435,15 @@ async function handleRewardsAction(action, event) {
 document.querySelector("#header-account").addEventListener(
   "toggle",
   (event) => {
-    if (event.target.matches(".account-menu"))
+    if (event.target.matches(".account-menu")) {
+      document.querySelector("#header-account").classList.toggle("menu-open", event.target.open);
       event.target
         .querySelector("summary")
         .setAttribute(
           "aria-label",
           event.target.open ? "メニューを閉じる" : "メニューを開く",
         );
+    }
   },
   true,
 );
