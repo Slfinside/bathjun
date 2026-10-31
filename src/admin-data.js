@@ -102,10 +102,12 @@ export function createAdminData({
     db.exec("BEGIN IMMEDIATE");
     try {
       for (const table of [
+        "completion_reminders",
         "nudge_jobs",
         "nudges",
         "item_actions",
         "weekly_rewards",
+        "standby_stamps",
         "bath_completions",
         "lottery_boosts",
         "item_ledger",

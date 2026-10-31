@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { randomBytes, randomInt } from "node:crypto";
+import { createStandbyStamps } from "./standby-stamps.js";
 import { slotDate, shuffle } from "./domain.js";
 export const ITEM_KINDS = ["skip", "extend", "boost", "guard"];
 export const ITEM_NAMES = {
@@ -123,6 +124,10 @@ export function createRewards({ db, now, scheduleForDay }) {
       "ALTER TABLE weekly_rewards ADD COLUMN reward_mode TEXT NOT NULL DEFAULT 'roulette'",
     );
   const defaults = () => ({
+    itemsEnabled: true,
+    standbyFailureDays: 2,
+    clientReportMinutes: 3,
+    dashboardReportMinutes: 1,
     extensionMinutes: 30,
     boostDraws: 3,
     extensionBlocked: true,
@@ -146,6 +151,21 @@ export function createRewards({ db, now, scheduleForDay }) {
       ...saved,
       boostDraws: saved.boostDraws ?? saved.boostDays ?? 3,
     };
+  };
+  const standby = createStandbyStamps({
+    db,
+    now,
+    scheduleForDay,
+    threshold: () => settings().standbyFailureDays,
+    reportMinutes: () =>
+      Math.max(
+        settings().clientReportMinutes,
+        settings().dashboardReportMinutes,
+      ),
+  });
+  const requireItems = () => {
+    if (!settings().itemsEnabled)
+      bad("アイテム機能が無効に設定されています。", 409);
   };
   function transaction(fn) {
     db.exec("SAVEPOINT rewards_transaction");
@@ -229,7 +249,31 @@ export function createRewards({ db, now, scheduleForDay }) {
       )
     )
       bad("チケットの使用制限を確認してください。");
+    const itemsEnabled = value.itemsEnabled ?? settings().itemsEnabled;
+    const standbyFailureDays =
+      value.standbyFailureDays ?? settings().standbyFailureDays;
+    if (
+      typeof itemsEnabled !== "boolean" ||
+      !Number.isInteger(standbyFailureDays) ||
+      standbyFailureDays < 1 ||
+      standbyFailureDays > 30
+    )
+      bad("アイテム機能・連続して入らない日数を確認してください。");
+    const clientReportMinutes =
+      value.clientReportMinutes ?? settings().clientReportMinutes;
+    const dashboardReportMinutes =
+      value.dashboardReportMinutes ?? settings().dashboardReportMinutes;
+    if (
+      ![clientReportMinutes, dashboardReportMinutes].every(
+        (n) => Number.isInteger(n) && n >= 1 && n <= 180,
+      )
+    )
+      bad("完了報告の期限は1〜180分で設定してください。");
     const normalized = {
+      itemsEnabled,
+      standbyFailureDays,
+      clientReportMinutes,
+      dashboardReportMinutes,
       ...limits,
       rewardMode,
       fixedKind,
@@ -284,6 +328,7 @@ export function createRewards({ db, now, scheduleForDay }) {
   function bookingRule(day, member, selected, existing = null) {
     const rule = scheduleForDay(day),
       kind = ticket(selected);
+    if (kind && kind !== existing?.ticket) requireItems();
     let extra = 0;
     if (existing?.ticket && kind && kind !== existing.ticket)
       bad("この予約では別の種類のアイテムを追加できません。", 409);
@@ -339,6 +384,7 @@ export function createRewards({ db, now, scheduleForDay }) {
   }
   function commitTicket(day, member, selected, existing = null) {
     const kind = ticket(selected) || existing?.ticket || null;
+    if (kind && existing?.ticket !== kind) requireItems();
     if (kind && existing?.ticket !== kind)
       spend(member, kind, `booking:${day}`);
     return {
@@ -358,6 +404,7 @@ export function createRewards({ db, now, scheduleForDay }) {
       )
       .all(member);
   function distribute(body) {
+    requireItems();
     const { recipients, kinds, quantity, requestId } = body || {};
     if (
       !Array.isArray(recipients) ||
@@ -407,6 +454,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     return admin();
   }
   function receive(member, id) {
+    requireItems();
     if (typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id))
       bad("プレゼントを確認してください。");
     return transaction(() => {
@@ -430,6 +478,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     });
   }
   function activate(member, id) {
+    requireItems();
     if (typeof id !== "string" || !/^[a-zA-Z0-9-]{8,100}$/.test(id))
       bad("操作をやり直してください。");
     return transaction(() => {
@@ -458,7 +507,9 @@ export function createRewards({ db, now, scheduleForDay }) {
       .prepare("SELECT remaining FROM lottery_boosts WHERE member_id=?")
       .get(member)?.remaining || 0;
   function draw(ids) {
-    const boosted = ids.filter((id) => boostRemaining(id) > 0);
+    const boosted = settings().itemsEnabled
+      ? ids.filter((id) => boostRemaining(id) > 0)
+      : [];
     const first = weightedFirst(ids, boosted);
     return {
       order:
@@ -469,6 +520,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     };
   }
   function consumeDraw(ids) {
+    if (!settings().itemsEnabled) return;
     for (const id of ids)
       db.prepare(
         "UPDATE lottery_boosts SET remaining=MAX(0,remaining-1) WHERE member_id=?",
@@ -498,7 +550,10 @@ export function createRewards({ db, now, scheduleForDay }) {
         now() < slotDate(day, booking.start) ||
         now().getTime() >
           slotDate(day, booking.start + booking.duration).getTime() +
-            (source === "dashboard" ? 60 : 180) * 1000
+            (source === "dashboard"
+              ? settings().dashboardReportMinutes
+              : settings().clientReportMinutes) *
+              60000
       )
         bad("完了報告の受付時間外です。", 409);
       db.prepare(
@@ -512,11 +567,39 @@ export function createRewards({ db, now, scheduleForDay }) {
         now().toISOString(),
         source,
       );
-      if (card(member, day).achieved) queueWeekly(member, weekOf(day));
+      settle(member);
       return { ok: true };
     });
   }
   function card(member, day) {
+    settle(member);
+    return rawCard(member, day);
+  }
+  function settle(member) {
+    transaction(() => {
+      standby.resolve(member);
+      if (!settings().itemsEnabled) return;
+      const weeks = new Map();
+      for (const row of db
+        .prepare(
+          "SELECT day FROM bath_completions WHERE member_id=? UNION SELECT day FROM standby_stamps WHERE member_id=? AND status='stamp'",
+        )
+        .all(member, member)) {
+        const week = weekOf(row.day);
+        weeks.set(week, (weeks.get(week) || 0) + 1);
+      }
+      const issued = new Set(
+        db
+          .prepare("SELECT week FROM weekly_rewards WHERE member_id=?")
+          .all(member)
+          .map((row) => row.week),
+      );
+      for (const [week, count] of weeks)
+        if (count === 7 && !issued.has(week) && rawCard(member, week).achieved)
+          queueWeekly(member, week);
+    });
+  }
+  function rawCard(member, day) {
     const week = weekOf(day),
       days = Array.from({ length: 7 }, (_, i) => addDay(week, i));
     const stamps = db
@@ -524,6 +607,19 @@ export function createRewards({ db, now, scheduleForDay }) {
         "SELECT day,reported_at FROM bath_completions WHERE member_id=? AND day>=? AND day<=?",
       )
       .all(member, week, days[6]);
+    const standbyRows = db
+      .prepare(
+        "SELECT day,status,resolved_at FROM standby_stamps WHERE member_id=? AND day>=? AND day<=?",
+      )
+      .all(member, week, days[6]);
+    const pendingSkips = new Set(
+      db
+        .prepare(
+          "SELECT day FROM bath_skips WHERE member_id=? AND day>=? AND day<=?",
+        )
+        .all(member, week, days[6])
+        .map((row) => row.day),
+    );
     const cells = days.map((date) => {
       const booking = db
         .prepare(
@@ -536,15 +632,27 @@ export function createRewards({ db, now, scheduleForDay }) {
           booking
             ? booking.start + booking.duration
             : scheduleForDay(date).bathEnd,
-        ).getTime() + 180000;
+        ).getTime() +
+        Math.max(
+          settings().clientReportMinutes,
+          settings().dashboardReportMinutes,
+        ) *
+          60000;
+      const resolved = standbyRows.find((row) => row.day === date);
       return {
         day: date,
-        earnedAt: stamps.find((x) => x.day === date)?.reported_at || null,
+        earnedAt:
+          stamps.find((x) => x.day === date)?.reported_at ||
+          (resolved?.status === "stamp" ? resolved.resolved_at : null),
+        reason: resolved?.status === "stamp" ? "standby" : null,
         status: stamps.some((x) => x.day === date)
           ? "stamp"
-          : now().getTime() > deadline
-            ? "failed"
-            : "pending",
+          : resolved?.status ||
+            (pendingSkips.has(date) && !booking
+              ? "pending"
+              : now().getTime() > deadline
+                ? "failed"
+                : "pending"),
       };
     });
     const claimed =
@@ -556,7 +664,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     return {
       week,
       days: cells,
-      achieved: stamps.length === 7,
+      achieved: cells.every((cell) => cell.status === "stamp"),
       failed: cells.some((x) => x.status === "failed"),
       claimed,
     };
@@ -569,6 +677,7 @@ export function createRewards({ db, now, scheduleForDay }) {
       .get(week, member);
     if (existing) return existing;
     const config = settings();
+    if (!config.itemsEnabled) return null;
     let kind = config.fixedKind;
     if (config.rewardMode === "roulette") {
       let number = randomInt(
@@ -619,6 +728,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     });
   }
   function view(member, day) {
+    settle(member);
     return {
       celebrations: db
         .prepare(
@@ -637,7 +747,7 @@ export function createRewards({ db, now, scheduleForDay }) {
       })),
       boostRemaining: boostRemaining(member),
       gifts: gifts(member),
-      card: card(member, day),
+      card: rawCard(member, day),
     };
   }
   function admin() {
@@ -670,6 +780,7 @@ export function createRewards({ db, now, scheduleForDay }) {
   }
   return {
     celebrate,
+    standbyWarning: standby.warning,
     settings,
     saveSettings,
     transaction,

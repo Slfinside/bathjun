@@ -9,7 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createApp } from "../src/app.js";
 import { DEFAULT_SCHEDULE } from "../src/server-settings.js";
 import { weekOf, addDay, weightedFirst } from "../src/rewards.js";
-async function fixture(t, { random = false } = {}) {
+async function fixture(t, { random = false, deliverPush = null } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "bathjun-reward-")),
     database = join(dir, "test.sqlite");
   let clock = new Date("2026-10-24T08:00:00+09:00"),
@@ -21,7 +21,10 @@ async function fixture(t, { random = false } = {}) {
       database,
       requireFamily: false,
       now: () => clock,
-      deliverPush: async (sub, payload) => sent.push({ sub, payload }),
+      deliverPush: async (sub, payload, keys, options) => {
+        if (deliverPush) await deliverPush(sub, payload, keys, options);
+        sent.push({ sub, payload, options });
+      },
     });
   app = open();
   app.saveServerSettings({
@@ -628,4 +631,438 @@ test("旧抽選結果の移行では確率UPの使用者を推測せず、既存
   const state = await f.state();
   assert.deepEqual(state.draw.originalOrder, original);
   assert.deepEqual(state.draw.boostedMemberIds, []);
+});
+
+test("土曜の様子見を日曜の入浴完了で遡って成功にし、前週の報酬を一度だけ届ける", async (t) => {
+  const f = await fixture(t);
+  for (let i = 0; i < 6; i++) {
+    const day = addDay("2026-10-25", i);
+    f.time(day + "T08:00:00");
+    await f.book(1, 1080, 30, null, day);
+    const booking = (await f.state()).bookings.find((b) => b.memberId === 1);
+    f.time(day + "T18:05:00");
+    await f.api("complete", { day, revision: booking.revision });
+  }
+  f.time("2026-10-31T08:00:00");
+  await f.api("skip", { day: "2026-10-31", skip: true });
+  f.time("2026-11-01T07:00:00");
+  let old = await f.api("rewards?week=2026-10-25");
+  assert.equal(old.card.days[6].status, "pending");
+  assert.equal(old.card.achieved, false);
+  assert.equal(old.pendingGifts, 0);
+  await f.book(1, 1080, 30, null, "2026-11-01");
+  const booking = (await f.state()).bookings.find((b) => b.memberId === 1);
+  f.time("2026-11-01T18:05:00");
+  await f.api("complete", { day: "2026-11-01", revision: booking.revision });
+  old = await f.api("rewards?week=2026-10-25");
+  assert.equal(old.card.achieved, true);
+  assert.equal(old.card.days[6].status, "stamp");
+  assert.equal(old.card.days[6].reason, "standby");
+  assert.equal(old.pendingGifts, 1);
+  assert.equal(old.gifts[0].rewardWeek, "2026-10-25");
+  await f.restart();
+  old = await f.api("rewards?week=2026-10-25");
+  assert.equal(old.gifts.length, 1);
+  assert.equal(old.celebrations[0].week, "2026-10-25");
+});
+
+test("連続2日の入らないは2日目の入浴終了で両日失敗になる・それまでは保留", async (t) => {
+  const f = await fixture(t);
+  f.time("2026-10-31T08:00:00");
+  await f.api("skip", { day: "2026-10-31", skip: true });
+  f.time("2026-11-01T08:00:00");
+  assert.equal((await f.state()).standbyWarning.days, 2);
+  await f.api("skip", { day: "2026-11-01", skip: true });
+  for (const week of ["2026-10-25", "2026-11-01"]) {
+    const card = (await f.api("rewards?week=" + week)).card;
+    assert.equal(card.days[week === "2026-10-25" ? 6 : 0].status, "pending");
+  }
+  f.time("2026-11-02T06:59:59");
+  assert.equal(
+    (await f.api("rewards?week=2026-10-25")).card.days[6].status,
+    "pending",
+  );
+  f.time("2026-11-02T07:00:00");
+  assert.equal(
+    (await f.api("rewards?week=2026-10-25")).card.days[6].status,
+    "failed",
+  );
+  assert.equal(
+    (await f.api("rewards?week=2026-11-01")).card.days[0].status,
+    "failed",
+  );
+  f.app.saveRewardSettings({
+    ...f.app.getRewardsAdmin().settings,
+    standbyFailureDays: 3,
+  });
+  await f.restart();
+  assert.equal(
+    (await f.api("rewards?week=2026-10-25")).card.days[6].status,
+    "failed",
+  );
+});
+
+test("様子見を解除して入浴すれば前日の保留も成功・3日設定の警告は3日目", async (t) => {
+  const f = await fixture(t);
+  f.app.saveRewardSettings({
+    ...f.app.getRewardsAdmin().settings,
+    standbyFailureDays: 3,
+  });
+  await f.api("skip", { day: "2026-10-25", skip: true });
+  f.time("2026-10-26T08:00:00");
+  assert.equal((await f.state()).standbyWarning, null);
+  await f.api("skip", { day: "2026-10-26", skip: true });
+  f.time("2026-10-27T08:00:00");
+  assert.equal((await f.state()).standbyWarning.days, 3);
+  await f.api("skip", { day: "2026-10-27", skip: true });
+  await f.api("skip", { day: "2026-10-27", skip: false });
+  await f.book(1, 1080, 30, null, "2026-10-27");
+  const booking = (await f.state()).bookings[0];
+  f.time("2026-10-27T18:10:00");
+  await f.api("complete", { day: "2026-10-27", revision: booking.revision });
+  const card = (await f.state()).rewards.card;
+  assert.deepEqual(
+    card.days.slice(0, 3).map((d) => d.status),
+    ["stamp", "stamp", "stamp"],
+  );
+});
+
+test("アイテム無効は既存の持ち物・プレゼントを保持し、APIからの使用・受取・配布も止める", async (t) => {
+  const f = await fixture(t, { random: true });
+  await f.grant(1, ["guard", "boost"], 2);
+  await f.api("items/boost", { requestId: randomUUID() });
+  f.app.distributeItems({
+    recipients: [1],
+    kinds: ["extend"],
+    quantity: 1,
+    requestId: randomUUID(),
+  });
+  const before = (await f.state()).rewards;
+  f.app.saveRewardSettings({ ...before.settings, itemsEnabled: false });
+  const after = (await f.state()).rewards;
+  assert.deepEqual(after.wallet, before.wallet);
+  assert.equal(after.pendingGifts, 1);
+  assert.equal(
+    (
+      await f.request("gifts/receive", {
+        id: after.gifts.find((g) => !g.receivedAt).id,
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (await f.request("items/boost", { requestId: randomUUID() })).status,
+    409,
+  );
+  assert.equal(
+    (
+      await f.request("wish", {
+        day: "2026-10-26",
+        start: 1080,
+        duration: 30,
+        ticket: "guard",
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await f.request("book", {
+        day: "2026-10-25",
+        start: 1080,
+        duration: 30,
+        ticket: "guard",
+      })
+    ).status,
+    409,
+  );
+  assert.throws(
+    () =>
+      f.app.distributeItems({
+        recipients: [1],
+        kinds: ["guard"],
+        quantity: 1,
+        requestId: randomUUID(),
+      }),
+    /無効/,
+  );
+  await f.api("draw", { day: "2026-10-25" });
+  const state = await f.state();
+  assert.deepEqual(state.draw.boostedMemberIds, []);
+  assert.equal(state.rewards.boostRemaining, before.boostRemaining);
+  await f.restart();
+  assert.equal((await f.state()).rewards.settings.itemsEnabled, false);
+  f.app.saveRewardSettings({ ...after.settings, itemsEnabled: true });
+  assert.equal((await f.state()).rewards.boostRemaining, before.boostRemaining);
+});
+
+test("アイテム無効中も既存の延長予約の効果は維持し、未確定のガード希望は消費せず普通の予約にする", async (t) => {
+  const f = await fixture(t);
+  await f.grant(1, ["extend", "guard"]);
+  f.app.saveRewardSettings({
+    ...f.app.getRewardsAdmin().settings,
+    extensionBlocked: false,
+  });
+  await f.book(1, 1080, 120, "extend");
+  await f.api("wish", {
+    day: "2026-10-26",
+    start: 1080,
+    duration: 30,
+    ticket: "guard",
+  });
+  f.app.saveRewardSettings({
+    ...f.app.getRewardsAdmin().settings,
+    itemsEnabled: false,
+  });
+  await f.book(1, 1080, 120, "extend");
+  assert.equal((await f.state()).bookings[0].ticket, "extend");
+  f.time("2026-10-26T08:00:00");
+  const state = await f.state();
+  assert.equal(state.bookings[0].ticket, null);
+  assert.equal(
+    state.rewards.wallet.find((x) => x.kind === "guard").quantity,
+    1,
+  );
+});
+
+test("完了報告期限をクライアント・ダッシュボード別に設定し、境界と表示に反映する", async (t) => {
+  const f = await fixture(t);
+  f.app.saveRewardSettings({
+    ...f.app.getRewardsAdmin().settings,
+    clientReportMinutes: 10,
+    dashboardReportMinutes: 5,
+  });
+  await f.book(1, 1080, 30);
+  const first = (await f.state()).bookings[0];
+  f.time("2026-10-25T18:35:00");
+  assert.equal(f.app.getDashboard().reportMinutes, 5);
+  f.app.completeBath({
+    day: "2026-10-25",
+    memberId: 1,
+    revision: first.revision,
+  });
+  f.time("2026-10-26T08:00:00");
+  await f.book(1, 1080, 30, null, "2026-10-26");
+  const second = (await f.state()).bookings[0];
+  f.time("2026-10-26T18:35:01");
+  assert.throws(
+    () =>
+      f.app.completeBath({
+        day: "2026-10-26",
+        memberId: 1,
+        revision: second.revision,
+      }),
+    /受付時間外/,
+  );
+  f.time("2026-10-26T18:40:00");
+  await f.api("complete", { day: "2026-10-26", revision: second.revision });
+  for (const value of [
+    { itemsEnabled: "false" },
+    { standbyFailureDays: 0 },
+    { standbyFailureDays: 2.5 },
+    { clientReportMinutes: 0 },
+    { dashboardReportMinutes: 181 },
+  ])
+    assert.throws(() =>
+      f.app.saveRewardSettings({
+        ...f.app.getRewardsAdmin().settings,
+        ...value,
+      }),
+    );
+});
+
+const completionNotices = (f) =>
+  f.sent.filter((x) => x.payload.tag.startsWith("bath-completion-"));
+function reportSubscription(name = "report") {
+  const key = createECDH("prime256v1");
+  key.generateKeys();
+  return {
+    endpoint: "https://web.push.apple.com/" + name,
+    keys: {
+      p256dh: key.getPublicKey().toString("base64url"),
+      auth: randomBytes(16).toString("base64url"),
+    },
+  };
+}
+async function enableReportPush(f, sub = reportSubscription()) {
+  await f.api("notification-preferences", {
+    reservationTurn: false,
+    bathReminder: false,
+  });
+  await f.api("push/subscribe", { subscription: sub });
+  return sub;
+}
+
+test("予約終了時の報告通知は本人の全端末へ一度だけ送り、再起動・設定切替で重複しない", async (t) => {
+  const f = await fixture(t);
+  const sub = await enableReportPush(f);
+  await f.api("push/subscribe", {
+    subscription: reportSubscription("second-device"),
+  });
+  await f.book(1);
+  f.time("2026-10-25T18:29:59");
+  await f.app.flushNotifications();
+  assert.equal(completionNotices(f).length, 0);
+  f.time("2026-10-25T18:30:00");
+  await f.app.flushNotifications();
+  assert.equal(completionNotices(f).length, 2);
+  assert.match(
+    completionNotices(f)[0].payload.body,
+    /上がったら入浴完了を報告/,
+  );
+  await f.app.flushNotifications();
+  await f.restart();
+  await f.api("notification-preferences", { completionReminder: false });
+  await f.api("notification-preferences", { completionReminder: true });
+  await f.api("push/subscribe", { subscription: sub });
+  await f.app.flushNotifications();
+  assert.equal(completionNotices(f).length, 2);
+});
+
+test("早上がり報告・キャンセル・通知無効・ログアウトでは終了通知を送らない", async (t) => {
+  for (const mode of ["complete", "cancel", "disabled", "logout"]) {
+    const f = await fixture(t);
+    await enableReportPush(f);
+    await f.book(1);
+    const booking = (await f.state()).bookings[0];
+    if (mode === "complete") {
+      f.time("2026-10-25T18:05:00");
+      await f.api("complete", {
+        day: "2026-10-25",
+        revision: booking.revision,
+      });
+    }
+    if (mode === "cancel") await f.api("cancel", { day: "2026-10-25" });
+    if (mode === "disabled")
+      await f.api("notification-preferences", { completionReminder: false });
+    if (mode === "logout") await f.api("logout", {});
+    f.time("2026-10-25T18:30:00");
+    await f.app.flushNotifications();
+    assert.equal(completionNotices(f).length, 0, mode);
+  }
+});
+
+test("予約終了通知は時間変更・期限設定に追従し、再起動時は報告可能な間だけ追送する", async (t) => {
+  const f = await fixture(t);
+  await enableReportPush(f);
+  await f.book(1);
+  await f.book(1, 1110, 30);
+  f.time("2026-10-25T18:30:00");
+  await f.app.flushNotifications();
+  assert.equal(completionNotices(f).length, 0);
+  f.app.saveRewardSettings({
+    ...f.app.getRewardsAdmin().settings,
+    clientReportMinutes: 10,
+  });
+  f.time("2026-10-25T19:05:00");
+  await f.restart();
+  await f.app.flushNotifications();
+  assert.equal(completionNotices(f).length, 1);
+  assert.ok(completionNotices(f)[0].options.ttl <= 300);
+  const expired = await fixture(t);
+  await enableReportPush(expired);
+  await expired.book(1);
+  expired.time("2026-10-25T18:33:01");
+  await expired.restart();
+  await expired.app.flushNotifications();
+  assert.equal(completionNotices(expired).length, 0);
+});
+
+test("終了通知の一時失敗を再試行し、報告済み・端末の利用者変更後には送らない", async (t) => {
+  let failed = false;
+  const f = await fixture(t, {
+    deliverPush: async (_sub, payload) => {
+      if (payload.tag.startsWith("bath-completion-") && !failed) {
+        failed = true;
+        throw { statusCode: 503 };
+      }
+    },
+  });
+  const sub = await enableReportPush(f);
+  await f.book(1);
+  f.time("2026-10-25T18:30:00");
+  await f.app.flushNotifications();
+  assert.equal(completionNotices(f).length, 0);
+  f.time("2026-10-25T18:30:15");
+  await f.app.flushNotifications();
+  assert.equal(completionNotices(f).length, 1);
+  const moved = await fixture(t);
+  await enableReportPush(moved, sub);
+  await moved.book(1);
+  await moved.api("push/subscribe", { subscription: sub }, 2);
+  moved.time("2026-10-25T18:30:00");
+  await moved.app.flushNotifications();
+  assert.equal(completionNotices(moved).length, 0);
+  const done = await fixture(t, {
+    deliverPush: async (_sub, payload) => {
+      if (payload.tag.startsWith("bath-completion-")) throw { statusCode: 503 };
+    },
+  });
+  await enableReportPush(done);
+  await done.book(1);
+  done.time("2026-10-25T18:30:00");
+  await done.app.flushNotifications();
+  const booking = (await done.state()).bookings[0];
+  await done.api("complete", { day: "2026-10-25", revision: booking.revision });
+  done.time("2026-10-25T18:30:30");
+  await done.app.flushNotifications();
+  assert.equal(completionNotices(done).length, 0);
+});
+
+test("自動の様子見も連続判定し、1日設定でも入力時ではなく入浴終了時に失敗を確定する", async (t) => {
+  const f = await fixture(t);
+  await f.api("auto-standby", { enabled: true });
+  f.time("2026-10-26T08:00:00");
+  await f.state();
+  f.time("2026-10-27T08:00:00");
+  const state = await f.state();
+  assert.equal(state.standbyWarning.days, 2);
+  assert.equal(state.rewards.card.days[1].status, "pending");
+  f.time("2026-10-28T07:00:00");
+  const card = (await f.api("rewards?week=2026-10-25")).card;
+  assert.deepEqual(
+    card.days.slice(1, 3).map((x) => x.status),
+    ["failed", "failed"],
+  );
+  f.app.resetAllData({ confirmation: "RESET_ALL_DATA" });
+  const db = new DatabaseSync(f.database);
+  try {
+    assert.equal(
+      db.prepare("SELECT count(*) AS n FROM standby_stamps").get().n,
+      0,
+    );
+    assert.equal(
+      db.prepare("SELECT count(*) AS n FROM completion_reminders").get().n,
+      0,
+    );
+  } finally {
+    db.close();
+  }
+  const one = await fixture(t);
+  one.app.saveRewardSettings({
+    ...one.app.getRewardsAdmin().settings,
+    standbyFailureDays: 1,
+  });
+  await one.api("skip", { day: "2026-10-25", skip: true });
+  assert.equal((await one.state()).rewards.card.days[0].status, "pending");
+  one.time("2026-10-26T06:59:59");
+  assert.equal((await one.state()).rewards.card.days[0].status, "pending");
+  one.time("2026-10-26T07:00:00");
+  assert.equal((await one.state()).rewards.card.days[0].status, "failed");
+});
+
+test("翌日に入浴報告がなければ以前の様子見を保留し続けず、入浴期限の長い方まで待つ", async (t) => {
+  const f = await fixture(t);
+  f.app.saveRewardSettings({
+    ...f.app.getRewardsAdmin().settings,
+    clientReportMinutes: 1,
+    dashboardReportMinutes: 10,
+  });
+  await f.api("skip", { day: "2026-10-25", skip: true });
+  f.time("2026-10-26T08:00:00");
+  await f.book(1, 1080, 30, null, "2026-10-26");
+  f.time("2026-10-26T18:40:00");
+  assert.equal((await f.state()).rewards.card.days[0].status, "pending");
+  f.time("2026-10-26T18:40:01");
+  assert.equal((await f.state()).rewards.card.days[0].status, "failed");
 });

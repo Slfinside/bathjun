@@ -102,7 +102,9 @@ function applyMemberColors(container) {
       node.style.borderColor = tint(color, 0.7);
   });
 }
+const itemsEnabled = () => state?.rewards?.settings?.itemsEnabled !== false;
 function giftBadge() {
+  if (!itemsEnabled()) return "";
   const n = state?.rewards?.pendingGifts || 0;
   return n
     ? `<span class="gift-badge" aria-label="未受取のプレゼント ${n}件">${n > 99 ? "99+" : n}</span>`
@@ -111,12 +113,18 @@ function giftBadge() {
 function renderHeaderAccount() {
   const account = document.querySelector("#header-account");
   const menuOpen = !!account.querySelector("details")?.open;
-  const showGiftNotice = !!me && state?.rewards?.pendingGifts > 0 && !["gifts", "history"].includes(pageView);
-  document.querySelector(".site-header").classList.toggle("has-gift-callout", showGiftNotice);
+  const showGiftNotice =
+    itemsEnabled() &&
+    !!me &&
+    state?.rewards?.pendingGifts > 0 &&
+    !["gifts", "history"].includes(pageView);
+  document
+    .querySelector(".site-header")
+    .classList.toggle("has-gift-callout", showGiftNotice);
   account.classList.toggle("menu-open", menuOpen);
   account.hidden = !me;
   account.innerHTML = me
-    ? `<details class="account-menu" ${menuOpen ? "open" : ""}><summary class="profile-button" aria-label="${menuOpen ? "メニューを閉じる" : "メニューを開く"}">${avatar(me.id, true)}<span class="profile-identity"><span class="profile-name">${escapeHTML(me.name)}</span><small>メニュー <span class="menu-glyph"><span class="menu-icon" aria-hidden="true"><span class="menu-line"></span><span class="menu-line"></span></span>${state?.rewards?.pendingGifts ? '<span class="menu-notice" aria-label="未受取のプレゼントがあります">*</span>' : ""}</span></small></span></summary><nav aria-label="メニュー">${[
+    ? `<details class="account-menu" ${menuOpen ? "open" : ""}><summary class="profile-button" aria-label="${menuOpen ? "メニューを閉じる" : "メニューを開く"}">${avatar(me.id, true)}<span class="profile-identity"><span class="profile-name">${escapeHTML(me.name)}</span><small>メニュー <span class="menu-glyph"><span class="menu-icon" aria-hidden="true"><span class="menu-line"></span><span class="menu-line"></span></span>${itemsEnabled() && state?.rewards?.pendingGifts ? '<span class="menu-notice" aria-label="未受取のプレゼントがあります">*</span>' : ""}</span></small></span></summary><nav aria-label="メニュー">${[
         ["home", "ホーム"],
         ["reserve", "おふろを予約する"],
         ["gifts", "プレゼントボックス"],
@@ -128,7 +136,9 @@ function renderHeaderAccount() {
           ([key, label]) =>
             `<button data-action="nav-${key}">${label}${key === "gifts" ? giftBadge() : ""}</button>`,
         )
-        .join("")}</nav></details>${showGiftNotice ? '<button class="gift-callout" data-action="nav-gifts" aria-label="プレゼントが届いています。プレゼントボックスを開く"><span aria-hidden="true">📦</span><span>プレゼントが届いています。</span></button>' : ""}`
+        .join(
+          "",
+        )}</nav></details>${showGiftNotice ? '<button class="gift-callout" data-action="nav-gifts" aria-label="プレゼントが届いています。プレゼントボックスを開く"><span aria-hidden="true">📦</span><span>プレゼントが届いています。</span></button>' : ""}`
     : "";
   if (me) applyMemberColors(account);
 }
@@ -345,6 +355,7 @@ function notificationPreferencesForm() {
     ["reservationTurn", "予約の順番が回ってきた"],
     ["nudge", "つつかれた"],
     ["bathReminder", "入浴開始前のお知らせ"],
+    ["completionReminder", "予約終了時の完了報告のお知らせ"],
   ]
     .map(
       ([key, label]) =>
@@ -355,7 +366,7 @@ function notificationPreferencesForm() {
     )}<label class="reminder-minutes">入浴の何分前に通知するか<input type="number" name="reminderMinutes" min="1" max="180" step="1" required value="${Number(settings.reminderMinutes) || 10}"><span>分前</span></label><p class="muted">種類と分数は、自分の端末間で共通です。通知の許可は端末ごとに必要です。</p><button type="submit" class="primary">通知設定を保存</button><p class="form-error" role="alert"></p></form>`;
 }
 function autoStandbyForm() {
-  return `<form id="auto-standby-form" class="notification-preferences"><h3>毎日の予約設定</h3><label class="notification-choice"><input type="checkbox" name="enabled" ${state.autoStandby ? "checked" : ""}><span>自動で「入らない/様子見」にする</span></label><p class="muted">次に順番を決める夜から、予約順の末尾へ回ります。予約や希望は取り消しません。順番が決まっている今日分は「入らない/様子見」や「通常の順番に戻す」で変更できます。</p><button type="submit" class="primary">予約設定を保存</button><p class="form-error" role="alert"></p></form>`;
+  return `<form id="auto-standby-form" class="notification-preferences"><h3>毎日の予約設定</h3><label class="notification-choice"><input type="checkbox" name="enabled" ${state.autoStandby ? "checked" : ""}><span>自動で「入らない/様子見」にする</span></label><p class="muted">次に順番を決める夜から、予約順の末尾へ回ります。予約や希望は取り消しません。順番が決まっている今日分は「入らない/様子見」や「通常の順番に戻す」で変更できます。</p><p class="muted">${state.rewards.settings.standbyFailureDays}日連続で入浴しないと、その連続した日が失敗になります。判定前は「−」で表示します。</p><button type="submit" class="primary">予約設定を保存</button><p class="form-error" role="alert"></p></form>`;
 }
 document
   .querySelector(".app-shell")
@@ -404,6 +415,7 @@ document
         "reservationTurn",
         "nudge",
         "bathReminder",
+        "completionReminder",
       ])
         settings[key] = data.has(key);
       await api("notification-preferences", settings);
@@ -569,11 +581,23 @@ async function refresh(force = false) {
       data.notificationPreferences,
       data.autoStandby,
       data.rewards,
+      data.standbyWarning,
       data.ignoreLowerPriorityWishes,
       Math.floor(new Date(data.now).getTime() / 60000),
     ]);
     const before = previousTurn;
+    const itemsWereEnabled = itemsEnabled();
     state = data;
+    if (
+      itemsWereEnabled &&
+      !itemsEnabled() &&
+      dialog.open &&
+      ["item", "celebration", "booking", "wish"].includes(dialog.dataset.mode)
+    ) {
+      dialog.close();
+      pendingItem = null;
+      notify("設定が変更されました。もう一度開いてください。");
+    }
     previousTurn =
       data.draw?.order.find(
         (id) =>
@@ -633,7 +657,7 @@ function renderDashboard() {
         const booked = state.bookings.some((b) => b.memberId === id);
         const skipped = state.skips.includes(id);
         const inactive = !activeMember(id);
-        return `<li class="${turn === id && !expired && state.day <= state.today ? "current" : ""}"><span class="rank">${String(index + 1).padStart(2, "0")}</span>${avatar(id, true)}<span class="draw-member"><strong>${escapeHTML(memberName(id))}${id === me.id ? '<span class="you">あなた</span>' : ""}</strong>${state.draw.boostedMemberIds?.includes(id) ? '<span class="draw-boost-badge"><img src="/items/boost.svg" width="20" height="16" alt="" aria-hidden="true">確率UP使用</span>' : ""}${renderNudge(id)}</span><span class="draw-status ${booked ? "done" : ""}">${inactive ? "利用停止" : booked ? `${icon("check")}予約済み` : skipped ? "入らない/様子見" : expired ? "受付終了" : state.day > state.today ? "当日から" : turn === id ? "選ぶ番" : "待機中"}</span></li>`;
+        return `<li class="${turn === id && !expired && state.day <= state.today ? "current" : ""}"><span class="rank">${String(index + 1).padStart(2, "0")}</span>${avatar(id, true)}<span class="draw-member"><strong>${escapeHTML(memberName(id))}${id === me.id ? '<span class="you">あなた</span>' : ""}</strong>${itemsEnabled() && state.draw.boostedMemberIds?.includes(id) ? '<span class="draw-boost-badge"><img src="/items/boost.svg" width="20" height="16" alt="" aria-hidden="true">確率UP使用</span>' : ""}${renderNudge(id)}</span><span class="draw-status ${booked ? "done" : ""}">${inactive ? "利用停止" : booked ? `${icon("check")}予約済み` : skipped ? "入らない/様子見" : expired ? "受付終了" : state.day > state.today ? "当日から" : turn === id ? "選ぶ番" : "待機中"}</span></li>`;
       })
       .join(
         "",
@@ -659,11 +683,26 @@ function renderDashboard() {
   queueMicrotask(maybeCelebrate);
 }
 function renderNudge(id) {
-  const value=state.nudge;if(!value||value.memberId!==id||id===me.id)return "";
-  const minutes=Math.max(1,Math.ceil((value.nextAllowedAt-serverNow().getTime())/60000));
-  const label=value.canNudge?"つつく":value.reason==="cooldown"?"つつき済み":value.reason==="notifications-off"?"通知オフ":"通知未設定";
-  const title=value.reason==="cooldown"?"つつけるのは1時間に1回までです。":value.canNudge?`${memberName(id)}さんに予約を促す通知を送ります。`:"通知を有効にしてもらってください。";
-  return `<button class="nudge-button" data-action="nudge" data-nudge-member="${id}" aria-label="${escapeHTML(memberName(id)+"さん："+label+(value.reason==="cooldown"?`、あと${minutes}分`:""))}" title="${escapeHTML(title)}" ${value.canNudge?"":"disabled"}>${label}${value.reason==="cooldown"?`<small>あと${minutes}分</small>`:""}</button>`;
+  const value = state.nudge;
+  if (!value || value.memberId !== id || id === me.id) return "";
+  const minutes = Math.max(
+    1,
+    Math.ceil((value.nextAllowedAt - serverNow().getTime()) / 60000),
+  );
+  const label = value.canNudge
+    ? "つつく"
+    : value.reason === "cooldown"
+      ? "つつき済み"
+      : value.reason === "notifications-off"
+        ? "通知オフ"
+        : "通知未設定";
+  const title =
+    value.reason === "cooldown"
+      ? "つつけるのは1時間に1回までです。"
+      : value.canNudge
+        ? `${memberName(id)}さんに予約を促す通知を送ります。`
+        : "通知を有効にしてもらってください。";
+  return `<button class="nudge-button" data-action="nudge" data-nudge-member="${id}" aria-label="${escapeHTML(memberName(id) + "さん：" + label + (value.reason === "cooldown" ? `、あと${minutes}分` : ""))}" title="${escapeHTML(title)}" ${value.canNudge ? "" : "disabled"}>${label}${value.reason === "cooldown" ? `<small>あと${minutes}分</small>` : ""}</button>`;
 }
 function renderBookingBanner(booking, turn, expired, canEdit) {
   if (state.day > state.today)
@@ -678,7 +717,7 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
   else if (yourTurn)
     content = `${icon("bath")}<div><h3>${escapeHTML(me.name)}さん、選ぶ番です。</h3>${isDeferred() ? "<p>末尾の順番が回ってきました。希望するなら予約できます。</p>" : ""}</div>`;
   else if (isDeferred())
-    content = `${icon("clock")}<div><h3>入らない/様子見 · 順番は最後へ</h3><p>入らないと確定した扱いではありません。順番が来たら予約できます。</p></div>`;
+    content = `${icon("clock")}<div><h3>入らない/様子見 · 順番は最後へ</h3><p>入らないと確定した扱いではありません。順番が来たら予約できます。</p>${state.standbyWarning ? `<p class="notice">${escapeHTML(state.standbyWarning.message)}</p>` : ""}</div>`;
   else
     content = `${icon("clock")}<div><h3>${!state.draw ? "まずは、今日の順番を抽選。" : !state.draw.order.includes(me.id) ? "次回の順番決定から参加できます。" : !turn ? "この日の予約がそろいました。" : `${escapeHTML(memberName(turn))}さんが選ぶ番です。`}</h3><p>予約や順番の変更は自動で更新されます。</p></div>`;
   const beforeTurn = !expired && !booking && !yourTurn;
@@ -687,7 +726,8 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
     !booking.completedAt &&
     slotDate(booking.start) <= serverNow() &&
     serverNow().getTime() <=
-      slotDate(booking.start + booking.duration).getTime() + 180000;
+      slotDate(booking.start + booking.duration).getTime() +
+        (state.rewards.settings.clientReportMinutes ?? 3) * 60000;
   return `<section class="booking-banner ${yourTurn ? "is-turn" : ""}">${content}${beforeTurn ? `<div class="preference-action"><h3>事前希望</h3>${ownWish() ? `<p>${time(ownWish().start)}〜${time(ownWish().start + ownWish().duration)}</p>` : ""}<button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div>` : ""}${completion ? '<button class="primary" data-action="complete-bath">完了を報告</button>' : booking?.completedAt ? "<p>入浴済み・完了報告済み</p>" : ""}${yourTurn ? `<button class="primary" data-action="book">時間を選ぶ${icon("arrow")}</button>` : ""}${!expired && (!booking || canEdit) ? `<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button>` : ""}</section>`;
 }
 function renderWishes() {
@@ -751,7 +791,7 @@ function renderSchedule() {
             slotDate(b.start + b.duration) > serverNow();
           const ended =
             !!b.completedAt || slotDate(b.start + b.duration) <= serverNow();
-          return `<article class="reservation ${wish ? "tentative" : ""} ${overlaps.length ? "has-overlap" : ""} ${ended ? "ended" : ""}" data-tint-member="${b.memberId}"><div class="reservation-top"><span class="reservation-time">${time(b.start)}<span> — </span>${time(b.start + b.duration)}</span><span class="duration">${b.duration}分</span></div><div class="reservation-person">${avatar(b.memberId, true)}<strong>${escapeHTML(memberName(b.memberId))}</strong>${b.memberId === me.id ? '<span class="you">あなた</span>' : ""}${wish ? '<span class="tentative-label">希望・未確定</span>' : b.autoConfirmed ? '<span class="auto-confirmed-label">希望から自動確定</span>' : current ? '<span class="bathing">入浴の時間</span>' : ended ? '<span class="bathing">終了</span>' : ""}</div>${overlaps.length ? `<p class="schedule-conflict"><strong>重なりあり</strong>${overlaps.map((o) => `${escapeHTML(memberName(o.memberId))} · ${time(o.start)}〜${time(o.end)}`).join("<br>")}</p>` : ""}${b.ticket ? `<span class="ticket-label">${escapeHTML(itemName(b.ticket))}</span>` : ""}${b.note ? `<p class="booking-note">${escapeHTML(b.note)}</p>` : ""}${!wish && b.noNegotiation ? '<div class="no-negotiation">時間変更不可</div>' : ""}</article>`;
+          return `<article class="reservation ${wish ? "tentative" : ""} ${overlaps.length ? "has-overlap" : ""} ${ended ? "ended" : ""}" data-tint-member="${b.memberId}"><div class="reservation-top"><span class="reservation-time">${time(b.start)}<span> — </span>${time(b.start + b.duration)}</span><span class="duration">${b.duration}分</span></div><div class="reservation-person">${avatar(b.memberId, true)}<strong>${escapeHTML(memberName(b.memberId))}</strong>${b.memberId === me.id ? '<span class="you">あなた</span>' : ""}${wish ? '<span class="tentative-label">希望・未確定</span>' : b.autoConfirmed ? '<span class="auto-confirmed-label">希望から自動確定</span>' : current ? '<span class="bathing">入浴の時間</span>' : ended ? '<span class="bathing">終了</span>' : ""}</div>${overlaps.length ? `<p class="schedule-conflict"><strong>重なりあり</strong>${overlaps.map((o) => `${escapeHTML(memberName(o.memberId))} · ${time(o.start)}〜${time(o.end)}`).join("<br>")}</p>` : ""}${itemsEnabled() && b.ticket ? `<span class="ticket-label">${escapeHTML(itemName(b.ticket))}</span>` : ""}${b.note ? `<p class="booking-note">${escapeHTML(b.note)}</p>` : ""}${!wish && b.noNegotiation ? '<div class="no-negotiation">時間変更不可</div>' : ""}</article>`;
         };
         const entries = segment.entries || [segment];
         const overview =
@@ -777,6 +817,8 @@ function available(start, duration) {
   );
 }
 function openBooking(mode = "booking") {
+  if (!itemsEnabled())
+    pendingItem = mode === "booking" ? ownBooking()?.ticket || null : null;
   const isWish = mode === "wish",
     booking = ownBooking(),
     wish = ownWish();
@@ -809,7 +851,7 @@ function openBooking(mode = "booking") {
           .map((w) => renderWish(w))
           .join("")}</details>`
       : ""
-  }${pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}${ticketLimits(pendingItem || booking?.ticket)}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish ? "希望する開始時刻" : "脱衣所に入る時刻"}</label><select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${booking?.noNegotiation ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "重なっている時間にも希望を出せます。重なりがある間は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
+  }${itemsEnabled() && pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}${ticketLimits(pendingItem || booking?.ticket)}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish ? "希望する開始時刻" : "脱衣所に入る時刻"}</label><select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${booking?.noNegotiation ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "重なっている時間にも希望を出せます。重なりがある間は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
   updateSlots(entry?.start);
   applyMemberColors(dialog);
   dialog.showModal();
@@ -850,6 +892,7 @@ function ticketSlotAllowed(start, duration) {
   return true;
 }
 function ticketLimits(kind) {
+  if (!itemsEnabled()) return "";
   if (!["extend", "skip"].includes(kind)) return "";
   const config = state.rewards.settings;
   const lead =
@@ -922,11 +965,23 @@ document
     }
     const action = event.target.closest("[data-action]")?.dataset.action;
     if (busy) return;
-    if(action==="nudge"){
-      busy=true;const button=event.target.closest("[data-nudge-member]");button.disabled=true;
-      try{await api("nudge",{day:state.day,memberId:Number(button.dataset.nudgeMember)});notify("つつきました。");}
-      catch(error){notify(error.message);}
-      finally{busy=false;await refresh(true);}return;
+    if (action === "nudge") {
+      busy = true;
+      const button = event.target.closest("[data-nudge-member]");
+      button.disabled = true;
+      try {
+        await api("nudge", {
+          day: state.day,
+          memberId: Number(button.dataset.nudgeMember),
+        });
+        notify("つつきました。");
+      } catch (error) {
+        notify(error.message);
+      } finally {
+        busy = false;
+        await refresh(true);
+      }
+      return;
     }
     if (await handleRewardsAction(action, event)) return;
     if (action === "retry") return void init();
@@ -1010,16 +1065,11 @@ document
     }
     if (action === "toggle-skip") {
       const skip = !isDeferred();
-      if (
-        skip &&
-        !confirm(
-          "「入らない/様子見」にしますか？予約と希望がある場合は取り消し、順番の最後へ回ります。後で予約することもできます。",
-        )
-      )
-        return;
+      const day = state.day;
+      if (skip && !(await confirmStandby())) return;
       busy = true;
       try {
-        await api("skip", { day: state.day, skip });
+        await api("skip", { day, skip });
         notify(
           skip
             ? "入らない/様子見にして、順番の最後へ回りました。"
@@ -1289,7 +1339,32 @@ matchMedia("(display-mode: standalone)").addEventListener?.(
   updateInstallGuide,
 );
 
+function confirmStandby() {
+  const warning = state.standbyWarning;
+  dialog.dataset.mode = "standby";
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">入らない/様子見にしますか？</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p>予約と希望がある場合は取り消し、順番の最後へ回ります。後で予約することもできます。</p>${warning ? `<p class="notice" role="alert">${escapeHTML(warning.message)}</p>` : ""}<button class="primary" data-standby-confirm>入らない/様子見にする</button><button class="cancel-booking" data-action="close">戻る</button>`;
+  return new Promise((resolve) => {
+    let accepted = false;
+    const click = (event) => {
+      if (event.target.closest("[data-standby-confirm]")) {
+        accepted = true;
+        dialog.close();
+      }
+    };
+    dialog.addEventListener("click", click);
+    dialog.addEventListener(
+      "close",
+      () => {
+        dialog.removeEventListener("click", click);
+        resolve(accepted);
+      },
+      { once: true },
+    );
+    dialog.showModal();
+  });
+}
 function ticketSelect() {
+  if (!itemsEnabled()) return "";
   const existing = ownBooking()?.ticket;
   return `<label>使うアイテム<select name="ticket" ${existing ? "disabled" : ""}><option value="">使わない</option>${[
     "skip",
@@ -1314,7 +1389,7 @@ function renderStampCard(compact = true) {
     last = card.days[6].day;
   const shortDate = (value) => value.slice(5).replace("-", "/");
   const period = `<span class="stamp-period"><small>${card.week.slice(0, 4)}年</small><span>${shortDate(card.week)} 〜 ${shortDate(last)}</span></span>`;
-  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong>${d.status === "stamp" ? "♨" : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}の夜 <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
+  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong>${d.status === "stamp" ? (d.reason === "standby" ? "○" : "♨") : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}の夜${d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
 }
 function renderSecondaryPage() {
   renderHeaderAccount();
@@ -1323,11 +1398,11 @@ function renderSecondaryPage() {
   if (pageView === "settings")
     html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoStandbyForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
   if (pageView === "inventory")
-    html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}枚</span></button>`).join("")}</div>${state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
+    html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}枚</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
   if (["gifts", "history"].includes(pageView)) {
     const history = pageView === "history",
       gifts = state.rewards.gifts.filter((g) => history || !g.receivedAt);
-    html = `<section class="gift-page"><h2>プレゼントボックス</h2><div class="gift-tabs"><button data-action="nav-gifts" aria-pressed="${!history}">プレゼントボックス ${giftBadge()}</button><button data-action="nav-history" aria-pressed="${history}">配布履歴</button></div>${gifts.length ? gifts.map((g) => `<article class="gift-entry"><span class="item-icon">${g.rewardWeek && !g.receivedAt ? "🎁" : itemIcon(g.kind)}</span><div><strong>${g.rewardWeek && !g.receivedAt ? "週間達成特典" : itemName(g.kind) + " × " + g.quantity}</strong><p>${new Date(g.createdAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}</p>${g.receivedAt ? "<span>受取済み</span>" : `<button class="primary" data-action="receive-gift" data-gift="${g.id}">受け取る</button>`}</div></article>`).join("") : '<p class="muted">' + (history ? "配布履歴はありません。" : "受け取れるプレゼントはありません。") + "</p>"}</section>`;
+    html = `<section class="gift-page"><h2>プレゼントボックス</h2>${!itemsEnabled() ? '<p class="notice">アイテム機能が無効に設定されています。</p>' : ""}<div class="gift-tabs"><button data-action="nav-gifts" aria-pressed="${!history}">プレゼントボックス ${giftBadge()}</button><button data-action="nav-history" aria-pressed="${history}">配布履歴</button></div>${gifts.length ? gifts.map((g) => `<article class="gift-entry"><span class="item-icon">${g.rewardWeek && !g.receivedAt ? "🎁" : itemIcon(g.kind)}</span><div><strong>${g.rewardWeek && !g.receivedAt ? "週間達成特典" : itemName(g.kind) + " × " + g.quantity}</strong><p>${new Date(g.createdAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}</p>${g.receivedAt ? "<span>受取済み</span>" : !itemsEnabled() ? "<span>未受取</span>" : `<button class="primary" data-action="receive-gift" data-gift="${g.id}">受け取る</button>`}</div></article>`).join("") : '<p class="muted">' + (history ? "配布履歴はありません。" : "受け取れるプレゼントはありません。") + "</p>"}</section>`;
   }
   root.innerHTML = `<button class="back-home" data-action="nav-home">← ホーム</button>${html}`;
   applyMemberColors(root);
@@ -1343,7 +1418,7 @@ function showItem(kind) {
       "確定した予約を順番抜かしから守ります。事前希望への指定では消費せず、確定時に消費します。",
   }[kind];
   dialog.dataset.mode = "item";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}枚</p><button class="primary" data-action="use-item" ${owned(kind) ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}枚</p><button class="primary" data-action="use-item" ${itemsEnabled() && owned(kind) ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
   dialog.showModal();
 }
 async function handleRewardsAction(action, event) {
@@ -1403,6 +1478,8 @@ async function handleRewardsAction(action, event) {
     }
     if (action === "use-item") {
       const kind = pendingItem;
+      if (!itemsEnabled())
+        throw new Error("アイテム機能が無効に設定されています。");
       if (kind === "boost") {
         await api("items/boost", { requestId: crypto.randomUUID() });
         dialog.close();
@@ -1436,7 +1513,9 @@ document.querySelector("#header-account").addEventListener(
   "toggle",
   (event) => {
     if (event.target.matches(".account-menu")) {
-      document.querySelector("#header-account").classList.toggle("menu-open", event.target.open);
+      document
+        .querySelector("#header-account")
+        .classList.toggle("menu-open", event.target.open);
       event.target
         .querySelector("summary")
         .setAttribute(
@@ -1449,7 +1528,7 @@ document.querySelector("#header-account").addEventListener(
 );
 
 function maybeCelebrate() {
-  if (!state || pageView !== "home" || dialog.open) return;
+  if (!state || !itemsEnabled() || pageView !== "home" || dialog.open) return;
   const pending = state.rewards?.celebrations.find(
     (x) => !celebrating.has(x.week),
   );

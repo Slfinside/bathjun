@@ -5,6 +5,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES = Object.freeze({
   wishUnconfirmed: true,
   reservationTurn: true,
   bathReminder: true,
+  completionReminder: true,
   reminderMinutes: 10,
 });
 export function getNotificationPreferences(db, memberId) {
@@ -36,6 +37,7 @@ export function saveNotificationPreferences(db, memberId, payload) {
     "wishUnconfirmed",
     "reservationTurn",
     "bathReminder",
+    "completionReminder",
   ])
     if (typeof result[key] !== "boolean")
       throw new Error("通知の有効・無効を確認してください。");

@@ -1,3 +1,4 @@
+import { createCompletionReminders } from './completion-reminders.js';
 import {createRewards} from './rewards.js';
 import {createNudges} from './nudges.js';
 import {createAutoStandby} from './auto-standby.js';
@@ -150,8 +151,9 @@ export function createApp({
     function candidate() {
       const id=currentTurn(day);
       if(!id)return null;
-      const wish=db.prepare("SELECT * FROM wishes WHERE day=? AND member_id=?").get(day,id);
+      let wish=db.prepare("SELECT * FROM wishes WHERE day=? AND member_id=?").get(day,id);
       if(!wish || slotDate(day,wish.start)<=now())return null;
+      if(!rewards.settings().itemsEnabled)wish.ticket=null;
       try{rewards.checkTicketSlot(day,wish.ticket,wish.start,wish.duration);if(!validateSlot(wish.start,wish.duration,rewards.bookingRule(day,id,wish.ticket)))return null;}catch{return null;}
       // Half-open intervals: another bath may start exactly when this one ends.
       if(db.prepare('SELECT 1 FROM bookings WHERE day=? AND member_id!=? AND start<? AND start+duration>? LIMIT 1').get(day,id,wish.start+wish.duration,wish.start))return null;
@@ -186,6 +188,7 @@ export function createApp({
   const enqueueTurn = (day, previous = null, onlyEndpoint = null) => {
     advanceWishes(day);
     reminders.syncDay(day);
+    completionReminders.syncDay(day);
     const next = currentTurn(day);
     if (!next || next === previous || day>currentTime().today || !getNotificationPreferences(db,next).reservationTurn) return;
     const subscriptions = db
@@ -278,6 +281,8 @@ export function createApp({
         }
       }
       await reminders.flush();
+      if(closed)return;
+      await completionReminders.flush();
     } finally {
       flushing = false;
     }
@@ -335,6 +340,7 @@ export function createApp({
   const autoStandby=createAutoStandby(db);
   const scheduleForDay = serverSettings.scheduleForDay;
   const rewards=createRewards({db,now,scheduleForDay});
+  const completionReminders=createCompletionReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,reportMinutes:()=>rewards.settings().clientReportMinutes});
   const reminders=createBookingReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed});
   const nudges=createNudges({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn,isDayOpen:day=>day<=currentTime().today&&slotDate(day,scheduleForDay(day).bathEnd)>now()&&bookingOpensAt(day)<=now().getTime()});
   const currentTime = () => {
@@ -595,7 +601,7 @@ export function createApp({
       if(req.method==='POST'&&url.pathname==='/api/items/boost')return send(200,rewards.activate(me.id,body?.requestId));
       if(req.method==='POST'&&url.pathname==='/api/rewards/celebrate')return send(200,rewards.celebrate(me.id,body?.week));
       if(req.method==='POST'&&url.pathname==='/api/rewards/claim')return send(200,rewards.claim(me.id,body?.week));
-      if(req.method==='POST'&&url.pathname==='/api/complete')return send(200,rewards.complete(me.id,body));
+      if(req.method==='POST'&&url.pathname==='/api/complete'){const result=rewards.complete(me.id,body);completionReminders.syncDay(body.day);return send(200,result);}
       if(req.method==="POST"&&url.pathname==="/api/auto-standby") {
         if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||typeof body.enabled!=='boolean')fail(400,'自動で様子見にする設定を確認してください。');
         applyDailyStandby(); // Keep an already-decided night's explicit choices.
@@ -610,6 +616,7 @@ export function createApp({
         if(!result.nudge)db.prepare("DELETE FROM nudge_jobs WHERE nudge_id IN (SELECT id FROM nudges WHERE member_id=?)").run(me.id);
         if(!result.bookingDisplaced)db.prepare("DELETE FROM wish_notification_jobs WHERE sent=0 AND event_id IN (SELECT id FROM wish_outcomes WHERE member_id=? AND displaced=1)").run(me.id);
         reminders.restore(me.id);
+        completionReminders.restore(me.id);
         if(result.reservationTurn&&!before.reservationTurn){const time=currentTime();enqueueTurn(time.today);if(time.activeDay!==time.today)enqueueTurn(time.activeDay);}
         onNotificationQueued();
         return send(200,{notificationPreferences:result});
@@ -661,6 +668,7 @@ export function createApp({
         if (newBinding) {
           db.prepare("DELETE FROM notification_queue WHERE endpoint=?").run(subscription.endpoint);
           reminders.clearEndpoint(subscription.endpoint);
+          completionReminders.clearEndpoint(subscription.endpoint);
         }
         db.prepare(
           "INSERT INTO push_subscriptions VALUES(?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET member_id=excluded.member_id,session_hash=excluded.session_hash,subscription_json=excluded.subscription_json",
@@ -671,6 +679,7 @@ export function createApp({
           JSON.stringify(subscription),
         );
         reminders.restore(me.id);
+        completionReminders.restore(me.id);
         const time = currentTime();
         if (newBinding) {
           enqueueTurn(time.today, null, subscription.endpoint);
@@ -697,6 +706,7 @@ export function createApp({
         return send(200, {
           me,
           rewards:rewards.view(me.id,day),
+          standbyWarning:rewards.standbyWarning(me.id,day),
           notificationPreferences:getNotificationPreferences(db,me.id),
           autoStandby:autoStandby.enabled(me.id),
           nudge:nudges.status(day,me.id),
@@ -948,6 +958,7 @@ export function createApp({
   }
   applyDailyStandby();
   reminders.restore();
+  completionReminders.restore();
   return {
     ...createAdminData({db,setFamilyPassword,getSettings:serverSettings.get,onNotificationsChanged:onNotificationQueued}),
     handle,
@@ -955,16 +966,16 @@ export function createApp({
       applyDailyStandby();
       const time=currentTime();let day=time.activeDay;
       const previous=time.yesterday;
-      if(previous!==day&&db.prepare('SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)').all(previous).some(b=>slotDate(previous,b.start+b.duration)<=now()&&now().getTime()<=slotDate(previous,b.start+b.duration).getTime()+60000))day=previous;
-      return {day,now:now().toISOString(),settings:scheduleForDay(day),members:allMembers(false).map(({id,name,active,emoji,color})=>({id,name,active,emoji,color})),
+      if(previous!==day&&db.prepare('SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)').all(previous).some(b=>slotDate(previous,b.start+b.duration)<=now()&&now().getTime()<=slotDate(previous,b.start+b.duration).getTime()+rewards.settings().dashboardReportMinutes*60000))day=previous;
+      return {day,now:now().toISOString(),reportMinutes:rewards.settings().dashboardReportMinutes,settings:scheduleForDay(day),members:allMembers(false).map(({id,name,active,emoji,color})=>({id,name,active,emoji,color})),
         bookings:db.prepare("SELECT member_id AS memberId,start,duration,ticket,revision,(SELECT reported_at FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id) AS completedAt FROM bookings WHERE day=? ORDER BY start").all(day),
         wishes:db.prepare("SELECT member_id AS memberId,start,duration FROM wishes WHERE day=? ORDER BY start,member_id").all(day),
         skips:db.prepare("SELECT member_id FROM bath_skips WHERE day=?").all(day).map(r=>r.member_id)};
     },
     getRewardsAdmin:rewards.admin,
     distributeItems:rewards.distribute,
-    saveRewardSettings:rewards.saveSettings,
-    completeBath:payload=>{if(!Number.isInteger(payload?.memberId))fail(400,'報告するメンバーを確認してください。');return rewards.complete(payload.memberId,payload,'dashboard');},
+    saveRewardSettings:value=>{const result=rewards.saveSettings(value);completionReminders.restore();return result;},
+    completeBath:payload=>{if(!Number.isInteger(payload?.memberId))fail(400,'報告するメンバーを確認してください。');const result=rewards.complete(payload.memberId,payload,'dashboard');completionReminders.syncDay(payload.day);return result;},
     getServerSettings: serverSettings.get,
     saveServerSettings: (payload) => {
       const time = currentTime();
@@ -982,7 +993,7 @@ export function createApp({
     flushNotifications,
     notificationDueAt: () =>
       db
-        .prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM wish_notification_jobs WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM nudge_jobs)")
+        .prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM wish_notification_jobs WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM nudge_jobs UNION ALL SELECT MIN(next_attempt) AS due FROM completion_reminders WHERE sent=0)")
         .get().due,
     setFamilyPassword,
     familyConfigured: () => !!familyConfig().password_hash,

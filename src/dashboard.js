@@ -30,6 +30,7 @@ export function dashboardView(snapshot) {
   return {
     day,
     now,
+    reportMinutes: snapshot.reportMinutes ?? 1,
     bathStart: settings.bathStart,
     bathEnd: settings.bathEnd,
     current:
@@ -55,7 +56,9 @@ export function dashboardView(snapshot) {
             ? b.completedAt
               ? "入浴済"
               : instant >= Date.parse(b.endsAt)
-                ? b.revision && instant <= Date.parse(b.endsAt) + 60000
+                ? b.revision &&
+                  instant <=
+                    Date.parse(b.endsAt) + (snapshot.reportMinutes ?? 1) * 60000
                   ? "入浴完了"
                   : "入浴済"
                 : instant >= Date.parse(b.startsAt)

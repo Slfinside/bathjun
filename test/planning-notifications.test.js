@@ -68,7 +68,7 @@ test('希望を確定できない通知は一度だけ、重複が解消すれ�
  await f.api('wish/cancel',{day:'2026-10-28'},3);await f.flush();assert.equal(f.sent.filter(s=>s.payload.tag.startsWith('bath-wish-wishConfirmed')).length,1);
 });
 test('通知の種類を本人が個別に無効化でき、ほかの人には影響しない',async t=>{
- const f=await fixture(t);const off={nudge:false,bookingDisplaced:false,wishConfirmed:false,wishUnconfirmed:false,reservationTurn:false,bathReminder:false,reminderMinutes:25};
+ const f=await fixture(t);const off={nudge:false,bookingDisplaced:false,wishConfirmed:false,wishUnconfirmed:false,reservationTurn:false,bathReminder:false,completionReminder:false,reminderMinutes:25};
  await f.api('notification-preferences',off,2);assert.deepEqual((await f.api('state',undefined,2)).notificationPreferences,off);
  await f.wish(2);await f.wish(3);await f.book();await f.flush();assert.equal(f.sent.filter(s=>s.endpoint.endsWith('-2')).length,0);
  await f.api('wish/cancel',{day:'2026-10-28'},3);await f.flush();assert.equal(f.sent.filter(s=>s.endpoint.endsWith('-2')).length,0);assert.ok(f.sent.some(s=>s.endpoint.endsWith('-3')));

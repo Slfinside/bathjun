@@ -19,6 +19,8 @@ async function fixture(t) {
  t.after(async()=>{await new Promise(r=>server.close(r));app.close();rmSync(directory,{recursive:true,force:true});});
  async function api(path,body,cookie='') {const r=await fetch(`http://127.0.0.1:${server.address().port}/api/${path}`,{method:body===undefined?'GET':'POST',headers:{cookie,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const result=await r.json();assert.equal(r.status,200,JSON.stringify(result));return {body:result,cookie:r.headers.get('set-cookie')?.split(';')[0]};}
  const cookies={};for(const id of [1,2])cookies[id]=(await api('register',{memberId:id,password:'test-password'})).cookie;
+ // These tests isolate the pre-bath reminder queue; end-of-bath notifications have separate coverage.
+ for(const id of [1,2])await api('notification-preferences',{completionReminder:false},cookies[id]);
  async function subscribe(id,name=String(id)) {const key=createECDH('prime256v1');key.generateKeys();const subscription={endpoint:`https://web.push.apple.com/test-${name}`,keys:{p256dh:key.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}};await api('push/subscribe',{subscription},cookies[id]);return subscription;}
  return {get app(){return app;},api,cookies,subscribe,sent,attempts,database,get wakes(){return wakes;},setTime:value=>clock=typeof value==='string'?new Date(value):value,setFailure:value=>failure=value,setHook:value=>hook=value,
   book:async(start=1080,id=1)=>api('book',{day:'2026-10-28',start,duration:30},cookies[id]),

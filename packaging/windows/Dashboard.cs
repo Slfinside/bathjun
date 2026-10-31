@@ -11,7 +11,7 @@ public sealed class DashboardOverlap { public int memberId,start,end; }
 public sealed class DashboardEntry { public DashboardOverlap[] overlaps; public int memberId,start,duration; public string name,kind,startsAt,endsAt,emoji,color,revision,completedAt,day,ticket; }
 public sealed class DashboardMember { public int id; public string name,status,emoji,color; public bool deferred; }
 public sealed class DashboardData {
-    public string day,now,phase,shareUrl; public int bathStart,bathEnd;
+    public string day,now,phase,shareUrl; public int bathStart,bathEnd,reportMinutes=1;
     public DashboardEntry current,next,afterNext; public DashboardEntry[] entries; public DashboardMember[] members; public string[] qr;
 }
 public sealed class DashboardPreferences {
@@ -304,7 +304,7 @@ internal sealed class DashboardForm : Form {
         foreach(var entry in confirmed){if(entry.completedAt==null&&Instant(entry.startsAt)<=now&&now<Instant(entry.endsAt))current=entry;else if(Instant(entry.startsAt)>now){if(next==null)next=entry;else if(afterNext==null)afterNext=entry;}}
     }
     DashboardEntry PendingCompletion(DateTime now) {
-        DashboardEntry result=null;foreach(var entry in data==null?new DashboardEntry[0]:data.entries??new DashboardEntry[0])if(entry.kind=="予約"&&entry.completedAt==null&&entry.revision!=null&&Instant(entry.endsAt)<=now&&now<=Instant(entry.endsAt).AddSeconds(60))if(result==null||entry.start>result.start)result=entry;return result;
+        DashboardEntry result=null;foreach(var entry in data==null?new DashboardEntry[0]:data.entries??new DashboardEntry[0])if(entry.kind=="予約"&&entry.completedAt==null&&entry.revision!=null&&Instant(entry.endsAt)<=now&&now<=Instant(entry.endsAt).AddMinutes(data.reportMinutes))if(result==null||entry.start>result.start)result=entry;return result;
     }
     void ReportButton(Graphics g,DashboardEntry entry,RectangleF rect) {
         if(Report==null||entry==null||entry.revision==null||entry.completedAt!=null)return;
