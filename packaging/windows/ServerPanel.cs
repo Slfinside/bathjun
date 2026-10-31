@@ -256,6 +256,7 @@ internal sealed class PanelForm : Form {
             var helper=await Task.Run(()=>ServerUpdate.Stage(download,root,serverPid,publicMode));
             if(dashboard!=null)dashboard.Close();if(Send("stop",null)==null){try{helper.Kill();}catch{}throw new IOException("サーバーを停止できませんでした。もう一度お試しください。");}
         }catch(OperationCanceledException){}
+        catch(UpdateUnavailableException error){if(!cancel.IsCancellationRequested&&!closing&&!IsDisposed){try{Process.Start(new ProcessStartInfo(ServerUpdate.ReleaseUrl){UseShellExecute=true});}catch(Exception){MessageBox.Show(this,error.Message+"\n\nブラウザーで次のURLを開いてください。\n"+ServerUpdate.ReleaseUrl,"リリースページ");}}}
         catch(Exception error){if(!cancel.IsCancellationRequested&&!closing&&!IsDisposed)MessageBox.Show(this,error.Message+"\n\n配布ページ："+ServerUpdate.ReleaseUrl,"更新を確認できませんでした");}
         finally{if(download!=null)try{Directory.Delete(Path.GetDirectoryName(download),true);}catch{}automaticUpdate.Dispose();automaticUpdate=null;updatePreparing=false;if(!closing&&!IsDisposed){releases.Enabled=true;releases.Text="最新版を確認";}}
     }

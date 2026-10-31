@@ -12,6 +12,7 @@ using System.Web.Script.Serialization;
 public sealed class UpdateAsset {public string name,browser_download_url;public long size;}
 public sealed class UpdateRelease {public string tag_name,html_url;public bool draft,prerelease;public UpdateAsset[] assets;}
 internal sealed class UpdateDownload {public UpdateRelease release;public UpdateAsset package,checksum;public Version version;}
+internal sealed class UpdateUnavailableException : InvalidOperationException {public UpdateUnavailableException(string message,Exception inner):base(message,inner){}}
 internal static class AutomaticUpdate {
     const long MaximumPackage=256L*1024*1024;
     internal static UpdateDownload Select(string json,string current,bool portable){
@@ -42,7 +43,7 @@ internal static class AutomaticUpdate {
             using(cancel.Register(()=>request.Abort())){
                 HttpWebResponse response;
                 try{response=(HttpWebResponse)request.GetResponse();}
-                catch(WebException error){cancel.ThrowIfCancellationRequested();var failed=error.Response as HttpWebResponse;if(failed!=null){var status=failed.StatusCode;failed.Dispose();if(status==HttpStatusCode.NotFound||status==HttpStatusCode.Unauthorized||status==HttpStatusCode.Forbidden)throw new InvalidOperationException("公開された更新情報を取得できませんでした。配布元が非公開の間は自動更新を利用できません。",error);}throw new IOException("更新ファイルを取得できませんでした。接続を確認して、もう一度お試しください。",error);}
+                catch(WebException error){cancel.ThrowIfCancellationRequested();var failed=error.Response as HttpWebResponse;if(failed!=null){var status=failed.StatusCode;failed.Dispose();if(status==HttpStatusCode.NotFound||status==HttpStatusCode.Unauthorized||status==HttpStatusCode.Forbidden)throw new UpdateUnavailableException("公開された更新情報を取得できませんでした。配布元が非公開・取得制限中は自動更新を利用できません。",error);}throw new IOException("更新ファイルを取得できませんでした。接続を確認して、もう一度お試しください。",error);}
                 using(response){
                     int status=(int)response.StatusCode;if(status>=300&&status<400){url=new Uri(url,response.Headers["Location"]);continue;}
                     if(response.StatusCode!=HttpStatusCode.OK||response.ContentLength>limit)throw new InvalidDataException("更新ファイルの応答を確認できませんでした。");
