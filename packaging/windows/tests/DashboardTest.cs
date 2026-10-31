@@ -127,6 +127,14 @@ internal static class DashboardTest {
 
     [STAThread] static void Main(string[] args) {
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
+        string installRoot=(string)typeof(Member).Assembly.GetType("ServerUpdate").GetProperty("InstallRoot",BindingFlags.Static|BindingFlags.NonPublic).GetValue(null,null);if(!Directory.Exists(installRoot))throw new Exception("Install root cannot resolve on .NET Framework");
+        using(var host=new Form{ClientSize=new Size(320,200),ShowInTaskbar=false})using(var panel=new Panel{Dock=DockStyle.Fill,AutoScroll=true}){
+            var content=new Panel{Width=280,Height=1500};var button=new Button{Text="test",Top=20};content.Controls.Add(button);panel.Controls.Add(content);host.Controls.Add(panel);var touchType=typeof(Member).Assembly.GetType("TouchScroll");using(var gestures=(IDisposable)Activator.CreateInstance(touchType,new object[]{host})){host.Show();Application.DoEvents();if(Environment.OSVersion.Platform==PlatformID.Win32NT&&!(bool)touchType.GetProperty("Configured",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(gestures,null))throw new Exception("Windows pan gestures were not configured");
+            var scroll=typeof(Member).Assembly.GetType("TouchScroll").GetMethod("ScrollBy",BindingFlags.Static|BindingFlags.NonPublic);int clicks=0;button.Click+=delegate{clicks++;};
+            if(!(bool)scroll.Invoke(null,new object[]{button,150})||-panel.AutoScrollPosition.Y!=150)throw new Exception("Drag did not scroll child controls");
+            scroll.Invoke(null,new object[]{button,100000});if(-panel.AutoScrollPosition.Y<=150)throw new Exception("Long drag did not move scroll position");
+            scroll.Invoke(null,new object[]{button,-100000});if(panel.AutoScrollPosition.Y!=0)throw new Exception("Drag exceeded upper bound");button.PerformClick();if(clicks!=1)throw new Exception("Scrolling disabled button taps");host.Close();}
+        }
         DisplaySchedules();Preferences(args[1]);
         var type=typeof(DashboardData).Assembly.GetType("DashboardForm");
         var data=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));

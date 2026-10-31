@@ -45,7 +45,7 @@ def build(args):
         null_header=struct.pack('<IIHHHHIHHII',0,32,0xffff,0,0xffff,0,0,0,0,0,0)
         manifest_header=struct.pack('<IIHHHHIHHII',len(manifest_data),32,0xffff,24,0xffff,1,0,0x30,0,0,0)
         resource.write_bytes(null_header+manifest_header+manifest_data+b'\0'*((-len(manifest_data))%4))
-        subprocess.run([args.csc,'-target:winexe','-platform:x64','-optimize+','-warnaserror+','-r:System.Windows.Forms.dll','-r:System.Drawing.dll','-r:System.Web.Extensions.dll','-win32res:'+str(resource),'-out:'+str(binary/'Bathjun-Server.exe'),*[str(ROOT/'packaging/windows'/file) for file in ['ServerPanel.cs','Dashboard.cs','HumanPresenceReader.cs','ServerUpdate.cs']]],check=True)
+        runpy.run_path(str(ROOT/'packaging/build-native.py'))['compile_native'](args.csc,binary/'Bathjun-Server.exe',assets/'framework',resource)
         shutil.copy2(ROOT/'packaging/windows/ServerPanel.exe.config',binary/'Bathjun-Server.exe.config')
         runpy.run_path(str(ROOT/'packaging/windows/tests/verify-dpi.py'))['verify'](binary/'Bathjun-Server.exe')
         for name in lock:shutil.copy2(assets/(name+'.exe'),binary/(name+'.exe'))

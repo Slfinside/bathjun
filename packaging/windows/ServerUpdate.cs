@@ -11,7 +11,7 @@ using System.Windows.Forms;
 
 internal static class ServerUpdate {
     internal const string ReleaseUrl="https://github.com/Slfinside/bathjun/releases";
-    internal static string InstallRoot {get{return Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).FullName;}}
+    internal static string InstallRoot {get{return Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory.TrimEnd(new[]{Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar})).FullName;}}
     internal static string VersionAt(string root){var package=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.Combine(root,"app","package.json")));return Convert.ToString(package["version"]);}
     internal static Version ParseVersion(string value) {
         var match=Regex.Match(value??"","^(\\d+)\\.(\\d+)\\.(\\d+)(?:-rc(?:\\.(\\d+))?)?$");
@@ -34,7 +34,7 @@ internal static class ServerUpdate {
     }
     internal static Process Stage(string installer,string root,int serverPid,bool publicMode) {
         string folder=Path.Combine(Path.GetTempPath(),"Bathjun-Update-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
-        string staged=Path.Combine(folder,"Bathjun-Setup-x64.exe"),helper=Path.Combine(folder,"Bathjun-Update.exe");
+        string staged=Path.Combine(folder,Path.GetExtension(installer).Equals(".zip",StringComparison.OrdinalIgnoreCase)?"Bathjun-Portable-x64.zip":"Bathjun-Setup-x64.exe"),helper=Path.Combine(folder,"Bathjun-Update.exe");
         try {
             File.Copy(installer,staged);string digest=Hash(staged);
             if(digest!=Hash(installer))throw new IOException("インストーラーのコピーを確認できませんでした。");
@@ -57,17 +57,21 @@ internal static class ServerUpdate {
                 try {
                     int panelId,serverId;if(!int.TryParse(args[3],out panelId)||!int.TryParse(args[4],out serverId)||panelId<=0||serverId<=0)throw new InvalidDataException("更新情報を確認できませんでした。");
                     string root=Path.GetFullPath(args[2]);
-                    if(!File.Exists(Path.Combine(root,"Uninstall.exe")) || !File.Exists(Path.Combine(root,"app","package.json")))throw new InvalidDataException("インストール先を確認できませんでした。");
-                    ValidateInstaller(args[1],ParseVersion(VersionAt(root)));
+                    bool portable=Path.GetExtension(args[1]).Equals(".zip",StringComparison.OrdinalIgnoreCase);
+                    if((!portable&&!File.Exists(Path.Combine(root,"Uninstall.exe"))) || !File.Exists(Path.Combine(root,"app","package.json")))throw new InvalidDataException("インストール先を確認できませんでした。");
+                    if(portable){if(File.Exists(Path.Combine(root,"Uninstall.exe")))throw new InvalidDataException("インストール版にはインストーラーを使ってください。");AutomaticUpdate.ValidatePortable(args[1],ParseVersion(VersionAt(root)));}
+                    else ValidateInstaller(args[1],ParseVersion(VersionAt(root)));
                     if(Hash(args[1])!=args[6])throw new InvalidDataException("更新ファイルが変更されています。");
                     Wait(serverId);Wait(panelId);
+                    if(Hash(args[1])!=args[6])throw new InvalidDataException("更新ファイルが変更されています。");
                     form.BeginInvoke((MethodInvoker)delegate{label.Text="更新しています。予約データは残ります。\n完了するとサーバーを再起動します。";});
                     // NSIS requires /D last, without quotes even for paths with spaces.
-                    using(var install=Process.Start(new ProcessStartInfo(args[1],"/S /D="+root){UseShellExecute=true})) {
+                    if(portable)AutomaticUpdate.ApplyPortable(args[1],root);
+                    else using(var install=Process.Start(new ProcessStartInfo(args[1],"/S /D="+root){UseShellExecute=true})) {
                         if(!install.WaitForExit(300000))throw new TimeoutException("更新完了を確認できませんでした。インストーラーが終了したか確認してください。");
                         if(install.ExitCode!=0)throw new IOException("更新に失敗しました（終了コード "+install.ExitCode+"）。保存したインストーラーを手動で実行してください。");
                     }
-                    string script=Path.Combine(root,args[5]=="public"?"start-public.cmd":"start-local.cmd");
+                    string script=Path.Combine(root,!portable&&args[5]=="public"?"start-public.cmd":"start-local.cmd");
                     Process.Start(new ProcessStartInfo(script){UseShellExecute=true,WorkingDirectory=root});
                     form.BeginInvoke((MethodInvoker)delegate{busy=false;form.Close();});
                 }catch(Exception error){form.BeginInvoke((MethodInvoker)delegate{busy=false;label.Text="更新を完了できませんでした。\n"+error.Message;});}

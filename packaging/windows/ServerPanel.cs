@@ -73,6 +73,8 @@ public sealed class Reply {public string id;public bool ok,show;public string er
 internal sealed class PanelForm : Form {
     readonly JavaScriptSerializer json=new JavaScriptSerializer();
     readonly string pipeName,token;
+    TouchScroll touchScroll;CancellationTokenSource automaticUpdate;
+    readonly Button releases=ActionButton("最新版を確認");
     readonly PowerLease power=new PowerLease();
     readonly Label status=new Label(),detail=new Label(),powerState=new Label(),saveState=new Label();
     readonly TextBox link=new TextBox();readonly Button screen=new Button(),copy=new Button(),open=new Button(),save=new Button();
@@ -140,7 +142,7 @@ internal sealed class PanelForm : Form {
         var dashboardButton=ActionButton("ダッシュボードを開く");dashboardButton.Click+=delegate{OpenDashboard();};layout.Controls.Add(dashboardButton);
         presenceEnabled.Text="人感センサーで表示の明るさを調整（対応端末のみ）";presenceEnabled.AutoSize=true;
         presenceEnabled.Checked=ReadPresencePreference();presenceEnabled.CheckedChanged+=delegate{SavePresencePreference();};layout.Controls.Add(presenceEnabled);
-        var releases=ActionButton("最新版を確認");releases.Click+=delegate{try{Process.Start(new ProcessStartInfo(ServerUpdate.ReleaseUrl){UseShellExecute=true});}catch{MessageBox.Show(this,ServerUpdate.ReleaseUrl);}};layout.Controls.Add(releases);
+        releases.Click+=delegate{if(automaticUpdate!=null){automaticUpdate.Cancel();return;}CheckForUpdates();};layout.Controls.Add(releases);
         var update=ActionButton("インストーラーを選んで更新");update.Click+=delegate{UpdateServer();};layout.Controls.Add(update);
         var stop=ActionButton("サーバーを停止して終了");stop.Click+=delegate{StopServer();};layout.Controls.Add(stop);
         layout.Controls.Add(TextLabel("×は通知領域にしまいます。スリープ防止はサーバー稼働中だけ有効で、終了すると解除します。AC電源につないで使ってください。",68));
@@ -151,8 +153,8 @@ internal sealed class PanelForm : Form {
         Load+=delegate{powerHeld=power.Acquire();ShowPowerState();BeginRead();displayScheduleTimer.Start();};
         Shown+=delegate{if(minimized){WindowState=FormWindowState.Minimized;Hide();}};
         FormClosing+=delegate(object sender,FormClosingEventArgs e){if(!canClose && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();tray.ShowBalloonTip(2500,"ふろじゅん","サーバーは継続しています。通知領域のアイコンから操作画面に戻れます。",ToolTipIcon.Info);}};
-        FormClosed+=delegate{closing=true;displayScheduleTimer.Stop();if(displayController!=null)displayController.Tick(new DisplaySchedulePreferences(),DateTime.UtcNow,false,0);displayScheduleTimer.Dispose();scheduledDisplay.Dispose();if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();power.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
-        ResumeLayout(true);
+        FormClosed+=delegate{closing=true;if(automaticUpdate!=null)automaticUpdate.Cancel();if(touchScroll!=null)touchScroll.Dispose();displayScheduleTimer.Stop();if(displayController!=null)displayController.Tick(new DisplaySchedulePreferences(),DateTime.UtcNow,false,0);displayScheduleTimer.Dispose();scheduledDisplay.Dispose();if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();power.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
+        ResumeLayout(true);touchScroll=new TouchScroll(this);
     }
     void BuildItems(TabPage page) {
         var box=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,FlowDirection=FlowDirection.TopDown,WrapContents=false};page.Controls.Add(box);
@@ -238,25 +240,47 @@ internal sealed class PanelForm : Form {
     static bool ReadPresencePreference(){try{return File.ReadAllText(PresencePreferencePath()).Trim()=="enabled";}catch{return false;}}
     void SavePresencePreference(){try{File.WriteAllText(PresencePreferencePath(),presenceEnabled.Checked?"enabled":"disabled");}catch{MessageBox.Show(this,"人感センサーの設定を保存できませんでした。");}}
     public void SetPublicMode(bool value){publicMode=value;}
+    async void CheckForUpdates(){
+        if(updatePreparing)return;updatePreparing=true;automaticUpdate=new CancellationTokenSource();var cancel=automaticUpdate.Token;string download=null;
+        try{
+            if(!connected||currentPhase!="ready"||serverPid<=0)throw new InvalidOperationException("サーバーが稼働状態になってから確認してください。");
+            string root=ServerUpdate.InstallRoot,current=ServerUpdate.VersionAt(root);bool portable=!File.Exists(Path.Combine(root,"Uninstall.exe"));
+            releases.Text="確認を中止";
+            var available=await Task.Run(()=>AutomaticUpdate.Check(current,portable,cancel));cancel.ThrowIfCancellationRequested();if(closing||IsDisposed)return;
+            if(available==null){MessageBox.Show(this,"現在のバージョン "+current+" は最新です。");return;}
+            if(MessageBox.Show(this,current+" → "+available.release.tag_name.Substring(1)+" に更新できます。\nダウンロードして更新しますか？\n\n予約データは保持します。ダウンロード中はサーバーを継続し、適用時に一時停止して再起動します。","ふろじゅんの更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
+            var progress=new Progress<int>(percent=>{if(automaticUpdate!=null&&!cancel.IsCancellationRequested&&releases.Enabled&&!closing&&!IsDisposed)releases.Text="取得中 "+percent+"%（中止）";});
+            download=await Task.Run(()=>AutomaticUpdate.Download(available,current,value=>((IProgress<int>)progress).Report(value),cancel));cancel.ThrowIfCancellationRequested();
+            if(closing||IsDisposed)return;if(pendingSave!=null||pendingSecurity!=null)throw new InvalidOperationException("保存中の操作があります。完了後にもう一度更新してください。");
+            releases.Enabled=false;releases.Text="更新を準備中…";
+            var helper=await Task.Run(()=>ServerUpdate.Stage(download,root,serverPid,publicMode));
+            if(dashboard!=null)dashboard.Close();if(Send("stop",null)==null){try{helper.Kill();}catch{}throw new IOException("サーバーを停止できませんでした。もう一度お試しください。");}
+        }catch(OperationCanceledException){}
+        catch(Exception error){if(!cancel.IsCancellationRequested&&!closing&&!IsDisposed)MessageBox.Show(this,error.Message+"\n\n配布ページ："+ServerUpdate.ReleaseUrl,"更新を確認できませんでした");}
+        finally{if(download!=null)try{Directory.Delete(Path.GetDirectoryName(download),true);}catch{}automaticUpdate.Dispose();automaticUpdate=null;updatePreparing=false;if(!closing&&!IsDisposed){releases.Enabled=true;releases.Text="最新版を確認";}}
+    }
     async void UpdateServer(){
         if(updatePreparing)return;
-        if(!connected||currentPhase!="ready"||serverPid<=0){MessageBox.Show(this,"サーバーが稼働状態になってから更新してください。");return;}
-        if(pendingSave!=null||pendingSecurity!=null){MessageBox.Show(this,"設定の保存・操作が終わってから更新してください。");return;}
-        string root=ServerUpdate.InstallRoot;
-        if(!File.Exists(Path.Combine(root,"Uninstall.exe"))){MessageBox.Show(this,"ZIP版は新しいZIPを別のフォルダーへ展開し、停止後に「はじめる.cmd」を開いて更新してください。テストデータは引き継ぎます。");return;}
-        using(var picker=new OpenFileDialog{Title="ダウンロードしたふろじゅんのインストーラー",Filter="Windowsインストーラー (*.exe)|*.exe",CheckFileExists=true,Multiselect=false}) {
-            if(picker.ShowDialog(this)!=DialogResult.OK)return;
-            try {
-                updatePreparing=true;UseWaitCursor=true;
+        try {
+            if(!connected||currentPhase!="ready"||serverPid<=0){MessageBox.Show(this,"サーバーが稼働状態になってから更新してください。");return;}
+            if(pendingSave!=null||pendingSecurity!=null){MessageBox.Show(this,"設定の保存・操作が終わってから更新してください。");return;}
+            string root=ServerUpdate.InstallRoot;
+            if(!File.Exists(Path.Combine(root,"Uninstall.exe"))){MessageBox.Show(this,"ZIP版は新しいZIPを別のフォルダーへ展開し、停止後に「はじめる.cmd」を開いて更新してください。テストデータは引き継ぎます。");return;}
+            updatePreparing=true;
+            using(var picker=new OpenFileDialog{Title="ダウンロードしたふろじゅんのインストーラー",Filter="Windowsインストーラー (*.exe)|*.exe",CheckFileExists=true,Multiselect=false,AutoUpgradeEnabled=false}) {
+                // The classic picker avoids optional shell/COM components. Opening it
+                // must also be inside the catch, not just the installer validation.
+                if(picker.ShowDialog(this)!=DialogResult.OK)return;
+                UseWaitCursor=true;
                 string selected=picker.FileName;
                 var current=ServerUpdate.ParseVersion(ServerUpdate.VersionAt(root));var next=await Task.Run(()=>ServerUpdate.ValidateInstaller(selected,current));
                 if(MessageBox.Show(this,"バージョン "+current+" → "+next+" に更新します。\n予約データは残し、更新中はアクセスと通知を停止します。完了後は同じ起動方法で再起動します。\n\nGitHubの公式Releaseから取得したファイルであることを確認してください。\nSHA-256ファイルを同じ場所へ置いた場合は照合します。","ふろじゅんの更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
                 var helper=await Task.Run(()=>ServerUpdate.Stage(selected,root,serverPid,publicMode));
                 if(dashboard!=null)dashboard.Close();
                 if(Send("stop",null)==null){try{helper.Kill();}catch{}throw new IOException("停止を依頼できませんでした。もう一度お試しください。");}
-            }catch(Exception error){MessageBox.Show(this,error.Message,"更新できませんでした");}
-            finally{updatePreparing=false;UseWaitCursor=false;}
-        }
+            }
+        }catch(Exception error){MessageBox.Show(this,error.Message,"更新できませんでした");}
+        finally{updatePreparing=false;UseWaitCursor=false;}
     }
     void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}try{dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);dashboard.ApplyPreferences(DashboardPreferences.Read());dashboard.SetDisplaySuppressed(displayController!=null&&displayController.IsOffRequested);dashboard.Report=entry=>Send("bath/complete",new{memberId=entry.memberId,day=entry.day,revision=entry.revision});}catch{MessageBox.Show(this,"ダッシュボードのフォントを読み込めませんでした。アプリを上書きインストールするか、ZIPをすべて展開し直してください。");return;}presenceEnabled.Enabled=false;screen.Enabled=false;dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
     void ShowPowerState(){powerState.Text=powerHeld?"自動スリープ防止：有効（サーバー終了時に解除）\nAC電源で使ってください。電源ボタン・カバー閉じの手動スリープは防ぎません。":"自動スリープ防止を有効にできませんでした。\nWindowsの電源設定を確認してください。消灯ボタンは使えません。";powerState.ForeColor=powerHeld?Color.DarkGreen:Color.Firebrick;}

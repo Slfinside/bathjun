@@ -15,7 +15,18 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
+      - name: Compile the shipped UI against .NET Framework reference assemblies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mono-mcs
+          python3 packaging/build-native.py --output native-built/Bathjun-Server.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mono-native-ui
+          path: native-built/Bathjun-Server.exe
+          retention-days: 7
   dashboard-windows:
+    needs: tests
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -25,6 +36,10 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: actions/download-artifact@v4
+        with:
+          name: mono-native-ui
+          path: native-built
       - name: Render dashboard with bundled fonts on Windows
         shell: pwsh
         run: |
@@ -32,8 +47,9 @@ jobs:
           Copy-Item -Recurse public/fonts native-test/app/public/fonts
           Copy-Item -Recurse public/emoji native-test/app/public/emoji
           $compiler = "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
-          & $compiler /nologo /target:winexe /platform:x64 /warnaserror+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /out:.\native-test\bin\Bathjun-Server.exe .\packaging\windows\ServerPanel.cs .\packaging\windows\Dashboard.cs .\packaging\windows\HumanPresenceReader.cs .\packaging\windows\ServerUpdate.cs
+          & $compiler /nologo /target:winexe /platform:x64 /warnaserror+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /out:.\native-test\bin\Bathjun-Server.exe .\packaging\windows\ServerPanel.cs .\packaging\windows\Dashboard.cs .\packaging\windows\HumanPresenceReader.cs .\packaging\windows\ServerUpdate.cs .\packaging\windows\AutomaticUpdate.cs .\packaging\windows\TouchScroll.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item native-built/Bathjun-Server.exe native-test/bin/Bathjun-Server.exe -Force
           & $compiler /nologo /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:.\native-test\bin\Bathjun-Server.exe /out:.\native-test\bin\DashboardTest.exe .\packaging\windows\tests\DashboardTest.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .\packaging\windows\tests\create-dashboard-fixture.mjs .\native-test\fixture.json
@@ -43,6 +59,10 @@ jobs:
           & $compiler /nologo /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:.\native-test\bin\Bathjun-Server.exe /out:.\native-test\bin\MemberEntryTest.exe .\packaging\windows\tests\MemberEntryTest.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .\native-test\bin\MemberEntryTest.exe .\native-test\screens
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $compiler /nologo /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /r:.\native-test\bin\Bathjun-Server.exe /out:.\native-test\bin\AutomaticUpdateTest.exe .\packaging\windows\tests\AutomaticUpdateTest.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\native-test\bin\AutomaticUpdateTest.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Keep dashboard previews
         uses: actions/upload-artifact@v4
