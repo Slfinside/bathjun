@@ -340,6 +340,7 @@ function notificationPreferencesForm() {
     ["wishConfirmed", "事前希望が確定した"],
     ["wishUnconfirmed", "事前希望を確定できなかった"],
     ["reservationTurn", "予約の順番が回ってきた"],
+    ["nudge", "つつかれた"],
     ["bathReminder", "入浴開始前のお知らせ"],
   ]
     .map(
@@ -398,6 +399,7 @@ document
         "wishConfirmed",
         "wishUnconfirmed",
         "reservationTurn",
+        "nudge",
         "bathReminder",
       ])
         settings[key] = data.has(key);
@@ -628,7 +630,7 @@ function renderDashboard() {
         const booked = state.bookings.some((b) => b.memberId === id);
         const skipped = state.skips.includes(id);
         const inactive = !activeMember(id);
-        return `<li class="${turn === id && !expired && state.day <= state.today ? "current" : ""}"><span class="rank">${String(index + 1).padStart(2, "0")}</span>${avatar(id, true)}<span class="draw-member"><strong>${escapeHTML(memberName(id))}${id === me.id ? '<span class="you">あなた</span>' : ""}</strong>${state.draw.boostedMemberIds?.includes(id) ? '<span class="draw-boost-badge"><img src="/items/boost.svg" width="20" height="16" alt="" aria-hidden="true">確率UP使用</span>' : ""}</span><span class="draw-status ${booked ? "done" : ""}">${inactive ? "利用停止" : booked ? `${icon("check")}予約済み` : skipped ? "入らない/様子見" : expired ? "受付終了" : state.day > state.today ? "当日から" : turn === id ? "選ぶ番" : "待機中"}</span></li>`;
+        return `<li class="${turn === id && !expired && state.day <= state.today ? "current" : ""}"><span class="rank">${String(index + 1).padStart(2, "0")}</span>${avatar(id, true)}<span class="draw-member"><strong>${escapeHTML(memberName(id))}${id === me.id ? '<span class="you">あなた</span>' : ""}</strong>${state.draw.boostedMemberIds?.includes(id) ? '<span class="draw-boost-badge"><img src="/items/boost.svg" width="20" height="16" alt="" aria-hidden="true">確率UP使用</span>' : ""}${renderNudge(id)}</span><span class="draw-status ${booked ? "done" : ""}">${inactive ? "利用停止" : booked ? `${icon("check")}予約済み` : skipped ? "入らない/様子見" : expired ? "受付終了" : state.day > state.today ? "当日から" : turn === id ? "選ぶ番" : "待機中"}</span></li>`;
       })
       .join(
         "",
@@ -652,6 +654,13 @@ function renderDashboard() {
     node.style.minHeight = `${Number(node.dataset.minHeight)}px`;
   });
   queueMicrotask(maybeCelebrate);
+}
+function renderNudge(id) {
+  const value=state.nudge;if(!value||value.memberId!==id||id===me.id)return "";
+  const minutes=Math.max(1,Math.ceil((value.nextAllowedAt-serverNow().getTime())/60000));
+  const label=value.canNudge?"つつく":value.reason==="cooldown"?"つつき済み":value.reason==="notifications-off"?"通知オフ":"通知未設定";
+  const title=value.reason==="cooldown"?"つつけるのは1時間に1回までです。":value.canNudge?`${memberName(id)}さんに予約を促す通知を送ります。`:"通知を有効にしてもらってください。";
+  return `<button class="nudge-button" data-action="nudge" data-nudge-member="${id}" aria-label="${escapeHTML(memberName(id)+"さん："+label+(value.reason==="cooldown"?`、あと${minutes}分`:""))}" title="${escapeHTML(title)}" ${value.canNudge?"":"disabled"}>${label}${value.reason==="cooldown"?`<small>あと${minutes}分</small>`:""}</button>`;
 }
 function renderBookingBanner(booking, turn, expired, canEdit) {
   if (state.day > state.today)
@@ -910,6 +919,12 @@ document
     }
     const action = event.target.closest("[data-action]")?.dataset.action;
     if (busy) return;
+    if(action==="nudge"){
+      busy=true;const button=event.target.closest("[data-nudge-member]");button.disabled=true;
+      try{await api("nudge",{day:state.day,memberId:Number(button.dataset.nudgeMember)});notify("つつきました。");}
+      catch(error){notify(error.message);}
+      finally{busy=false;await refresh(true);}return;
+    }
     if (await handleRewardsAction(action, event)) return;
     if (action === "retry") return void init();
     if (

@@ -2588,3 +2588,9 @@ footer .site-credit {
 .draw-member { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
 .draw-boost-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 6px; background: #f5edcf; color: #806329; font-size: 10px; line-height: 1.4; white-space: nowrap; }
 .draw-boost-badge img { display: block; object-fit: contain; }
+
+.nudge-button { min-height: 44px; min-width: 84px; padding: 8px 12px; border: 1px solid #bdcba8; border-radius: 10px; background: #edf2e5; color: #4e6739; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.nudge-button:disabled { background: #efefea; color: #989b91; border-color: #dedfd7; cursor: default; opacity: .65; }
+
+.nudge-button { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.nudge-button small { font-size: 10px; font-weight: 400; }

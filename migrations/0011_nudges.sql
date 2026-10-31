@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS nudges (
+ member_id INTEGER PRIMARY KEY REFERENCES members(id) ON DELETE CASCADE,
+ id TEXT NOT NULL UNIQUE, day TEXT NOT NULL,
+ sender_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+ requested_at INTEGER NOT NULL, sent_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS nudge_jobs (
+ id TEXT PRIMARY KEY,
+ nudge_id TEXT NOT NULL REFERENCES nudges(id) ON DELETE CASCADE,
+ endpoint TEXT NOT NULL REFERENCES push_subscriptions(endpoint) ON DELETE CASCADE,
+ next_attempt INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+ UNIQUE(nudge_id,endpoint)
+);
+CREATE INDEX IF NOT EXISTS nudge_due ON nudge_jobs(next_attempt);

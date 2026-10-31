@@ -1,4 +1,5 @@
 export const DEFAULT_NOTIFICATION_PREFERENCES = Object.freeze({
+  nudge: true,
   bookingDisplaced: true,
   wishConfirmed: true,
   wishUnconfirmed: true,
@@ -29,6 +30,7 @@ export function saveNotificationPreferences(db, memberId, payload) {
     throw new Error("通知の設定を確認してください。");
   const result = { ...getNotificationPreferences(db, memberId), ...payload };
   for (const key of [
+    "nudge",
     "bookingDisplaced",
     "wishConfirmed",
     "wishUnconfirmed",

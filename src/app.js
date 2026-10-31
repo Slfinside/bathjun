@@ -1,4 +1,5 @@
 import {createRewards} from './rewards.js';
+import {createNudges} from './nudges.js';
 import {createAutoStandby} from './auto-standby.js';
 import { getNotificationPreferences, saveNotificationPreferences } from './notification-preferences.js';
 import { createWishNotifications } from './wish-notifications.js';
@@ -209,6 +210,9 @@ export function createApp({
     flushing = true;
     try {
       await wishNotifications.flush();
+      if(closed)return;
+      await nudges.flush();
+      if(closed)return;
       const jobs = db
         .prepare(
           "SELECT q.*,p.subscription_json,s.expires FROM notification_queue q JOIN push_subscriptions p ON p.endpoint=q.endpoint JOIN sessions s ON s.token_hash=p.session_hash WHERE q.next_attempt<=? ORDER BY q.id LIMIT 20",
@@ -331,6 +335,7 @@ export function createApp({
   const scheduleForDay = serverSettings.scheduleForDay;
   const rewards=createRewards({db,now,scheduleForDay});
   const reminders=createBookingReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed});
+  const nudges=createNudges({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn,isDayOpen:day=>day<=currentTime().today&&slotDate(day,scheduleForDay(day).bathEnd)>now()&&bookingOpensAt(day)<=now().getTime()});
   const currentTime = () => {
     const time=bathCalendar(now(),scheduleForDay(rawJapanDate(now())).dayRollover);
     const raw=japanTime(now()),previousRule=scheduleForDay(raw.yesterday);
@@ -601,6 +606,7 @@ export function createApp({
         try{result=saveNotificationPreferences(db,me.id,body);}catch(error){fail(400,error.message);}
         if(!result.reservationTurn)db.prepare("DELETE FROM notification_queue WHERE member_id=?").run(me.id);
         for(const key of ['wishConfirmed','wishUnconfirmed'])if(!result[key])db.prepare("DELETE FROM wish_notification_jobs WHERE sent=0 AND event_id IN (SELECT id FROM wish_outcomes WHERE member_id=? AND kind=? AND displaced=0)").run(me.id,key);
+        if(!result.nudge)db.prepare("DELETE FROM nudge_jobs WHERE nudge_id IN (SELECT id FROM nudges WHERE member_id=?)").run(me.id);
         if(!result.bookingDisplaced)db.prepare("DELETE FROM wish_notification_jobs WHERE sent=0 AND event_id IN (SELECT id FROM wish_outcomes WHERE member_id=? AND displaced=1)").run(me.id);
         reminders.restore(me.id);
         if(result.reservationTurn&&!before.reservationTurn){const time=currentTime();enqueueTurn(time.today);if(time.activeDay!==time.today)enqueueTurn(time.activeDay);}
@@ -692,6 +698,7 @@ export function createApp({
           rewards:rewards.view(me.id,day),
           notificationPreferences:getNotificationPreferences(db,me.id),
           autoStandby:autoStandby.enabled(me.id),
+          nudge:nudges.status(day,me.id),
           ignoreLowerPriorityWishes:serverSettings.ignoreLowerPriorityWishes(),
           shareUrl: req.bathSecure
             ? `${req.bathOrigin}/family/${familyConfig().access_token}/`
@@ -750,6 +757,10 @@ export function createApp({
           "bath_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
         );
         return send(200, { ok: true });
+      }
+      if(req.method==="POST"&&url.pathname==="/api/nudge"){
+        const day=validDay(body.day);enqueueTurn(day,currentTurn(day));
+        return send(200,nudges.request(day,me.id,body.memberId));
       }
       if (req.method === "POST" && url.pathname === "/api/draw") {
         const day = validDay(body.day);
@@ -970,7 +981,7 @@ export function createApp({
     flushNotifications,
     notificationDueAt: () =>
       db
-        .prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM wish_notification_jobs WHERE sent=0)")
+        .prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM wish_notification_jobs WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM nudge_jobs)")
         .get().due,
     setFamilyPassword,
     familyConfigured: () => !!familyConfig().password_hash,
