@@ -357,6 +357,7 @@ function notificationPreferencesForm() {
     ["bathReminder", "入浴開始前のお知らせ"],
     ["completionReminder", "予約終了時の完了報告のお知らせ"],
   ]
+    .filter(([key]) => itemsEnabled() || key !== "bookingDisplaced")
     .map(
       ([key, label]) =>
         `<label class="notification-choice"><input type="checkbox" name="${key}" ${settings[key] !== false ? "checked" : ""}><span>${label}</span></label>`,
@@ -417,7 +418,10 @@ document
         "bathReminder",
         "completionReminder",
       ])
-        settings[key] = data.has(key);
+        settings[key] =
+          key === "bookingDisplaced" && !itemsEnabled()
+            ? state.notificationPreferences.bookingDisplaced
+            : data.has(key);
       await api("notification-preferences", settings);
       await refresh(true);
       notify("通知設定を保存しました。");
