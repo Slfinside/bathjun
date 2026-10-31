@@ -19,6 +19,7 @@ import { createBookingReminders } from "./booking-reminders.js";
 import { createPasskeys } from "./passkeys.js";
 import { createServerSettings, rawJapanDate } from "./server-settings.js";
 import { bathCalendar } from "./bath-calendar.js";
+import { requestUrl } from "./request-url.js";
 import {
   japanTime,
   lotteryOpen,
@@ -432,7 +433,6 @@ export function createApp({
   }
   const passkeys = createPasskeys({ db, now, cookieAttributes, loginAs, sessionValid:(req,id)=>familyAllowed(req)&&memberFor(req)?.id===id });
   async function handle(req, res) {
-    const url = new URL(req.url, "http://localhost");
     const send = (status, body) => {
       res.writeHead(status, {
         "Content-Type": "application/json; charset=utf-8",
@@ -441,6 +441,7 @@ export function createApp({
       res.end(JSON.stringify(body));
     };
     try {
+      const url = requestUrl(req.url);
       if (req.method === "GET" && url.pathname === "/api/family")
         return send(200, {
           configured: !!familyConfig().password_hash,

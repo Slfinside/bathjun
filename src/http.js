@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
+import { requestUrl } from "./request-url.js";
 const equal = (a, b) =>
   typeof a === "string" &&
   Buffer.byteLength(a) === Buffer.byteLength(b) &&
@@ -57,7 +58,13 @@ export function createHttpServer(
     req.bathOrigin = req.bathSecure
       ? config.publicOrigin
       : `${req.socket.encrypted ? "https" : "http"}://${req.headers.host}`;
-    const path = new URL(req.url, "http://localhost").pathname;
+    let path;
+    try {
+      path = requestUrl(req.url).pathname;
+    } catch {
+      res.writeHead(400);
+      return res.end("Bad request");
+    }
     if (privateLink) {
       const cookie = (req.headers.cookie || "")
         .split(";")
@@ -80,7 +87,19 @@ export function createHttpServer(
         return res.end("Not found");
       }
     }
-    if (path.startsWith("/api/")) return void app.handle(req, res);
+    if (path.startsWith("/api/")) {
+      // Keep an unexpected rejected handler from terminating the server process.
+      void Promise.resolve()
+        .then(() => app.handle(req, res))
+        .catch(() => {
+          if (res.headersSent) return res.destroy();
+          res.writeHead(500, {
+            "Content-Type": "application/json; charset=utf-8",
+          });
+          res.end(JSON.stringify({ error: "サーバーでエラーが起きました。" }));
+        });
+      return;
+    }
     const asset = assets[path];
     if (!asset || !["GET", "HEAD"].includes(req.method)) {
       res.writeHead(404);

@@ -32,6 +32,7 @@ Windows 10/11の64bit版、.NET Framework 4.7.2以降が必要です。Node.js�
 - [開発者向け：ソース・テスト・ビルド](docs/development.md)
 - [v2.0.0向け開発版：週間カード・アイテム・新メニューの使い方](docs/v2-preview-guide.md)（v2.0.0-rcに収録）
 - [更新履歴](CHANGELOG.md)
+- [セキュリティ確認結果と運用上の注意](docs/security-review.md)
 
 ## できること
 
