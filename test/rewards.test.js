@@ -352,6 +352,7 @@ test("確率UPは3回、同じ使用の再送で二重消費せず、抽選の�
   await f.api("draw", { day: "2026-10-25" });
   await f.state();
   assert.equal((await f.state()).rewards.boostRemaining, 2);
+  assert.deepEqual((await f.state(2)).draw.boostedMemberIds, [1]);
   assert.equal((await f.request("draw", { day: "2026-10-25" })).status, 409);
   assert.equal((await f.state()).rewards.boostRemaining, 2);
   f.time("2026-10-28T08:00:00");
@@ -362,6 +363,12 @@ test("確率UPは3回、同じ使用の再送で二重消費せず、抽選の�
   f.time("2026-10-29T08:00:00");
   await f.api("draw", { day: "2026-10-29" });
   assert.equal((await f.state()).rewards.boostRemaining, 0);
+  assert.deepEqual((await f.state()).draw.boostedMemberIds, [1]);
+  await f.restart();
+  assert.deepEqual(
+    (await f.api("state?day=2026-10-28", undefined, 3)).draw.boostedMemberIds,
+    [1],
+  );
 });
 test("1番になる確率は重み3:1で、ユーザーの例を厳密に満たす", () => {
   for (const [ids, boosted, total, expected] of [
@@ -589,4 +596,36 @@ test("固定報酬は指定の種類・枚数を一度だけ送り、設定変�
   assert.throws(() =>
     f.app.saveRewardSettings({ ...config, rewardMode: "roulette", weights }),
   );
+});
+
+test("確率UPの表示は抽選時に確定し、後からの有効化や固定順には適用しない", async (t) => {
+  const f = await fixture(t, { random: true });
+  await f.api("draw", { day: "2026-10-25" });
+  await f.grant(1, ["boost"]);
+  await f.api("items/boost", { requestId: randomUUID() });
+  assert.deepEqual((await f.state()).draw.boostedMemberIds, []);
+  f.time("2026-10-26T08:00:00");
+  await f.grant(2, ["boost"]);
+  await f.api("items/boost", { requestId: randomUUID() }, 2);
+  await f.api("draw", { day: "2026-10-26" });
+  assert.deepEqual((await f.state(3)).draw.boostedMemberIds, [1, 2]);
+  const fixed = await fixture(t);
+  await fixed.grant(1, ["boost"]);
+  await fixed.api("items/boost", { requestId: randomUUID() });
+  fixed.time("2026-10-26T08:00:00");
+  assert.deepEqual((await fixed.state()).draw.boostedMemberIds, []);
+  assert.equal((await fixed.state()).rewards.boostRemaining, 3);
+});
+
+test("旧抽選結果の移行では確率UPの使用者を推測せず、既存の順番を保つ", async (t) => {
+  const f = await fixture(t, { random: true });
+  await f.api("draw", { day: "2026-10-25" });
+  const original = (await f.state()).draw.originalOrder;
+  const db = new DatabaseSync(f.database);
+  db.exec("ALTER TABLE draws DROP COLUMN boosted_json");
+  db.close();
+  await f.restart();
+  const state = await f.state();
+  assert.deepEqual(state.draw.originalOrder, original);
+  assert.deepEqual(state.draw.boostedMemberIds, []);
 });

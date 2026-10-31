@@ -460,9 +460,13 @@ export function createRewards({ db, now, scheduleForDay }) {
   function draw(ids) {
     const boosted = ids.filter((id) => boostRemaining(id) > 0);
     const first = weightedFirst(ids, boosted);
-    return first == null
-      ? []
-      : [first, ...shuffle(ids.filter((id) => id !== first))];
+    return {
+      order:
+        first == null
+          ? []
+          : [first, ...shuffle(ids.filter((id) => id !== first))],
+      boosted,
+    };
   }
   function consumeDraw(ids) {
     for (const id of ids)

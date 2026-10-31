@@ -628,7 +628,7 @@ function renderDashboard() {
         const booked = state.bookings.some((b) => b.memberId === id);
         const skipped = state.skips.includes(id);
         const inactive = !activeMember(id);
-        return `<li class="${turn === id && !expired && state.day <= state.today ? "current" : ""}"><span class="rank">${String(index + 1).padStart(2, "0")}</span>${avatar(id, true)}<strong>${escapeHTML(memberName(id))}${id === me.id ? '<span class="you">あなた</span>' : ""}</strong><span class="draw-status ${booked ? "done" : ""}">${inactive ? "利用停止" : booked ? `${icon("check")}予約済み` : skipped ? "入らない/様子見" : expired ? "受付終了" : state.day > state.today ? "当日から" : turn === id ? "選ぶ番" : "待機中"}</span></li>`;
+        return `<li class="${turn === id && !expired && state.day <= state.today ? "current" : ""}"><span class="rank">${String(index + 1).padStart(2, "0")}</span>${avatar(id, true)}<span class="draw-member"><strong>${escapeHTML(memberName(id))}${id === me.id ? '<span class="you">あなた</span>' : ""}</strong>${state.draw.boostedMemberIds?.includes(id) ? '<span class="draw-boost-badge"><img src="/items/boost.svg" width="20" height="16" alt="" aria-hidden="true">確率UP使用</span>' : ""}</span><span class="draw-status ${booked ? "done" : ""}">${inactive ? "利用停止" : booked ? `${icon("check")}予約済み` : skipped ? "入らない/様子見" : expired ? "受付終了" : state.day > state.today ? "当日から" : turn === id ? "選ぶ番" : "待機中"}</span></li>`;
       })
       .join(
         "",

@@ -100,6 +100,8 @@ export function createApp({
     );
   if (!db.prepare("PRAGMA table_info(draws)").all().some(column=>column.name==="mode"))
     db.exec("ALTER TABLE draws ADD COLUMN mode TEXT CHECK(mode IS NULL OR mode IN ('random','fixed'))");
+  if (!db.prepare("PRAGMA table_info(draws)").all().some(column=>column.name==="boosted_json"))
+    db.exec("ALTER TABLE draws ADD COLUMN boosted_json TEXT NOT NULL DEFAULT '[]'");
   db.exec(readFileSync(new URL('../migrations/0008_notification_controls.sql',import.meta.url),'utf8'));
   const familyConfig = () =>
     db.prepare("SELECT * FROM family_config WHERE id=1").get();
@@ -708,6 +710,7 @@ export function createApp({
             ? {
                 order: reservationOrder(day),
                 originalOrder: JSON.parse(draw.order_json),
+                boostedMemberIds: JSON.parse(draw.boosted_json),
                 createdAt: draw.created_at,
                 mode: draw.mode || scheduleForDay(day).orderMode,
               }
@@ -755,9 +758,9 @@ export function createApp({
         if (!lotteryOpen(day, now(), scheduleForDay(day), currentTime().today))
           fail(403, "当日分を選び、設定された抽選時間内に操作してください。");
         const ids=allMembers().map(m=>m.id);
-        const order = rewards.draw(ids);
         rewards.transaction(()=>{
-          const result=db.prepare('INSERT OR IGNORE INTO draws(day,order_json,created_at,mode) VALUES(?,?,?,?)').run(day,JSON.stringify(order),now().toISOString(),'random');
+          const {order,boosted} = rewards.draw(ids);
+          const result=db.prepare('INSERT OR IGNORE INTO draws(day,order_json,created_at,mode,boosted_json) VALUES(?,?,?,?,?)').run(day,JSON.stringify(order),now().toISOString(),'random',JSON.stringify(boosted));
           if(!result.changes)fail(409,'この夜はすでに抽選済みです。結果を更新します。');
           rewards.consumeDraw(ids);
         });

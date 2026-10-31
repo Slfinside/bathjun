@@ -2584,3 +2584,7 @@ footer .site-credit {
 .fixed-result { animation: reward-reveal 0.5s ease-out; text-align: center; margin: 24px 0; }
 
 .celebration-heading span { display: block; white-space: nowrap; }
+
+.draw-member { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.draw-boost-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 6px; background: #f5edcf; color: #806329; font-size: 10px; line-height: 1.4; white-space: nowrap; }
+.draw-boost-badge img { display: block; object-fit: contain; }
