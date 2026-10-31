@@ -17,12 +17,17 @@ using System.Runtime.Versioning;
 [assembly: TargetFramework(".NETFramework,Version=v4.7.2", FrameworkDisplayName=".NET Framework 4.7.2")]
 
 internal sealed class PowerLease : IDisposable {
+    enum RequestType {Display=0,System=1,Execution=3}
     [StructLayout(LayoutKind.Sequential)] struct Reason { public uint Version; public uint Flags; public IntPtr SimpleReason; }
     [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr PowerCreateRequest(ref Reason context);
-    [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool PowerSetRequest(IntPtr handle, int type);
-    [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool PowerClearRequest(IntPtr handle, int type);
+    [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool PowerSetRequest(IntPtr handle, RequestType type);
+    [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool PowerClearRequest(IntPtr handle, RequestType type);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-    [DllImport("user32.dll", SetLastError=true)] static extern IntPtr SendMessageTimeout(IntPtr hwnd,uint message,UIntPtr wParam,IntPtr lParam,uint flags,uint timeout,out UIntPtr result);
+    [DllImport("user32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool PostMessage(IntPtr hwnd,uint message,UIntPtr wParam,IntPtr lParam);
+    [DllImport("kernel32.dll")] static extern uint SetThreadExecutionState(uint state);
+    [StructLayout(LayoutKind.Sequential)] struct LastInput {public uint size,time;}
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] static extern bool GetLastInputInfo(ref LastInput info);
+    public static uint IdleSeconds(){var info=new LastInput{size=(uint)Marshal.SizeOf(typeof(LastInput))};return GetLastInputInfo(ref info)?unchecked((uint)Environment.TickCount-info.time)/1000:0;}
     IntPtr handle=IntPtr.Zero; bool system,execution,display;
     public bool Acquire(bool keepDisplay=false) {
         Dispose();
@@ -30,14 +35,15 @@ internal sealed class PowerLease : IDisposable {
         try {var context=new Reason{Version=0,Flags=1,SimpleReason=reason};handle=PowerCreateRequest(ref context);}
         finally {Marshal.FreeHGlobal(reason);}
         if(handle==IntPtr.Zero || handle==new IntPtr(-1)){handle=IntPtr.Zero;return false;}
-        system=PowerSetRequest(handle,0); // PowerRequestSystemRequired
-        execution=PowerSetRequest(handle,3); // PowerRequestExecutionRequired (Modern Standby)
-        display=keepDisplay&&PowerSetRequest(handle,1); // DisplayRequired only while dashboard is visible
+        system=PowerSetRequest(handle,RequestType.System); // PowerRequestSystemRequired
+        execution=PowerSetRequest(handle,RequestType.Execution); // PowerRequestExecutionRequired (Modern Standby)
+        display=keepDisplay&&PowerSetRequest(handle,RequestType.Display); // DisplayRequired only while a visible display is requested
         if(system&&execution&&(!keepDisplay||display))return true;
         Dispose();return false;
     }
-    public static bool ScreenOff() {UIntPtr result;return SendMessageTimeout(new IntPtr(0xffff),0x0112,new UIntPtr(0xf170),new IntPtr(2),2,1000,out result)!=IntPtr.Zero;}
-    public void Dispose() {if(handle!=IntPtr.Zero){if(display)PowerClearRequest(handle,1);if(execution)PowerClearRequest(handle,3);if(system)PowerClearRequest(handle,0);CloseHandle(handle);handle=IntPtr.Zero;system=execution=display=false;}}
+    public static bool ScreenOff(){return PostMessage(new IntPtr(0xffff),0x0112,new UIntPtr(0xf170),new IntPtr(2));}
+    public static bool ScreenOn(){bool timer=SetThreadExecutionState(0x00000002)!=0;bool message=PostMessage(new IntPtr(0xffff),0x0112,new UIntPtr(0xf170),new IntPtr(-1));return timer||message;}
+    public void Dispose() {if(handle!=IntPtr.Zero){if(display)PowerClearRequest(handle,RequestType.Display);if(execution)PowerClearRequest(handle,RequestType.Execution);if(system)PowerClearRequest(handle,RequestType.System);CloseHandle(handle);handle=IntPtr.Zero;system=execution=display=false;}}
 }
 // A bounded, single writer queue keeps pipe writes and JSON work off the UI thread.
 public sealed class PanelOutbox : IDisposable {
@@ -88,6 +94,12 @@ internal sealed class PanelForm : Form {
     static readonly string[] ItemKinds={"skip","extend","boost","guard"};
     static string ItemTitle(string kind){return kind=="skip"?"順番抜かしチケット":kind=="extend"?"時間延長チケット":kind=="boost"?"抽選確率UPチケット":"順番抜かしガード";}
     DashboardForm dashboard;readonly CheckBox presenceEnabled=new CheckBox();
+    readonly CheckBox automaticDisplay=new CheckBox{Text="時間帯で自動消灯・点灯する",AutoSize=true};
+    readonly DataGridView displayPeriods=new DataGridView();
+    readonly Label displayScheduleStatus=new Label{Width=550,Height=48};
+    readonly PowerLease scheduledDisplay=new PowerLease();bool scheduledDisplayHeld;
+    readonly System.Windows.Forms.Timer displayScheduleTimer=new System.Windows.Forms.Timer{Interval=1000};
+    DisplaySchedulePreferences displaySchedule=DisplaySchedulePreferences.Read();DisplayScheduleController displayController;
     readonly CheckBox dashboardFixed=new CheckBox();
     readonly NumericUpDown dashboardMinutes=new NumericUpDown{Minimum=1,Maximum=60,Value=1,Width=85};
     readonly DateTimePicker dayRollover=Clock(),bathStart=Clock(),bathEnd=Clock(),drawStart=Clock(),drawEnd=Clock();
@@ -134,10 +146,12 @@ internal sealed class PanelForm : Form {
         layout.Controls.Add(TextLabel("×は通知領域にしまいます。スリープ防止はサーバー稼働中だけ有効で、終了すると解除します。AC電源につないで使ってください。",68));
         BuildSettings(config);var displayTab=new TabPage("ダッシュボード"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(displayTab);BuildDashboardSettings(displayTab);var itemsTab=new TabPage("アイテム・特典"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(itemsTab);BuildItems(itemsTab);var security=new TabPage("パスワード・リセット"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(security);BuildSecurity(security);
         var menu=new ContextMenuStrip();menu.Items.Add("操作画面を開く",null,delegate{ShowPanel();});menu.Items.Add("画面だけ消す",null,delegate{TurnScreenOff();});menu.Items.Add("サーバーを停止",null,delegate{StopServer();});tray.Icon=Icon;tray.Text="ふろじゅん サーバー";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowPanel();};tray.Visible=true;
-        Load+=delegate{powerHeld=power.Acquire();ShowPowerState();BeginRead();};
+        displayController=new DisplayScheduleController(ApplyScheduledVisibility,PowerLease.ScreenOff,PowerLease.ScreenOn);
+        displayScheduleTimer.Tick+=delegate{TickDisplaySchedule();};
+        Load+=delegate{powerHeld=power.Acquire();ShowPowerState();BeginRead();displayScheduleTimer.Start();};
         Shown+=delegate{if(minimized){WindowState=FormWindowState.Minimized;Hide();}};
         FormClosing+=delegate(object sender,FormClosingEventArgs e){if(!canClose && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();tray.ShowBalloonTip(2500,"ふろじゅん","サーバーは継続しています。通知領域のアイコンから操作画面に戻れます。",ToolTipIcon.Info);}};
-        FormClosed+=delegate{closing=true;if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();power.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
+        FormClosed+=delegate{closing=true;displayScheduleTimer.Stop();if(displayController!=null)displayController.Tick(new DisplaySchedulePreferences(),DateTime.UtcNow,false,0);displayScheduleTimer.Dispose();scheduledDisplay.Dispose();if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();power.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
         ResumeLayout(true);
     }
     void BuildItems(TabPage page) {
@@ -186,11 +200,39 @@ internal sealed class PanelForm : Form {
         dashboardFixed.CheckedChanged+=delegate{dashboardMinutes.Enabled=!dashboardFixed.Checked;};
         var value=DashboardPreferences.Read();dashboardMinutes.Value=value.returnMinutes;dashboardFixed.Checked=value.fixedDetails;
         box.Controls.Add(TextLabel("簡易表示をタッチすると詳細表示に切り替わります。設定はこのサーバーPCに保存され、次回起動後も引き継ぎます。",70));
+        box.Controls.Add(TextLabel("自動消灯・点灯（日本時間）",38));automaticDisplay.Checked=displaySchedule.enabled;box.Controls.Add(automaticDisplay);
+        displayPeriods.Size=new Size(550,170);displayPeriods.AllowUserToAddRows=false;displayPeriods.AllowUserToDeleteRows=true;displayPeriods.RowHeadersVisible=false;displayPeriods.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;
+        displayPeriods.Columns.Add(new DataGridViewTextBoxColumn{Name="Start",HeaderText="消灯する時刻",MaxInputLength=5});displayPeriods.Columns.Add(new DataGridViewTextBoxColumn{Name="End",HeaderText="点灯する時刻",MaxInputLength=5});
+        foreach(var period in displaySchedule.periods)displayPeriods.Rows.Add(ToClock(period.start).ToString("HH:mm"),ToClock(period.end).ToString("HH:mm"));box.Controls.Add(displayPeriods);
+        var periodButtons=new FlowLayoutPanel{Width=550,AutoSize=true};var addPeriod=ActionButton("時間帯を追加");var removePeriod=ActionButton("選択した時間帯を削除");periodButtons.Controls.Add(addPeriod);periodButtons.Controls.Add(removePeriod);box.Controls.Add(periodButtons);
+        addPeriod.Click+=delegate{if(displayPeriods.Rows.Count>=8)return;int index=displayPeriods.Rows.Add("08:00","15:00");displayPeriods.CurrentCell=displayPeriods.Rows[index].Cells[0];displayPeriods.BeginEdit(true);};
+        removePeriod.Click+=delegate{if(displayPeriods.CurrentRow!=null)displayPeriods.Rows.Remove(displayPeriods.CurrentRow);};
+        box.Controls.Add(TextLabel("HH:mm形式で入力。日をまたぐ時間帯も指定できます。終了時刻に自動点灯します。AC電源で使ってください。操作後は1分間点灯します。",70));box.Controls.Add(displayScheduleStatus);
         var feedback=TextLabel("",34);var button=ActionButton("表示設定を保存");box.Controls.Add(button);box.Controls.Add(feedback);
         button.Click+=delegate{
-            try{var preference=new DashboardPreferences{fixedDetails=dashboardFixed.Checked,returnMinutes=(int)dashboardMinutes.Value};preference.Save();if(dashboard!=null)dashboard.ApplyPreferences(preference);feedback.Text="表示設定を保存しました。";}
+            try{var schedule=ReadDisplayScheduleInput();var preference=new DashboardPreferences{fixedDetails=dashboardFixed.Checked,returnMinutes=(int)dashboardMinutes.Value};preference.Save();schedule.Save();displaySchedule=schedule;if(dashboard!=null)dashboard.ApplyPreferences(preference);feedback.Text="表示設定を保存しました。";}
+            catch(ArgumentException error){feedback.Text=error.Message;}
             catch{feedback.Text="表示設定を保存できませんでした。";}
         };
+    }
+    DisplaySchedulePreferences ReadDisplayScheduleInput(){
+        if(!displayPeriods.EndEdit())throw new ArgumentException("時刻の入力を確定してください。");
+        var periods=new List<DisplayOffPeriod>();
+        foreach(DataGridViewRow row in displayPeriods.Rows){DateTime start,end;
+            if(!DateTime.TryParseExact(Convert.ToString(row.Cells["Start"].Value),"HH:mm",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out start)||!DateTime.TryParseExact(Convert.ToString(row.Cells["End"].Value),"HH:mm",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out end))throw new ArgumentException("時刻は08:00のようにHH:mm形式で入力してください。");
+            periods.Add(new DisplayOffPeriod{start=start.Hour*60+start.Minute,end=end.Hour*60+end.Minute});}
+        var value=new DisplaySchedulePreferences{enabled=automaticDisplay.Checked,periods=periods.ToArray()};value.Validate();return value;
+    }
+    bool DisplayScheduleEligible(){return !closing&&connected&&currentPhase=="ready"&&powerHeld&&OnAC();}
+    void ApplyScheduledVisibility(bool visible){
+        bool keep=visible&&displaySchedule.enabled&&DisplayScheduleEligible();
+        if(!keep){scheduledDisplay.Dispose();scheduledDisplayHeld=false;}else if(!scheduledDisplayHeld)scheduledDisplayHeld=scheduledDisplay.Acquire(true);
+        if(dashboard!=null)dashboard.SetDisplaySuppressed(!visible);
+    }
+    void TickDisplaySchedule(){
+        if(displayController==null)return;
+        bool eligible=displaySchedule.enabled&&DisplayScheduleEligible();displayController.Tick(displaySchedule,DateTime.UtcNow,eligible,eligible?PowerLease.IdleSeconds():0);
+        displayScheduleStatus.Text=!displaySchedule.enabled?"自動消灯・点灯：無効":!eligible?"自動消灯・点灯：待機中（サーバー稼働・AC接続が必要）":displayController.Failed?"画面の切替を要求できませんでした。30秒後に再試行します。":displayController.IsOffRequested?"自動消灯・点灯：消灯中":"自動消灯・点灯：点灯中";
     }
     static string PresencePreferencePath(){return Path.Combine(Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BathjunData"),"dashboard-presence.txt");}
     static bool ReadPresencePreference(){try{return File.ReadAllText(PresencePreferencePath()).Trim()=="enabled";}catch{return false;}}
@@ -216,12 +258,12 @@ internal sealed class PanelForm : Form {
             finally{updatePreparing=false;UseWaitCursor=false;}
         }
     }
-    void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}try{dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);dashboard.ApplyPreferences(DashboardPreferences.Read());dashboard.Report=entry=>Send("bath/complete",new{memberId=entry.memberId,day=entry.day,revision=entry.revision});}catch{MessageBox.Show(this,"ダッシュボードのフォントを読み込めませんでした。アプリを上書きインストールするか、ZIPをすべて展開し直してください。");return;}presenceEnabled.Enabled=false;screen.Enabled=false;dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
+    void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}try{dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);dashboard.ApplyPreferences(DashboardPreferences.Read());dashboard.SetDisplaySuppressed(displayController!=null&&displayController.IsOffRequested);dashboard.Report=entry=>Send("bath/complete",new{memberId=entry.memberId,day=entry.day,revision=entry.revision});}catch{MessageBox.Show(this,"ダッシュボードのフォントを読み込めませんでした。アプリを上書きインストールするか、ZIPをすべて展開し直してください。");return;}presenceEnabled.Enabled=false;screen.Enabled=false;dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
     void ShowPowerState(){powerState.Text=powerHeld?"自動スリープ防止：有効（サーバー終了時に解除）\nAC電源で使ってください。電源ボタン・カバー閉じの手動スリープは防ぎません。":"自動スリープ防止を有効にできませんでした。\nWindowsの電源設定を確認してください。消灯ボタンは使えません。";powerState.ForeColor=powerHeld?Color.DarkGreen:Color.Firebrick;}
     void ShowPanel(){Show();WindowState=FormWindowState.Normal;Activate();}
     bool OnAC(){return SystemInformation.PowerStatus.PowerLineStatus==PowerLineStatus.Online;}
     void RenewPower(){power.Dispose();powerHeld=power.Acquire();ShowPowerState();screen.Enabled=dashboard==null&&powerHeld&&OnAC()&&connected&&currentPhase=="ready";}
-    protected override void WndProc(ref Message message){base.WndProc(ref message);if(message.Msg==0x218 && (message.WParam.ToInt32()==7 || message.WParam.ToInt32()==18 || message.WParam.ToInt32()==10)){if(IsHandleCreated&&!closing)RenewPower();}}
+    protected override void WndProc(ref Message message){base.WndProc(ref message);if(message.Msg==0x218 && (message.WParam.ToInt32()==7 || message.WParam.ToInt32()==18 || message.WParam.ToInt32()==10)){if(IsHandleCreated&&!closing){RenewPower();scheduledDisplay.Dispose();scheduledDisplayHeld=false;if(dashboard!=null)dashboard.ResetDisplayPower();TickDisplaySchedule();}}}
     void TurnScreenOff(){if(dashboard!=null){dashboard.Activate();return;}if(!OnAC()){ShowPanel();MessageBox.Show(this,"画面を消してサーバーを継続するには、AC電源につないでください。");return;}RenewPower();if(!powerHeld || !connected || currentPhase!="ready"){ShowPanel();return;}var timer=new System.Windows.Forms.Timer{Interval=1000};timer.Tick+=delegate{timer.Stop();timer.Dispose();if(!closing && connected && currentPhase=="ready" && !PowerLease.ScreenOff())MessageBox.Show(this,"画面を消せませんでした。Windowsの表示設定を確認してください。");};timer.Start();}
     void StopServer(){if(!connected)return;if(MessageBox.Show(this,"サーバーを停止しますか？家族からのアクセスと通知送信が止まります。","ふろじゅん",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)==DialogResult.OK){screen.Enabled=false;Send("stop",null);}}
     void BuildSettings(TabPage page) {

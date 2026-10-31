@@ -22,13 +22,17 @@ internal static class DashboardTest {
             try{
                 ((CheckBox)Get(panel,"dashboardFixed")).Checked=true;((NumericUpDown)Get(panel,"dashboardMinutes")).Value=7;
                 if(((NumericUpDown)Get(panel,"dashboardMinutes")).Enabled)throw new Exception("Fixed mode did not disable timeout input");
+                ((CheckBox)Get(panel,"automaticDisplay")).Checked=true;
                 ClickSave(panel);
+                var periods=DisplaySchedulePreferences.Read();if(!periods.enabled||periods.periods[0].start!=480||periods.periods[0].end!=900)throw new Exception("Display schedule UI did not save periods");
+                var grid=(DataGridView)Get(panel,"displayPeriods");grid.Rows[0].Cells["Start"].Value="not-a-time";bool rejected=false;try{Call(panel,"ReadDisplayScheduleInput");}catch(TargetInvocationException){rejected=true;}if(!rejected)throw new Exception("Display schedule UI accepted invalid time");grid.Rows[0].Cells["Start"].Value="08:00";
                 var counts=new Dictionary<string,int>{{"skip",1},{"extend",1},{"boost",1},{"guard",2}};var weights=new Dictionary<string,int>{{"skip",1},{"extend",1},{"boost",1},{"guard",1}};
                 Call(panel,"FillRewards",new RewardsAdmin{settings=new RewardSettings{extensionMinutes=30,boostDraws=3,rewardMode="fixed",fixedKind="guard",fixedQuantity=2,extensionBlocked=true,extensionBlockedStart=1140,extensionBlockedEnd=1380,extensionNoticeMinutes=120,skipNoticeMinutes=120,quantities=counts,weights=weights},members=new[]{new ItemMember{id=1,name="テスト利用者",wallet=new[]{new ItemCount{kind="guard",quantity=2}}}},history=new GiftRecord[0]});
                 if(!((CheckBox)Get(panel,"extensionBlocked")).Checked||((NumericUpDown)Get(panel,"extensionNotice")).Value!=120||((DateTimePicker)Get(panel,"extensionBlockedStart")).Value.Hour!=19)throw new Exception("Ticket limits not loaded into controls");
                 ((CheckBox)Get(panel,"extensionBlocked")).Checked=false;
                 if(((DateTimePicker)Get(panel,"extensionBlockedStart")).Enabled)throw new Exception("Disabled limits still editable");
                 ((CheckBox)Get(panel,"extensionBlocked")).Checked=true;
+                panel.PerformLayout();foreach(Control control in panel.Controls)if(control is TabControl){var section=((TabControl)control).TabPages[2].Controls[0];section.Dock=DockStyle.None;section.Width=560;section.PerformLayout();using(var image=new Bitmap(section.Width,section.Height)){section.DrawToBitmap(image,new Rectangle(Point.Empty,section.Size));image.Save(Path.Combine(screenshots,"admin-display-schedule.png"));}}
                 panel.PerformLayout();foreach(Control control in panel.Controls)if(control is TabControl){var tabs=(TabControl)control;var section=tabs.TabPages[3].Controls[0];section.Dock=DockStyle.None;section.Width=560;section.PerformLayout();using(var image=new Bitmap(section.Width,section.Height)){section.DrawToBitmap(image,new Rectangle(Point.Empty,section.Size));image.Save(Path.Combine(screenshots,"admin-items.png"));}}
                 var targets=(CheckedListBox)Get(panel,"giftTargets");var kinds=(CheckedListBox)Get(panel,"giftKinds");targets.SetItemChecked(0,true);kinds.SetItemChecked(0,true);kinds.SetItemChecked(3,true);((NumericUpDown)Get(panel,"giftQuantity")).Value=2;
                 string outgoing=null;using(var done=new ManualResetEvent(false)){var outbox=new PanelOutbox(line=>{outgoing=line;done.Set();},error=>{throw error;});Set(panel,"outbox",outbox);typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(Get(panel,"distributeItems"),new object[]{EventArgs.Empty});if(!done.WaitOne(2000)||!outgoing.Contains("items/distribute")||!outgoing.Contains("\"quantity\":2")||!outgoing.Contains("guard")||!outgoing.Contains("skip"))throw new Exception("Item distribution did not serialize checked targets, kinds and quantity");outbox.Dispose();Set(panel,"outbox",null);}
@@ -85,9 +89,45 @@ internal static class DashboardTest {
         string label=(string)time.Invoke(form,new object[]{idleArgs[2],end});
         if(label!="30分後 | 19:00 〜 19:45")throw new Exception("Upcoming label lacks countdown and full time range: "+label);
     }
+    static DateTime JapanTime(string value){return DateTime.SpecifyKind(DateTime.ParseExact(value,"yyyy-MM-dd HH:mm:ss",System.Globalization.CultureInfo.InvariantCulture),DateTimeKind.Utc).AddHours(-9);}
+    static void DisplaySchedules(){
+        var schedule=new DisplaySchedulePreferences();if(schedule.enabled||schedule.periods.Length!=2||schedule.periods[0].start!=480||schedule.periods[0].end!=900||schedule.periods[1].start!=120||schedule.periods[1].end!=240)throw new Exception("Invalid display schedule defaults");
+        schedule.enabled=true;
+        foreach(var test in new[]{new[]{"01:59:59","on"},new[]{"02:00:00","off"},new[]{"03:59:59","off"},new[]{"04:00:00","on"},new[]{"07:59:59","on"},new[]{"08:00:00","off"},new[]{"14:59:59","off"},new[]{"15:00:00","on"}})
+            if(schedule.IsOffTime(JapanTime("2026-10-31 "+test[0]))!=(test[1]=="off"))throw new Exception("Display schedule boundary: "+test[0]);
+        var overnight=new DisplaySchedulePreferences{enabled=true,periods=new[]{new DisplayOffPeriod{start=23*60,end=6*60},new DisplayOffPeriod{start=5*60,end=8*60}}};
+        if(!overnight.IsOffTime(JapanTime("2026-10-31 23:00:00"))||!overnight.IsOffTime(JapanTime("2026-11-01 07:59:59"))||overnight.IsOffTime(JapanTime("2026-11-01 08:00:00")))throw new Exception("Overnight schedule or overlap failed");
+        int off=0,on=0;bool visible=true;var events=new List<string>();
+        var control=new DisplayScheduleController(value=>{visible=value;events.Add(value?"visible":"suppress");},()=>{if(visible)throw new Exception("Display lease not released before screen off");events.Add("off");off++;return true;},()=>{if(!visible)throw new Exception("Display lease not restored before screen on");events.Add("on");on++;return true;});
+        var start=JapanTime("2026-10-31 08:00:00");
+        control.Tick(schedule,start,true,60);control.Tick(schedule,start.AddSeconds(1),true,61);
+        if(off!=1||!control.IsOffRequested||on!=0)throw new Exception("Screen off repeated during the same interval");
+        control.Tick(schedule,start.AddSeconds(2),true,0);
+        if(on!=1||control.IsOffRequested)throw new Exception("User activity did not wake display");
+        control.Tick(schedule,start.AddSeconds(61),true,59);if(off!=1)throw new Exception("Temporary wake shorter than one minute");
+        control.Tick(schedule,start.AddSeconds(62),true,60);if(off!=2)throw new Exception("Did not reapply scheduled off after idle");
+        control.Tick(schedule,JapanTime("2026-10-31 15:00:00"),true,10000);if(on!=2||control.IsOffRequested)throw new Exception("Scheduled wake did not run at end");
+        control.Tick(schedule,start,true,60);control.Tick(schedule,start.AddSeconds(1),false,60);
+        if(control.IsOffRequested||on!=3)throw new Exception("Loss of eligibility did not wake owned screen");
+        control.Tick(schedule,start,true,60);schedule.enabled=false;control.Tick(schedule,start.AddSeconds(1),true,60);
+        if(control.IsOffRequested||on!=4)throw new Exception("Disabling schedule did not wake owned screen");
+        schedule.enabled=true;int attempts=0;var retry=new DisplayScheduleController(value=>{},()=>{attempts++;return false;},()=>true);
+        retry.Tick(schedule,start,true,60);retry.Tick(schedule,start.AddSeconds(29),true,90);if(attempts!=1||!retry.Failed)throw new Exception("Failed display command retries too quickly");
+        retry.Tick(schedule,start.AddSeconds(30),true,90);if(attempts!=2)throw new Exception("Display command was not retried");
+        retry.Tick(schedule,JapanTime("2026-10-31 15:00:00"),true,10000);if(retry.Failed)throw new Exception("Stale failure survived schedule transition");
+        int wakeAttempts=0;var wakeRetry=new DisplayScheduleController(value=>{},()=>true,()=>++wakeAttempts>=2);
+        wakeRetry.Tick(schedule,start,true,60);var end=JapanTime("2026-10-31 15:00:00");wakeRetry.Tick(schedule,end,true,10000);wakeRetry.Tick(schedule,end.AddSeconds(29),true,10000);wakeRetry.Tick(schedule,end.AddSeconds(30),true,10000);
+        if(wakeAttempts!=2||wakeRetry.IsOffRequested||wakeRetry.Failed)throw new Exception("Wake failures were not retried");
+        bool rejected=false;try{new DisplaySchedulePreferences{enabled=true,periods=new DisplayOffPeriod[0]}.Validate();}catch(ArgumentException){rejected=true;}if(!rejected)throw new Exception("Enabled empty schedule accepted");
+        rejected=false;try{new DisplaySchedulePreferences{periods=new[]{new DisplayOffPeriod{start=120,end=120}}}.Validate();}catch(ArgumentException){rejected=true;}if(!rejected)throw new Exception("Equal schedule endpoints accepted");
+        string previous=Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR"),folder=Path.Combine(Path.GetTempPath(),"bathjun-display-schedule-"+Guid.NewGuid().ToString("N"));Environment.SetEnvironmentVariable("BATHJUN_DATA_DIR",folder);
+        try{overnight.Save();var saved=DisplaySchedulePreferences.Read();if(!saved.enabled||saved.periods[0].start!=1380||saved.periods[0].end!=360)throw new Exception("Display schedule persistence failed");File.WriteAllText(Path.Combine(folder,"display-schedule.json"),"{broken");if(DisplaySchedulePreferences.Read().enabled)throw new Exception("Corrupt schedule did not fail open");}
+        finally{Environment.SetEnvironmentVariable("BATHJUN_DATA_DIR",previous);if(Directory.Exists(folder))Directory.Delete(folder,true);}
+    }
+
     [STAThread] static void Main(string[] args) {
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-        Preferences(args[1]);
+        DisplaySchedules();Preferences(args[1]);
         var type=typeof(DashboardData).Assembly.GetType("DashboardForm");
         var data=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));
         foreach(var size in new[]{new Size(1280,720),new Size(1280,800),new Size(1440,960),new Size(1920,1080),new Size(1920,1280)}) {

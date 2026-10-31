@@ -20,6 +20,43 @@ public sealed class DashboardPreferences {
     public static DashboardPreferences Read(){try{var value=new JavaScriptSerializer().Deserialize<DashboardPreferences>(File.ReadAllText(FilePath));if(value!=null&&value.returnMinutes>=1&&value.returnMinutes<=60)return value;}catch{}return new DashboardPreferences();}
     public void Save(){if(returnMinutes<1||returnMinutes>60)throw new ArgumentOutOfRangeException("returnMinutes");string path=FilePath;Directory.CreateDirectory(Path.GetDirectoryName(path));string temp=path+".tmp";File.WriteAllText(temp,new JavaScriptSerializer().Serialize(this));if(File.Exists(path))File.Replace(temp,path,null);else File.Move(temp,path);}
 }
+// The schedule is local to the server PC and always uses Japan time.
+public sealed class DisplayOffPeriod {
+    public int start,end;
+}
+public sealed class DisplaySchedulePreferences {
+    public bool enabled;
+    public DisplayOffPeriod[] periods=new[]{new DisplayOffPeriod{start=480,end=900},new DisplayOffPeriod{start=120,end=240}};
+    static string FilePath {get{return Path.Combine(Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BathjunData"),"display-schedule.json");}}
+    public void Validate(){
+        if(periods==null||periods.Length>8||(enabled&&periods.Length==0))throw new ArgumentException("消灯する時間帯を1〜8件設定してください。");
+        foreach(var period in periods)if(period==null||period.start<0||period.start>=1440||period.end<0||period.end>=1440||period.start==period.end)throw new ArgumentException("開始と終了は異なる時刻を指定してください。");
+    }
+    public bool IsOffTime(DateTime utc){
+        if(!enabled)return false;var japan=utc.ToUniversalTime().AddHours(9);int minute=japan.Hour*60+japan.Minute;
+        foreach(var period in periods)if(period.start<period.end?minute>=period.start&&minute<period.end:minute>=period.start||minute<period.end)return true;
+        return false;
+    }
+    public static DisplaySchedulePreferences Read(){try{var value=new JavaScriptSerializer().Deserialize<DisplaySchedulePreferences>(File.ReadAllText(FilePath));if(value!=null){value.Validate();return value;}}catch{}return new DisplaySchedulePreferences();}
+    public void Save(){Validate();string path=FilePath;Directory.CreateDirectory(Path.GetDirectoryName(path));string temp=path+".tmp";File.WriteAllText(temp,new JavaScriptSerializer().Serialize(this));if(File.Exists(path))File.Replace(temp,path,null);else File.Move(temp,path);}
+}
+// Hardware calls are injected so boundaries, failures and retries can be tested without switching a screen.
+public sealed class DisplayScheduleController {
+    readonly Action<bool> visible;readonly Func<bool> off,on;
+    public bool IsOffRequested {get;private set;}
+    public bool Failed {get;private set;}
+    bool? lastTarget;DateTime retryAt=DateTime.MinValue;
+    public DisplayScheduleController(Action<bool> visible,Func<bool> off,Func<bool> on){this.visible=visible;this.off=off;this.on=on;}
+    public void Tick(DisplaySchedulePreferences preference,DateTime utc,bool eligible,uint idleSeconds){
+        bool target=eligible&&preference.IsOffTime(utc)&&idleSeconds>=60;
+        visible(!target);
+        if(lastTarget!=target){retryAt=DateTime.MinValue;Failed=false;lastTarget=target;}
+        if(target==IsOffRequested||utc<retryAt)return;
+        bool result=target?off():on();Failed=!result;
+        if(result)IsOffRequested=target;else retryAt=utc.AddSeconds(30);
+    }
+}
+
 // Single native surface: no embedded browser or camera stream. All drawn content,
 // including the QR quiet zone, moves periodically inside a safe margin.
 internal sealed class DashboardForm : Form {
@@ -46,6 +83,9 @@ internal sealed class DashboardForm : Form {
     float Mix(float compact,float detailed){return compact+(detailed-compact)*(float)transition;}
     static RectangleF MixRect(RectangleF compact,RectangleF detailed,float t){return new RectangleF(compact.X+(detailed.X-compact.X)*t,compact.Y+(detailed.Y-compact.Y)*t,compact.Width+(detailed.Width-compact.Width)*t,compact.Height+(detailed.Height-compact.Height)*t);}
     void Reveal(Graphics g,RectangleF rect,Action draw){if(transition<=0)return;var state=g.Save();g.SetClip(new RectangleF(rect.X,rect.Y,rect.Width,rect.Height*(float)transition));draw();g.Restore(state);}
+    bool displaySuppressed;
+    public void ResetDisplayPower(){display.Dispose();held=false;}
+    public void SetDisplaySuppressed(bool value){if(displaySuppressed==value)return;displaySuppressed=value;if(value){display.Dispose();held=false;}}
     bool held,waiting; double requestedAt; string problem="";
     public DashboardForm(Action request,bool usePresence):this(request,usePresence,Typeface()) {}
     public DashboardForm(Action request,bool usePresence,FontFamily typeface) {
@@ -58,9 +98,9 @@ internal sealed class DashboardForm : Form {
         KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Escape||e.KeyCode==Keys.F11)Close();};
         // First tap always opens details; the return target only closes from details.
         MouseDown+=delegate(object sender,MouseEventArgs e){foreach(var area in reportAreas)if(area.Key.Contains(e.Location)){if(!reportBusy&&Report!=null){reportBusy=true;Report(area.Value);Invalidate();}return;}if(Detailed&&returnArea.Contains(e.Location))Close();else ShowDetails();};
-        Shown+=delegate{held=display.Acquire(true);if(usePresence)presence.Start();Poll();clock.Start();};
+        Shown+=delegate{if(!displaySuppressed)held=display.Acquire(true);if(usePresence)presence.Start();Poll();clock.Start();};
         clock.Tick+=delegate{
-            if(!held)held=display.Acquire(true);
+            if(!held&&!displaySuppressed)held=display.Acquire(true);
             if(!waiting&&elapsed.Elapsed.TotalSeconds-requestedAt>=5)Poll();
             if(waiting&&elapsed.Elapsed.TotalSeconds-requestedAt>15){waiting=false;problem="更新が途絶えています";}
             MoveTo(Detailed?1:0);Invalidate();
@@ -200,7 +240,7 @@ internal sealed class DashboardForm : Form {
         using(var brush=new SolidBrush(age>20&&data!=null?Orange:Green))g.FillEllipse(brush,1,height-24,6,6);
         Write(g,health+"  ·  最終更新 "+(data==null?"—":serverTime.AddHours(9).ToString("HH:mm:ss")),11,Muted,new RectangleF(14,height-32,width*.59f,24));
         Write(g,usePresence?presence.Status:"",10,Muted,new RectangleF(width*.6f,height-32,width*.4f,24));
-        if(!held)Write(g,"自動消灯を抑止できませんでした。Windowsの電源設定を確認してください。",12,Orange,new RectangleF(0,height-5,width,26));
+        if(!held&&!displaySuppressed)Write(g,"自動消灯を抑止できませんでした。Windowsの電源設定を確認してください。",12,Orange,new RectangleF(0,height-5,width,26));
     }
     void DrawSchedule(Graphics g,RectangleF rect,Color fg) {
         float a=rect.X,top=rect.Y,width=rect.Width,height=rect.Height;
