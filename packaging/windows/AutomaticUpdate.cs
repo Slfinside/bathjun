@@ -84,7 +84,7 @@ internal static class AutomaticUpdate {
             if(archive.Entries.Count>20000)throw new InvalidDataException("ZIPのファイル数が上限を超えています。");
             var entries=new Dictionary<string,ZipArchiveEntry>(StringComparer.OrdinalIgnoreCase);long total=0;
             foreach(var entry in archive.Entries){string name=EntryName(entry.FullName);if(entries.ContainsKey(name)||entry.Length>MaximumPackage||(total+=entry.Length)>512L*1024*1024)throw new InvalidDataException("ZIPの内容を確認できませんでした。");entries.Add(name,entry);}
-            if(!entries.ContainsKey("build-manifest.json")||!entries.ContainsKey("app/package.json")||!entries.ContainsKey("bin/Bathjun-Server.exe")||!entries.ContainsKey("start-local.cmd"))throw new InvalidDataException("ふろじゅんのZIP版を選んでください。");
+            if(!entries.ContainsKey("build-manifest.json")||!entries.ContainsKey("app/package.json")||!entries.ContainsKey("bin/Bathjun-Server.exe")||!entries.ContainsKey("start-local.cmd"))throw new InvalidDataException("ふろきゅ～のZIP版を選んでください。");
             Dictionary<string,object> manifest;using(var reader=new StreamReader(entries["build-manifest.json"].Open())){if(entries["build-manifest.json"].Length>4*1024*1024)throw new InvalidDataException("ZIPのマニフェストが大きすぎます。");manifest=new JavaScriptSerializer{MaxJsonLength=4*1024*1024}.Deserialize<Dictionary<string,object>>(reader.ReadToEnd());}
             if(!manifest.ContainsKey("distribution")||Convert.ToString(manifest["distribution"])!="portable-local")throw new InvalidDataException("ZIP版の配布形式を確認できませんでした。");
             var files=manifest["files"] as Dictionary<string,object>;if(files==null||files.Count!=entries.Count-1)throw new InvalidDataException("ZIPのファイル一覧が一致しません。");

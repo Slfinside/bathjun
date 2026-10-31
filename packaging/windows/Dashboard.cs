@@ -92,7 +92,7 @@ internal sealed class DashboardForm : Form {
         this.request=request;this.usePresence=usePresence;
         animation.Tick+=delegate{Animate();};
         AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
-        Text="ふろじゅん";FormBorderStyle=FormBorderStyle.None;WindowState=FormWindowState.Maximized;
+        Text="ふろきゅ～";FormBorderStyle=FormBorderStyle.None;WindowState=FormWindowState.Maximized;
         BackColor=Background;ForeColor=Ink;DoubleBuffered=true;KeyPreview=true;
         Font=new Font(typeface,12,FontStyle.Regular);
         KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Escape||e.KeyCode==Keys.F11)Close();};
@@ -195,7 +195,7 @@ internal sealed class DashboardForm : Form {
         {
             Box(g,new RectangleF(0,0,42,42),Color.FromArgb(53,64,43),Line,14);
             Write(g,"♨",29,Green,new RectangleF(6,0,38,44));
-            Write(g,"ふろじゅん",25,fg,new RectangleF(54,0,200,44),true);
+            Write(g,"ふろきゅ～",25,fg,new RectangleF(54,0,200,44),true);
             Write(g,data==null?"今日の夜～":DateTime.Parse(data.day,CultureInfo.InvariantCulture).ToString("M月d日（ddd）",CultureInfo.GetCultureInfo("ja-JP"))+"の夜～",13,Muted,new RectangleF(2,51,360,25));
             Reveal(g,new RectangleF(width-150,0,150,42),delegate{
                 Box(g,new RectangleF(width-150,0,150,42),Paper,Line,12);

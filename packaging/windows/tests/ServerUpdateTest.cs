@@ -10,6 +10,7 @@ internal static class ServerUpdateTest {
         if(!(old<rc&&rc<rc2&&rc2<stable)||rc.ToString()!="2.0.0.1")throw new Exception("RC/stable update ordering is invalid");
         foreach(string invalid in new[]{"2.0.0-rc.0","2.0.0-rc.65535","2.0.0-beta","65536.0.0","2.0.0-rcx"}){try{Call("ParseVersion",invalid);throw new Exception("Invalid release version accepted");}catch(TargetInvocationException e){if(!(e.InnerException is InvalidDataException))throw;}}
         var current=new Version("1.0.0");var version=(Version)Call("ValidateInstaller",args[0],current);if(version<=current)throw new Exception("Upgrade missing");
+        if(args.Length>2)Call("ValidateInstaller",args[2],current);
         Rejected(args[0],version);Rejected(args[0],new Version("1000.0.0"));
         string test=Path.Combine(args[1],"test-installer.exe");File.Copy(args[0],test,true);File.WriteAllText(test+".sha256",new string('0',64)+"  test-installer.exe\n");Rejected(test,current);
         File.WriteAllText(test+".sha256",Call("Hash",test)+"  test-installer.exe\n");Call("ValidateInstaller",test,current);

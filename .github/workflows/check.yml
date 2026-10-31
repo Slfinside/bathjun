@@ -60,6 +60,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .\native-test\bin\MemberEntryTest.exe .\native-test\screens
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $compiler /nologo /out:.\native-test\bin\UpdateFixture.exe .\packaging\windows\tests\UpdateFixture.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $compiler /nologo /define:LEGACY_NAME /out:.\native-test\bin\LegacyUpdateFixture.exe .\packaging\windows\tests\UpdateFixture.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $compiler /nologo /r:.\native-test\bin\Bathjun-Server.exe /out:.\native-test\bin\ServerUpdateTest.exe .\packaging\windows\tests\ServerUpdateTest.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\native-test\bin\ServerUpdateTest.exe .\native-test\bin\UpdateFixture.exe .\native-test\screens .\native-test\bin\LegacyUpdateFixture.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $compiler /nologo /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /r:.\native-test\bin\Bathjun-Server.exe /out:.\native-test\bin\AutomaticUpdateTest.exe .\packaging\windows\tests\AutomaticUpdateTest.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .\native-test\bin\AutomaticUpdateTest.exe

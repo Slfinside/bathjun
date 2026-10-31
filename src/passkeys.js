@@ -166,7 +166,7 @@ export function createPasskeys({ db, now, cookieAttributes, loginAs, sessionVali
         .get(me.id);
       const { generateRegistrationOptions } = await webauthn();
       const options = await generateRegistrationOptions({
-        rpName: "ふろじゅん",
+        rpName: "ふろきゅ～",
         rpID,
         userID: new Uint8Array(account.user_id),
         userName: me.name,

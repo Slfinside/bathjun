@@ -31,7 +31,7 @@ internal sealed class PowerLease : IDisposable {
     IntPtr handle=IntPtr.Zero; bool system,execution,display;
     public bool Acquire(bool keepDisplay=false) {
         Dispose();
-        IntPtr reason=Marshal.StringToHGlobalUni("ふろじゅんの予約サーバーと通知送信を、画面消灯中も継続しています。");
+        IntPtr reason=Marshal.StringToHGlobalUni("ふろきゅ～の予約サーバーと通知送信を、画面消灯中も継続しています。");
         try {var context=new Reason{Version=0,Flags=1,SimpleReason=reason};handle=PowerCreateRequest(ref context);}
         finally {Marshal.FreeHGlobal(reason);}
         if(handle==IntPtr.Zero || handle==new IntPtr(-1)){handle=IntPtr.Zero;return false;}
@@ -127,11 +127,11 @@ internal sealed class PanelForm : Form {
         this.pipeName=pipeName;this.token=token;
         saveTimeout.Tick+=delegate{saveTimeout.Stop();pendingSave=null;save.Enabled=connected;saveState.Text="保存の応答を確認できませんでした。「設定を再読込」で保存結果を確認してください。";};
         securityTimeout.Tick+=delegate{securityTimeout.Stop();pendingSecurity=null;SetSecurityBusy(false);securityState.Text="応答を確認できませんでした。再読込して状態を確認してください。";};
-        Text="ふろじゅん — サーバー操作";Font=new Font("Yu Gothic UI",10);StartPosition=FormStartPosition.CenterScreen;ClientSize=new Size(620,590);MinimumSize=new Size(540,500);
+        Text="ふろきゅ～ — サーバー操作";Font=new Font("Yu Gothic UI",10);StartPosition=FormStartPosition.CenterScreen;ClientSize=new Size(620,590);MinimumSize=new Size(540,500);
         try{Icon=new Icon(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"..","app","public","icon.ico"));}catch{}
         var tabs=new TabControl{Dock=DockStyle.Fill};var home=new TabPage("稼働状況"){Padding=new Padding(18),AutoScroll=true};var config=new TabPage("設定"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(home);tabs.TabPages.Add(config);Controls.Add(tabs);
         var layout=new FlowLayoutPanel{Dock=DockStyle.Top,FlowDirection=FlowDirection.TopDown,WrapContents=false,AutoSize=true};home.Controls.Add(layout);
-        var title=TextLabel("ふろじゅん サーバー",48);title.Font=new Font(Font.FontFamily,18,FontStyle.Bold);title.Width=550;layout.Controls.Add(title);
+        var title=TextLabel("ふろきゅ～ サーバー",48);title.Font=new Font(Font.FontFamily,18,FontStyle.Bold);title.Width=550;layout.Controls.Add(title);
         status.Text="起動しています…";status.Font=new Font(Font.FontFamily,13,FontStyle.Bold);status.Size=new Size(550,34);layout.Controls.Add(status);
         detail.Size=new Size(550,64);detail.ForeColor=Color.DimGray;layout.Controls.Add(detail);
         powerState.Size=new Size(550,60);layout.Controls.Add(powerState);
@@ -147,12 +147,12 @@ internal sealed class PanelForm : Form {
         var stop=ActionButton("サーバーを停止して終了");stop.Click+=delegate{StopServer();};layout.Controls.Add(stop);
         layout.Controls.Add(TextLabel("×は通知領域にしまいます。スリープ防止はサーバー稼働中だけ有効で、終了すると解除します。AC電源につないで使ってください。",68));
         BuildSettings(config);var displayTab=new TabPage("ダッシュボード"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(displayTab);BuildDashboardSettings(displayTab);var itemsTab=new TabPage("アイテム・特典"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(itemsTab);BuildItems(itemsTab);var security=new TabPage("パスワード・リセット"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(security);BuildSecurity(security);
-        var menu=new ContextMenuStrip();menu.Items.Add("操作画面を開く",null,delegate{ShowPanel();});menu.Items.Add("画面だけ消す",null,delegate{TurnScreenOff();});menu.Items.Add("サーバーを停止",null,delegate{StopServer();});tray.Icon=Icon;tray.Text="ふろじゅん サーバー";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowPanel();};tray.Visible=true;
+        var menu=new ContextMenuStrip();menu.Items.Add("操作画面を開く",null,delegate{ShowPanel();});menu.Items.Add("画面だけ消す",null,delegate{TurnScreenOff();});menu.Items.Add("サーバーを停止",null,delegate{StopServer();});tray.Icon=Icon;tray.Text="ふろきゅ～ サーバー";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowPanel();};tray.Visible=true;
         displayController=new DisplayScheduleController(ApplyScheduledVisibility,PowerLease.ScreenOff,PowerLease.ScreenOn);
         displayScheduleTimer.Tick+=delegate{TickDisplaySchedule();};
         Load+=delegate{powerHeld=power.Acquire();ShowPowerState();BeginRead();displayScheduleTimer.Start();};
         Shown+=delegate{if(minimized){WindowState=FormWindowState.Minimized;Hide();}};
-        FormClosing+=delegate(object sender,FormClosingEventArgs e){if(!canClose && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();tray.ShowBalloonTip(2500,"ふろじゅん","サーバーは継続しています。通知領域のアイコンから操作画面に戻れます。",ToolTipIcon.Info);}};
+        FormClosing+=delegate(object sender,FormClosingEventArgs e){if(!canClose && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();tray.ShowBalloonTip(2500,"ふろきゅ～","サーバーは継続しています。通知領域のアイコンから操作画面に戻れます。",ToolTipIcon.Info);}};
         FormClosed+=delegate{closing=true;if(automaticUpdate!=null)automaticUpdate.Cancel();if(touchScroll!=null)touchScroll.Dispose();displayScheduleTimer.Stop();if(displayController!=null)displayController.Tick(new DisplaySchedulePreferences(),DateTime.UtcNow,false,0);displayScheduleTimer.Dispose();scheduledDisplay.Dispose();if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();power.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
         ResumeLayout(true);touchScroll=new TouchScroll(this);
     }
@@ -248,7 +248,7 @@ internal sealed class PanelForm : Form {
             releases.Text="確認を中止";
             var available=await Task.Run(()=>AutomaticUpdate.Check(current,portable,cancel));cancel.ThrowIfCancellationRequested();if(closing||IsDisposed)return;
             if(available==null){MessageBox.Show(this,"現在のバージョン "+current+" は最新です。");return;}
-            if(MessageBox.Show(this,current+" → "+available.release.tag_name.Substring(1)+" に更新できます。\nダウンロードして更新しますか？\n\n予約データは保持します。ダウンロード中はサーバーを継続し、適用時に一時停止して再起動します。","ふろじゅんの更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
+            if(MessageBox.Show(this,current+" → "+available.release.tag_name.Substring(1)+" に更新できます。\nダウンロードして更新しますか？\n\n予約データは保持します。ダウンロード中はサーバーを継続し、適用時に一時停止して再起動します。","ふろきゅ～の更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
             var progress=new Progress<int>(percent=>{if(automaticUpdate!=null&&!cancel.IsCancellationRequested&&releases.Enabled&&!closing&&!IsDisposed)releases.Text="取得中 "+percent+"%（中止）";});
             download=await Task.Run(()=>AutomaticUpdate.Download(available,current,value=>((IProgress<int>)progress).Report(value),cancel));cancel.ThrowIfCancellationRequested();
             if(closing||IsDisposed)return;if(pendingSave!=null||pendingSecurity!=null)throw new InvalidOperationException("保存中の操作があります。完了後にもう一度更新してください。");
@@ -268,14 +268,14 @@ internal sealed class PanelForm : Form {
             string root=ServerUpdate.InstallRoot;
             if(!File.Exists(Path.Combine(root,"Uninstall.exe"))){MessageBox.Show(this,"ZIP版は新しいZIPを別のフォルダーへ展開し、停止後に「はじめる.cmd」を開いて更新してください。テストデータは引き継ぎます。");return;}
             updatePreparing=true;
-            using(var picker=new OpenFileDialog{Title="ダウンロードしたふろじゅんのインストーラー",Filter="Windowsインストーラー (*.exe)|*.exe",CheckFileExists=true,Multiselect=false,AutoUpgradeEnabled=false}) {
+            using(var picker=new OpenFileDialog{Title="ダウンロードしたふろきゅ～のインストーラー",Filter="Windowsインストーラー (*.exe)|*.exe",CheckFileExists=true,Multiselect=false,AutoUpgradeEnabled=false}) {
                 // The classic picker avoids optional shell/COM components. Opening it
                 // must also be inside the catch, not just the installer validation.
                 if(picker.ShowDialog(this)!=DialogResult.OK)return;
                 UseWaitCursor=true;
                 string selected=picker.FileName;
                 var current=ServerUpdate.ParseVersion(ServerUpdate.VersionAt(root));var next=await Task.Run(()=>ServerUpdate.ValidateInstaller(selected,current));
-                if(MessageBox.Show(this,"バージョン "+current+" → "+next+" に更新します。\n予約データは残し、更新中はアクセスと通知を停止します。完了後は同じ起動方法で再起動します。\n\nGitHubの公式Releaseから取得したファイルであることを確認してください。\nSHA-256ファイルを同じ場所へ置いた場合は照合します。","ふろじゅんの更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
+                if(MessageBox.Show(this,"バージョン "+current+" → "+next+" に更新します。\n予約データは残し、更新中はアクセスと通知を停止します。完了後は同じ起動方法で再起動します。\n\nGitHubの公式Releaseから取得したファイルであることを確認してください。\nSHA-256ファイルを同じ場所へ置いた場合は照合します。","ふろきゅ～の更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
                 var helper=await Task.Run(()=>ServerUpdate.Stage(selected,root,serverPid,publicMode));
                 if(dashboard!=null)dashboard.Close();
                 if(Send("stop",null)==null){try{helper.Kill();}catch{}throw new IOException("停止を依頼できませんでした。もう一度お試しください。");}
@@ -290,7 +290,7 @@ internal sealed class PanelForm : Form {
     void RenewPower(){power.Dispose();powerHeld=power.Acquire();ShowPowerState();screen.Enabled=dashboard==null&&powerHeld&&OnAC()&&connected&&currentPhase=="ready";}
     protected override void WndProc(ref Message message){base.WndProc(ref message);if(message.Msg==0x218 && (message.WParam.ToInt32()==7 || message.WParam.ToInt32()==18 || message.WParam.ToInt32()==10)){if(IsHandleCreated&&!closing){RenewPower();scheduledDisplay.Dispose();scheduledDisplayHeld=false;if(dashboard!=null)dashboard.ResetDisplayPower();TickDisplaySchedule();}}}
     void TurnScreenOff(){if(dashboard!=null){dashboard.Activate();return;}if(!OnAC()){ShowPanel();MessageBox.Show(this,"画面を消してサーバーを継続するには、AC電源につないでください。");return;}RenewPower();if(!powerHeld || !connected || currentPhase!="ready"){ShowPanel();return;}var timer=new System.Windows.Forms.Timer{Interval=1000};timer.Tick+=delegate{timer.Stop();timer.Dispose();if(!closing && connected && currentPhase=="ready" && !PowerLease.ScreenOff())MessageBox.Show(this,"画面を消せませんでした。Windowsの表示設定を確認してください。");};timer.Start();}
-    void StopServer(){if(!connected)return;if(MessageBox.Show(this,"サーバーを停止しますか？家族からのアクセスと通知送信が止まります。","ふろじゅん",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)==DialogResult.OK){screen.Enabled=false;Send("stop",null);}}
+    void StopServer(){if(!connected)return;if(MessageBox.Show(this,"サーバーを停止しますか？家族からのアクセスと通知送信が止まります。","ふろきゅ～",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)==DialogResult.OK){screen.Enabled=false;Send("stop",null);}}
     void BuildSettings(TabPage page) {
         var box=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,FlowDirection=FlowDirection.TopDown,WrapContents=false};page.Controls.Add(box);
         box.Controls.Add(TextLabel("メンバー（名前・利用するかどうか）",30));
@@ -408,7 +408,7 @@ internal sealed class PanelForm : Form {
         saveState.Text="サーバーに送信できませんでした。接続を確認してください。";return null;
     }
     void WriteFailed(Exception error){try{BeginInvoke((MethodInvoker)delegate{if(closing)return;saveTimeout.Stop();pendingSave=null;pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);save.Enabled=connected;saveState.Text="サーバーに送信できませんでした。再起動してください。";});}catch{}}
-    void BeginRead(){reader=new Thread(delegate(){try{pipe=new NamedPipeClientStream(".",pipeName,PipeDirection.InOut,PipeOptions.Asynchronous);pipe.Connect(10000);writer=new StreamWriter(pipe,new UTF8Encoding(false),4096,true);var input=new StreamReader(pipe,Encoding.UTF8,false,4096,true);outbox=new PanelOutbox(outgoing=>{writer.WriteLine(outgoing);writer.Flush();},WriteFailed);connected=true;Send("status",null);Send("settings/get",null);Send("security/get",null);Send("items/get",null);string line;while((line=input.ReadLine())!=null){var reply=json.Deserialize<Reply>(line);BeginInvoke((MethodInvoker)delegate{if(closing)return;if(reply.show)ShowPanel();if(reply.rewards!=null)FillRewards(reply.rewards);if(reply.dashboard!=null&&dashboard!=null)dashboard.UpdateData(reply.dashboard);bool secured=reply.id==pendingSecurity&&pendingSecurity!=null;if(secured){pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);}bool saved=reply.id==pendingSave&&pendingSave!=null;if(saved){pendingSave=null;saveTimeout.Stop();save.Enabled=true;}if(!reply.ok){distributeItems.Enabled=saveRewards.Enabled=true;if(dashboard!=null)dashboard.Fail("データを更新できませんでした");save.Enabled=true;MessageBox.Show(this,reply.error ?? "操作を完了できませんでした。","ふろじゅん");}if(reply.state!=null){currentPhase=reply.state.phase;serverPid=reply.state.pid;status.Text=reply.state.phase=="ready"?"● サーバー稼働中":reply.state.phase=="stopping"?"停止しています…":"準備中";detail.Text=reply.state.detail;link.Text=reply.state.url??"";copy.Enabled=open.Enabled=link.Text.Length>0;screen.Enabled=dashboard==null&&powerHeld&&OnAC()&&reply.state.phase=="ready";}if(reply.settings!=null){FillSettings(reply.settings);if(pendingSave!=null||pendingSecurity!=null)save.Enabled=false;}if(reply.security!=null)FillSecurity(reply.security);if(reply.verification!=null)securityState.Text=reply.verification.matches?"入力したパスワードは現在のものと一致しています。":reply.verification.configured?"入力したパスワードは一致しません。新しいものへ変更できます。":"パスワードはまだ設定されていません。";if(reply.notice!=null){securityState.Text=reply.notice;passwordInput.Clear();passwordConfirm.Clear();}if(secured&&!reply.ok)securityState.Text=reply.error;if(saved&&reply.ok){saveState.Text="保存しました。時間の設定は "+reply.settings.effectiveDay+" 分から反映します。";Send("security/get",null);}});}}catch{}finally{connected=false;try{BeginInvoke((MethodInvoker)delegate{canClose=true;Close();});}catch{}}});reader.IsBackground=true;reader.Start();}
+    void BeginRead(){reader=new Thread(delegate(){try{pipe=new NamedPipeClientStream(".",pipeName,PipeDirection.InOut,PipeOptions.Asynchronous);pipe.Connect(10000);writer=new StreamWriter(pipe,new UTF8Encoding(false),4096,true);var input=new StreamReader(pipe,Encoding.UTF8,false,4096,true);outbox=new PanelOutbox(outgoing=>{writer.WriteLine(outgoing);writer.Flush();},WriteFailed);connected=true;Send("status",null);Send("settings/get",null);Send("security/get",null);Send("items/get",null);string line;while((line=input.ReadLine())!=null){var reply=json.Deserialize<Reply>(line);BeginInvoke((MethodInvoker)delegate{if(closing)return;if(reply.show)ShowPanel();if(reply.rewards!=null)FillRewards(reply.rewards);if(reply.dashboard!=null&&dashboard!=null)dashboard.UpdateData(reply.dashboard);bool secured=reply.id==pendingSecurity&&pendingSecurity!=null;if(secured){pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);}bool saved=reply.id==pendingSave&&pendingSave!=null;if(saved){pendingSave=null;saveTimeout.Stop();save.Enabled=true;}if(!reply.ok){distributeItems.Enabled=saveRewards.Enabled=true;if(dashboard!=null)dashboard.Fail("データを更新できませんでした");save.Enabled=true;MessageBox.Show(this,reply.error ?? "操作を完了できませんでした。","ふろきゅ～");}if(reply.state!=null){currentPhase=reply.state.phase;serverPid=reply.state.pid;status.Text=reply.state.phase=="ready"?"● サーバー稼働中":reply.state.phase=="stopping"?"停止しています…":"準備中";detail.Text=reply.state.detail;link.Text=reply.state.url??"";copy.Enabled=open.Enabled=link.Text.Length>0;screen.Enabled=dashboard==null&&powerHeld&&OnAC()&&reply.state.phase=="ready";}if(reply.settings!=null){FillSettings(reply.settings);if(pendingSave!=null||pendingSecurity!=null)save.Enabled=false;}if(reply.security!=null)FillSecurity(reply.security);if(reply.verification!=null)securityState.Text=reply.verification.matches?"入力したパスワードは現在のものと一致しています。":reply.verification.configured?"入力したパスワードは一致しません。新しいものへ変更できます。":"パスワードはまだ設定されていません。";if(reply.notice!=null){securityState.Text=reply.notice;passwordInput.Clear();passwordConfirm.Clear();}if(secured&&!reply.ok)securityState.Text=reply.error;if(saved&&reply.ok){saveState.Text="保存しました。時間の設定は "+reply.settings.effectiveDay+" 分から反映します。";Send("security/get",null);}});}}catch{}finally{connected=false;try{BeginInvoke((MethodInvoker)delegate{canClose=true;Close();});}catch{}}});reader.IsBackground=true;reader.Start();}
 }
 internal static class Program {
     [STAThread] static void Main(string[] args){if(args.Length>0&&args[0]=="--apply-update"){ServerUpdate.Run(args);return;}if(args.Length<2)return;Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);var panel=new PanelForm(args[0],args[1],Array.IndexOf(args,"--minimized")>=0);panel.SetPublicMode(Array.IndexOf(args,"--public")>=0);Application.Run(panel);}
