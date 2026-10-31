@@ -14,7 +14,7 @@ internal static class ServerUpdate {
     internal static string InstallRoot {get{return Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory.TrimEnd(new[]{Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar})).FullName;}}
     internal static string VersionAt(string root){var package=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.Combine(root,"app","package.json")));return Convert.ToString(package["version"]);}
     internal static Version ParseVersion(string value) {
-        var match=Regex.Match(value??"","^(\\d+)\\.(\\d+)\\.(\\d+)(?:-rc(?:\\.(\\d+))?)?$");
+        var match=Regex.Match(value??"","^(\\d+)\\.(\\d+)\\.(\\d+)(?:-rc(?:\\.?([0-9]+))?)?$");
         int major,minor,patch,revision=65535;
         if(!match.Success||!int.TryParse(match.Groups[1].Value,out major)||!int.TryParse(match.Groups[2].Value,out minor)||!int.TryParse(match.Groups[3].Value,out patch)||major>65535||minor>65535||patch>65535)throw new InvalidDataException("バージョンを確認できませんでした。");
         if(value.Contains("-rc")){revision=1;if(match.Groups[4].Success&&!int.TryParse(match.Groups[4].Value,out revision))throw new InvalidDataException("RC番号を確認できませんでした。");if(revision<1||revision>=65535)throw new InvalidDataException("RC番号を確認できませんでした。");}

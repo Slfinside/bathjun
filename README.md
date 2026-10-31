@@ -2,11 +2,11 @@
 
 お風呂の順番と時間を家族で共有するアプリです。Windows PCをサーバーにして、iPhoneなどのブラウザーから予約できます。
 
-## v2.0.0-rc
+## v2.0.0-rc2
 
-週間スタンプ・特典チケット・プレゼント・新メニューとダッシュボードを追加したリリース候補です。
+週間スタンプ・特典チケット・プレゼント・新メニューとダッシュボードを搭載した第2リリース候補です。初回RC以降の修正・設定追加と、日本語名「ふろきゅ～」への変更を含みます。
 
-**[v2.0.0-rcのリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.0.0-rc)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.0.0-rc/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.0.0-rc/Bathjun-Portable-x64.zip)
+**[v2.0.0-rc2のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.0.0-rc2)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.0.0-rc2/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.0.0-rc2/Bathjun-Portable-x64.zip)
 
 [RC版の使い方](docs/v2-preview-guide.md)と[変更・未搭載の範囲](docs/release-notes.md)をご確認ください。
 
@@ -30,7 +30,7 @@ Windows 10/11の64bit版、.NET Framework 4.7.2以降が必要です。Node.js�
 - **[利用者向け：iPhoneでの初回設定・予約・通知](docs/user-guide.md)**
 - **[管理者向け：導入・メンバー設定・外部公開・ダッシュボード・更新](docs/administrator-guide.md)**
 - [開発者向け：ソース・テスト・ビルド](docs/development.md)
-- [v2.0.0向け開発版：週間カード・アイテム・新メニューの使い方](docs/v2-preview-guide.md)（v2.0.0-rcに収録）
+- [v2.0.0向け開発版：週間カード・アイテム・新メニューの使い方](docs/v2-preview-guide.md)（v2.0.0-rc2に収録）
 - [更新履歴](CHANGELOG.md)
 - [セキュリティ確認結果と運用上の注意](docs/security-review.md)
 

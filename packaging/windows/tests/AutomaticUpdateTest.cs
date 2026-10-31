@@ -21,10 +21,10 @@ internal static class AutomaticUpdateTest {
         return path;
     }
     static void Main(){
-        var json=new JavaScriptSerializer();string releases=json.Serialize(new[]{Release("1.3.0"),Release("2.0.0-rc.2",true),Release("2.0.0")});
+        var json=new JavaScriptSerializer();string releases=json.Serialize(new[]{Release("1.3.0"),Release("2.0.0-rc2",true),Release("2.0.0")});
         object stable=Call("Select",releases,"1.3.0",false);if((Version)stable.GetType().GetField("version").GetValue(stable)!=new Version(2,0,0,65535))throw new Exception("Stable update selection failed");
-        object rc=Call("Select",json.Serialize(new[]{Release("2.0.0-rc.2",true)}),"2.0.0-rc",false);if(rc==null)throw new Exception("RC updates excluded");
-        if(Call("Select",json.Serialize(new[]{Release("2.0.0-rc.2",true)}),"1.3.0",false)!=null)throw new Exception("Stable installs opted into preview");
+        object rc=Call("Select",json.Serialize(new[]{Release("2.0.0-rc2",true)}),"2.0.0-rc",false);if(rc==null)throw new Exception("RC updates excluded");
+        if(Call("Select",json.Serialize(new[]{Release("2.0.0-rc2",true)}),"1.3.0",false)!=null)throw new Exception("Stable installs opted into preview");
         if(Call("Select",releases,"2.0.0",false)!=null)throw new Exception("Equal version treated as upgrade");
         if(Call("Select",json.Serialize(new[]{Release("2.0.0",false,true)}),"1.3.0",true)==null)throw new Exception("Portable update selection failed");
         Rejected("Select",releases.Replace("https://github.com/Slfinside/bathjun/releases/download/","https://example.test/"),"1.3.0",false);

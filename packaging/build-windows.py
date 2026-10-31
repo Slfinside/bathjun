@@ -15,7 +15,7 @@ def fetch(url,path,expected=None):
     if expected and sha(path)!=expected:raise RuntimeError(f'Checksum mismatch: {path.name}')
 
 def windows_file_version(version):
-    match=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-rc(?:\.(\d+))?)?',version)
+    match=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-rc(?:\.?([0-9]+))?)?',version)
     if not match:raise ValueError('Unsupported release version: '+version)
     parts=[int(match.group(i)) for i in range(1,4)]
     revision=int(match.group(4) or '1') if '-rc' in version else 65535
