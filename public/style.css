@@ -2204,25 +2204,26 @@ footer .site-credit {
   font-size: 12px;
 }
 .stamp-cell strong {
-  font-size: 22px;
-  color: #7d8a70;
+  font-size: 26px;
+  color: #92958e;
 }
 .stamp-cell small {
   font-size: 10px;
 }
 .stamp-cell.stamp {
-  background: #e3ecd8;
-  border-color: #6d8557;
+  background: #f4f6ed;
+  border-color: #cbd5bf;
 }
 .stamp-cell.stamp strong {
   color: #4c6639;
 }
 .stamp-cell.failed {
-  background: #f2e8de;
-  border-color: #bc987c;
+  background: #faf9f5;
+  border-color: #dce2d4;
 }
 .stamp-cell.failed strong {
-  color: #8d5d3b;
+  color: #222;
+  font-weight: 700;
 }
 .item-grid {
   display: grid;
@@ -2564,7 +2565,7 @@ footer .site-credit {
 .stamp-card > .muted { margin: 0 0 18px; font-variant-numeric: tabular-nums; }
 .stamp-cell { justify-content: center; gap: 6px; padding: 12px 0; }
 .stamp-cell > span, .stamp-cell small { line-height: 1.4; }
-.stamp-cell strong { display: grid; place-items: center; height: 32px; line-height: 1; }
+.stamp-cell strong { display: grid; place-items: center; height: 48px; width: 100%; line-height: 1; }
 .stamp-card > p:last-child { margin-bottom: 0; }
 .week-navigation { margin-bottom: 18px; }
 .week-navigation p { margin: 0; text-align: center; font-variant-numeric: tabular-nums; }
@@ -2643,3 +2644,12 @@ footer .site-credit {
 }
 .date-bar > div:first-child { align-self: flex-start; max-width: 100%; }
 .account-menu { min-width: 0; max-width: 100%; }
+
+.bath-stamp {
+  display: block;
+  width: min(48px, 100%);
+  height: auto;
+  transform: rotate(-10deg);
+}
+.stamp-cell:nth-child(3n + 2) .bath-stamp { transform: rotate(6deg); }
+.stamp-cell:nth-child(3n) .bath-stamp { transform: rotate(-4deg); }

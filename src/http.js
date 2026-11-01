@@ -29,6 +29,7 @@ const assets = {
   ],
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
   "/style.css": ["style.css", "text/css; charset=utf-8"],
+  "/stamps/bath.svg": ["stamps/bath.svg", "image/svg+xml"],
   "/icon.svg": ["icon.svg", "image/svg+xml"],
   "/icon-192.png": ["icon-192.png", "image/png"],
   "/icon-512.png": ["icon-512.png", "image/png"],
