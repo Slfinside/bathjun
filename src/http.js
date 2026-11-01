@@ -8,10 +8,9 @@ const equal = (a, b) =>
   timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const assets = {
   ...Object.fromEntries(
-    ["boost", "skip", "extend", "guard"].map((kind) => [
-      `/items/${kind}.svg`,
-      [`items/${kind}.svg`, "image/svg+xml"],
-    ]),
+    ["boost", "skip", "extend", "guard", "bathStamp", "stampInk"].map(
+      (kind) => [`/items/${kind}.svg`, [`items/${kind}.svg`, "image/svg+xml"]],
+    ),
   ),
   "/fonts/NotoSansJP-Regular.520ea0779f08.woff2": [
     "fonts/NotoSansJP-Regular.520ea0779f08.woff2",

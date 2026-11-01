@@ -29,11 +29,15 @@ const itemName = (kind) =>
     extend: "時間延長チケット",
     boost: "抽選確率UPチケット",
     guard: "順番抜かしガード",
+    bathStamp: "おふろスタンプ",
+    stampInk: "スタンプのインク",
   })[kind] || "";
 const itemIcon = (kind) =>
-  ["skip", "extend", "boost", "guard"].includes(kind)
+  ["skip", "extend", "boost", "guard", "bathStamp", "stampInk"].includes(kind)
     ? `<img class="item-art" src="/items/${kind}.svg" alt="" aria-hidden="true" width="80" height="64">`
     : "🎁";
+const itemUnit = (kind) =>
+  ["bathStamp", "stampInk"].includes(kind) ? "個" : "枚";
 const owned = (kind) =>
   state.rewards?.wallet.find((x) => x.kind === kind)?.quantity || 0;
 let familyAuthenticated = false;
@@ -596,7 +600,9 @@ async function refresh(force = false) {
       itemsWereEnabled &&
       !itemsEnabled() &&
       dialog.open &&
-      ["item", "celebration", "booking", "wish"].includes(dialog.dataset.mode)
+      ["item", "stamp-ink", "celebration", "booking", "wish"].includes(
+        dialog.dataset.mode,
+      )
     ) {
       dialog.close();
       pendingItem = null;
@@ -1230,8 +1236,9 @@ dialog.addEventListener("click", async (event) => {
   }
 });
 dialog.addEventListener("click", (event) => {
-  if (event.target.closest('[data-action="use-item"]'))
-    void handleRewardsAction("use-item", event);
+  const action = event.target.closest("[data-action]")?.dataset.action;
+  if (["use-item", "apply-stamp"].includes(action))
+    void handleRewardsAction(action, event);
 });
 dialog.addEventListener("change", (event) => {
   if (event.target.name === "ticket") {
@@ -1399,7 +1406,7 @@ function renderStampCard(compact = true) {
     last = card.days[6].day;
   const shortDate = (value) => value.slice(5).replace("-", "/");
   const period = `<span class="stamp-period"><small>${card.week.slice(0, 4)}年</small><span>${shortDate(card.week)} 〜 ${shortDate(last)}</span></span>`;
-  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong class="stamp-mark" aria-label="${d.status === "stamp" ? "成功" : d.status === "failed" ? "失敗" : "未確定"}">${d.status === "stamp" ? '<img class="bath-stamp" src="/stamps/bath.svg" alt="" width="48" height="48">' : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}分${d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
+  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong class="stamp-mark" aria-label="${d.status === "stamp" ? "成功" : d.status === "failed" ? "失敗" : "未確定"}">${d.status === "stamp" ? '<img class="bath-stamp" src="/stamps/bath.svg" alt="" width="48" height="48">' : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}分${d.reason === "ink" ? "（スタンプのインクを使用）" : d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
 }
 function renderSecondaryPage() {
   renderHeaderAccount();
@@ -1408,7 +1415,7 @@ function renderSecondaryPage() {
   if (pageView === "settings")
     html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoStandbyForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
   if (pageView === "inventory")
-    html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}枚</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
+    html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}${itemUnit(x.kind)}</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
   if (["gifts", "history"].includes(pageView)) {
     const history = pageView === "history",
       gifts = state.rewards.gifts.filter((g) => history || !g.receivedAt);
@@ -1426,10 +1433,25 @@ function showItem(kind) {
     boost: `予約順が1番になる確率が、使っていない人の3倍になります。効果は${config.boostDraws}回分の抽選に有効です。`,
     guard:
       "確定した予約を順番抜かしから守ります。事前希望への指定では消費せず、確定時に消費します。",
+    bathStamp:
+      "お風呂の絵柄のスタンプ。専用インクを使えば、お風呂に入ったことの証明になる。",
+    stampInk:
+      "おふろスタンプ専用のインク。お風呂に入ったことの証明に使える。実は磁石にくっつく。",
   }[kind];
+  const stampItem = ["bathStamp", "stampInk"].includes(kind);
+  const usable =
+    itemsEnabled() &&
+    owned(kind) > 0 &&
+    (!stampItem || (owned("bathStamp") > 0 && owned("stampInk") > 0));
   dialog.dataset.mode = "item";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}枚</p><button class="primary" data-action="use-item" ${itemsEnabled() && owned(kind) ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}${itemUnit(kind)}</p>${stampItem ? `<p class="muted">今週の失敗した日を選び、インクを1個使って成功にできます。おふろスタンプ本体はなくなりません。</p>${!owned("bathStamp") ? '<p class="notice">おふろスタンプが必要です。</p>' : !owned("stampInk") ? '<p class="notice">スタンプのインクがありません。</p>' : ""}` : ""}<button class="primary" data-action="use-item" ${usable ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
   dialog.showModal();
+}
+async function openStampPicker() {
+  const rewards = await api("rewards?day=" + encodeURIComponent(state.today));
+  const failed = rewards.card.days.filter((d) => d.status === "failed");
+  dialog.dataset.mode = "stamp-ink";
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">おふろスタンプを押す</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon("bathStamp")}</div><p>今週の失敗した日を選んでください。インクを1個使って成功にします。</p><p class="muted">${rewards.card.week}からの7日間 · インク ${rewards.wallet.find((x) => x.kind === "stampInk").quantity}個</p><div class="stamp-repair-days">${failed.map((d) => `<button class="stamp-repair-day" data-action="apply-stamp" data-stamp-day="${d.day}" data-request-id="${crypto.randomUUID()}"><span>${d.day.slice(5).replace("-", "/")}（${"日月火水木金土"[new Date(d.day + "T12:00:00Z").getUTCDay()]}）</span><strong aria-hidden="true">×</strong><span>スタンプを押す</span></button>`).join("")}</div>${failed.length ? "" : '<p class="notice">今週はスタンプを押せる失敗の日がありません。</p>'}`;
 }
 async function handleRewardsAction(action, event) {
   if (!action) return false;
@@ -1470,7 +1492,11 @@ async function handleRewardsAction(action, event) {
     showItem(event.target.closest("[data-kind]").dataset.kind);
     return true;
   }
-  if (!["receive-gift", "use-item", "complete-bath"].includes(action))
+  if (
+    !["receive-gift", "use-item", "complete-bath", "apply-stamp"].includes(
+      action,
+    )
+  )
     return false;
   if (busy) return true;
   busy = true;
@@ -1481,6 +1507,30 @@ async function handleRewardsAction(action, event) {
       });
       notify("持ち物に追加しました。");
     }
+    if (action === "apply-stamp") {
+      const button = event.target.closest("[data-stamp-day]");
+      button.disabled = true;
+      try {
+        await api("items/stamp", {
+          day: button.dataset.stampDay,
+          requestId: button.dataset.requestId,
+        });
+      } catch (error) {
+        button.disabled = false;
+        throw error;
+      }
+      dialog.close();
+      pendingItem = null;
+      pageView = "stamps";
+      stampWeek = button.dataset.stampDay;
+      stampWeek = new Date(
+        Date.parse(stampWeek + "T12:00:00Z") -
+          new Date(stampWeek + "T12:00:00Z").getUTCDay() * 86400000,
+      )
+        .toISOString()
+        .slice(0, 10);
+      notify("おふろスタンプを押しました。");
+    }
     if (action === "complete-bath") {
       const book = ownBooking();
       await api("complete", { day: state.day, revision: book.revision });
@@ -1490,6 +1540,10 @@ async function handleRewardsAction(action, event) {
       const kind = pendingItem;
       if (!itemsEnabled())
         throw new Error("アイテム機能が無効に設定されています。");
+      if (["bathStamp", "stampInk"].includes(kind)) {
+        await openStampPicker();
+        return true;
+      }
       if (kind === "boost") {
         await api("items/boost", { requestId: crypto.randomUUID() });
         dialog.close();
@@ -1547,12 +1601,25 @@ function maybeCelebrate() {
   celebrating.add(pending.week);
   dialog.dataset.mode = "celebration";
   const roulette = pending.mode !== "fixed";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 class="celebration-heading" id="booking-title"><span>1週間達成、</span><span>おめでとう！</span></h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p>${roulette ? `<div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel">${["skip", "extend", "boost", "guard"].map((k) => `<span>${itemIcon(k)}</span>`).join("")}</div></div>` : ""}<div class="${roulette ? "roulette-result" : "fixed-result"} celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}枚 獲得！</strong></div><button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
+  const rouletteKinds = Object.keys(state.rewards.settings.weights).filter(
+    (k) => state.rewards.settings.weights[k] > 0 || k === pending.kind,
+  );
+  const sector = 360 / rouletteKinds.length;
+  const colors = [
+    "#dce9c8",
+    "#eaddb9",
+    "#d8e6df",
+    "#e7d5be",
+    "#e4deeb",
+    "#dee7eb",
+  ];
+  const wheelBackground = `conic-gradient(${rouletteKinds.map((k, i) => `${colors[i % colors.length]} ${i * sector}deg ${(i + 1) * sector}deg`).join(",")})`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 class="celebration-heading" id="booking-title"><span>1週間達成、</span><span>おめでとう！</span></h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p>${roulette ? `<div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel" style="background:${wheelBackground}">${rouletteKinds.map((k, i) => `<span style="transform:rotate(${(i + 0.5) * sector}deg) translateY(-65px) rotate(${-(i + 0.5) * sector}deg)">${itemIcon(k)}</span>`).join("")}</div></div>` : ""}<div class="${roulette ? "roulette-result" : "fixed-result"} celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}${itemUnit(pending.kind)} 獲得！</strong></div><button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
   dialog.showModal();
   requestAnimationFrame(() => {
     const wheel = dialog.querySelector(".roulette-wheel");
     if (wheel)
-      wheel.style.transform = `rotate(${1440 - ["skip", "extend", "boost", "guard"].indexOf(pending.kind) * 90 - 45}deg)`;
+      wheel.style.transform = `rotate(${1440 - (rouletteKinds.indexOf(pending.kind) + 0.5) * sector}deg)`;
   });
 }
 dialog.addEventListener("click", (event) => {

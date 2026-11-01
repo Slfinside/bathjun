@@ -2,12 +2,21 @@ import { readFileSync } from "node:fs";
 import { randomBytes, randomInt } from "node:crypto";
 import { createStandbyStamps } from "./standby-stamps.js";
 import { slotDate, shuffle } from "./domain.js";
-export const ITEM_KINDS = ["skip", "extend", "boost", "guard"];
+export const ITEM_KINDS = [
+  "skip",
+  "extend",
+  "boost",
+  "guard",
+  "bathStamp",
+  "stampInk",
+];
 export const ITEM_NAMES = {
   skip: "順番抜かしチケット",
   extend: "時間延長チケット",
   boost: "抽選確率UPチケット",
   guard: "順番抜かしガード",
+  bathStamp: "おふろスタンプ",
+  stampInk: "スタンプのインク",
 };
 const bad = (message, status = 400) => {
   throw Object.assign(new Error(message), { status });
@@ -41,6 +50,12 @@ export function createRewards({ db, now, scheduleForDay }) {
   db.exec(
     readFileSync(
       new URL("../migrations/0010_rewards.sql", import.meta.url),
+      "utf8",
+    ),
+  );
+  db.exec(
+    readFileSync(
+      new URL("../migrations/0016_stamp_ink.sql", import.meta.url),
       "utf8",
     ),
   );
@@ -138,8 +153,22 @@ export function createRewards({ db, now, scheduleForDay }) {
     rewardMode: "roulette",
     fixedKind: "extend",
     fixedQuantity: 1,
-    quantities: { skip: 1, extend: 1, boost: 1, guard: 2 },
-    weights: { skip: 1, extend: 1, boost: 1, guard: 1 },
+    quantities: {
+      skip: 1,
+      extend: 1,
+      boost: 1,
+      guard: 2,
+      bathStamp: 1,
+      stampInk: 1,
+    },
+    weights: {
+      skip: 1,
+      extend: 1,
+      boost: 1,
+      guard: 1,
+      bathStamp: 0,
+      stampInk: 1,
+    },
   });
   const settings = () => {
     const row = db
@@ -149,6 +178,8 @@ export function createRewards({ db, now, scheduleForDay }) {
     return {
       ...defaults(),
       ...saved,
+      quantities: { ...defaults().quantities, ...saved.quantities },
+      weights: { ...defaults().weights, ...saved.weights },
       boostDraws: saved.boostDraws ?? saved.boostDays ?? 3,
     };
   };
@@ -196,6 +227,19 @@ export function createRewards({ db, now, scheduleForDay }) {
       ).step
     )
       bad("延長分数は予約の刻み幅に合わせてください。");
+    value = {
+      ...value,
+      quantities: {
+        bathStamp: settings().quantities.bathStamp,
+        stampInk: settings().quantities.stampInk,
+        ...value.quantities,
+      },
+      weights: {
+        bathStamp: settings().weights.bathStamp,
+        stampInk: settings().weights.stampInk,
+        ...value.weights,
+      },
+    };
     for (const kind of ITEM_KINDS)
       if (
         !Number.isInteger(value.quantities?.[kind]) ||
@@ -502,6 +546,46 @@ export function createRewards({ db, now, scheduleForDay }) {
       return { ok: true };
     });
   }
+  function useStamp(member, payload) {
+    requireItems();
+    const { day, requestId } = payload || {};
+    if (
+      typeof requestId !== "string" ||
+      !/^[a-zA-Z0-9-]{8,100}$/.test(requestId)
+    )
+      bad("操作をやり直してください。");
+    // weekOf validates that the date exists; ownership comes from the session.
+    const week = weekOf(day);
+    return transaction(() => {
+      const previous = db
+        .prepare("SELECT * FROM stamp_repairs WHERE request_id=?")
+        .get(requestId);
+      if (previous) {
+        if (previous.member_id !== member || previous.day !== day)
+          bad("操作をやり直してください。", 409);
+        return { ok: true };
+      }
+      const today = new Date(now().getTime() + 9 * 3600000)
+        .toISOString()
+        .slice(0, 10);
+      if (week !== weekOf(today))
+        bad("インクを使えるのは今週分のスタンプカードだけです。", 409);
+      if (balance(member, "bathStamp") < 1)
+        bad("おふろスタンプを持っていません。", 409);
+      const target = card(member, today).days.find((cell) => cell.day === day);
+      if (target?.status !== "failed")
+        bad("失敗になった日を選んでください。", 409);
+      spend(member, "stampInk", "stamp:" + day);
+      db.prepare("INSERT INTO stamp_repairs VALUES(?,?,?,?)").run(
+        day,
+        member,
+        now().toISOString(),
+        requestId,
+      );
+      settle(member);
+      return { ok: true };
+    });
+  }
   const boostRemaining = (member) =>
     db
       .prepare("SELECT remaining FROM lottery_boosts WHERE member_id=?")
@@ -582,9 +666,9 @@ export function createRewards({ db, now, scheduleForDay }) {
       const weeks = new Map();
       for (const row of db
         .prepare(
-          "SELECT day FROM bath_completions WHERE member_id=? UNION SELECT day FROM standby_stamps WHERE member_id=? AND status='stamp'",
+          "SELECT day FROM bath_completions WHERE member_id=? UNION SELECT day FROM standby_stamps WHERE member_id=? AND status='stamp' UNION SELECT day FROM stamp_repairs WHERE member_id=?",
         )
-        .all(member, member)) {
+        .all(member, member, member)) {
         const week = weekOf(row.day);
         weeks.set(week, (weeks.get(week) || 0) + 1);
       }
@@ -610,6 +694,11 @@ export function createRewards({ db, now, scheduleForDay }) {
     const standbyRows = db
       .prepare(
         "SELECT day,status,resolved_at FROM standby_stamps WHERE member_id=? AND day>=? AND day<=?",
+      )
+      .all(member, week, days[6]);
+    const repairs = db
+      .prepare(
+        "SELECT day,used_at FROM stamp_repairs WHERE member_id=? AND day>=? AND day<=?",
       )
       .all(member, week, days[6]);
     const pendingSkips = new Set(
@@ -639,20 +728,27 @@ export function createRewards({ db, now, scheduleForDay }) {
         ) *
           60000;
       const resolved = standbyRows.find((row) => row.day === date);
+      const repair = repairs.find((row) => row.day === date);
       return {
         day: date,
         earnedAt:
+          repair?.used_at ||
           stamps.find((x) => x.day === date)?.reported_at ||
           (resolved?.status === "stamp" ? resolved.resolved_at : null),
-        reason: resolved?.status === "stamp" ? "standby" : null,
-        status: stamps.some((x) => x.day === date)
-          ? "stamp"
-          : resolved?.status ||
-            (pendingSkips.has(date) && !booking
-              ? "pending"
-              : now().getTime() > deadline
-                ? "failed"
-                : "pending"),
+        reason: repair
+          ? "ink"
+          : resolved?.status === "stamp"
+            ? "standby"
+            : null,
+        status:
+          repair || stamps.some((x) => x.day === date)
+            ? "stamp"
+            : resolved?.status ||
+              (pendingSkips.has(date) && !booking
+                ? "pending"
+                : now().getTime() > deadline
+                  ? "failed"
+                  : "pending"),
       };
     });
     const claimed =
@@ -792,6 +888,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     distribute,
     receive,
     activate,
+    useStamp,
     draw,
     consumeDraw,
     complete,

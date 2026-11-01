@@ -84,7 +84,7 @@ internal sealed class PanelForm : Form {
     readonly Button addMember=ActionButton("メンバーを追加");
     bool settingsLoaded;
     bool publicMode,updatePreparing;int serverPid;
-    readonly CheckedListBox giftTargets=new CheckedListBox{Width=550,Height=130,CheckOnClick=true},giftKinds=new CheckedListBox{Width=550,Height=95,CheckOnClick=true};
+    readonly CheckedListBox giftTargets=new CheckedListBox{Width=550,Height=130,CheckOnClick=true},giftKinds=new CheckedListBox{Width=550,Height=145,CheckOnClick=true};
     readonly NumericUpDown giftQuantity=new NumericUpDown{Minimum=1,Maximum=999,Value=1,Width=85},rewardExtension=new NumericUpDown{Minimum=5,Maximum=180,Increment=5,Value=30,Width=85},rewardDraws=new NumericUpDown{Minimum=1,Maximum=100,Value=3,Width=85};
     readonly ComboBox weeklyRewardMode=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Width=220},weeklyFixedKind=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Width=240};
     readonly NumericUpDown weeklyFixedQuantity=new NumericUpDown{Minimum=1,Maximum=99,Value=1,Width=85};
@@ -96,8 +96,8 @@ internal sealed class PanelForm : Form {
     readonly Dictionary<string,NumericUpDown> rewardQuantities=new Dictionary<string,NumericUpDown>(),rewardWeights=new Dictionary<string,NumericUpDown>();
     readonly DataGridView itemInventory=new DataGridView(),giftHistory=new DataGridView();readonly Label itemFeedback=new Label();
     readonly Button distributeItems=ActionButton("配布"),saveRewards=ActionButton("特典設定を保存");
-    static readonly string[] ItemKinds={"skip","extend","boost","guard"};
-    static string ItemTitle(string kind){return kind=="skip"?"順番抜かしチケット":kind=="extend"?"時間延長チケット":kind=="boost"?"抽選確率UPチケット":"順番抜かしガード";}
+    static readonly string[] ItemKinds={"skip","extend","boost","guard","bathStamp","stampInk"};
+    static string ItemTitle(string kind){return kind=="skip"?"順番抜かしチケット":kind=="extend"?"時間延長チケット":kind=="boost"?"抽選確率UPチケット":kind=="guard"?"順番抜かしガード":kind=="bathStamp"?"おふろスタンプ":"スタンプのインク";}
     DashboardForm dashboard;readonly CheckBox presenceEnabled=new CheckBox();
     readonly CheckBox automaticDisplay=new CheckBox{Text="時間帯で自動消灯・点灯する",AutoSize=true};
     readonly DataGridView displayPeriods=new DataGridView();
@@ -167,11 +167,11 @@ internal sealed class PanelForm : Form {
         foreach(bool client in new[]{true,false}){var row=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,4)};row.Controls.Add(new Label{Text=client?"完了報告：クライアント（終了後の分数）":"完了報告：ダッシュボード（終了後の分数）",Width=330,Margin=new Padding(0,6,8,0)});row.Controls.Add(client?clientReportMinutes:dashboardReportMinutes);box.Controls.Add(row);}
         box.Controls.Add(TextLabel("設定の変更は下の「特典設定を保存」で保存します。",40));
         box.Controls.Add(TextLabel("メンバーの持ち物",36));itemInventory.Size=new Size(550,180);itemInventory.ReadOnly=true;itemInventory.AllowUserToAddRows=itemInventory.AllowUserToDeleteRows=false;itemInventory.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;itemInventory.RowHeadersVisible=false;
-        foreach(string key in new[]{"メンバー","順番抜かし","時間延長","確率UP","ガード","UP残回数"})itemInventory.Columns.Add(key,key);box.Controls.Add(itemInventory);
+        foreach(string key in new[]{"メンバー","順番抜かし","時間延長","確率UP","ガード","スタンプ","インク","UP残回数"})itemInventory.Columns.Add(key,key);box.Controls.Add(itemInventory);
         box.Controls.Add(TextLabel("対象",32));box.Controls.Add(giftTargets);box.Controls.Add(TextLabel("内容",32));foreach(string kind in ItemKinds)giftKinds.Items.Add(ItemTitle(kind));box.Controls.Add(giftKinds);
         var countRow=new FlowLayoutPanel{Width=550,AutoSize=true};countRow.Controls.Add(new Label{Text="個数（各アイテム・各メンバーへ）",AutoSize=true});countRow.Controls.Add(giftQuantity);box.Controls.Add(countRow);box.Controls.Add(distributeItems);
         distributeItems.Click+=delegate{
-            var ids=new List<int>();foreach(ItemMember person in giftTargets.CheckedItems)ids.Add(person.id);var kinds=new List<string>();for(int i=0;i<4;i++)if(giftKinds.GetItemChecked(i))kinds.Add(ItemKinds[i]);
+            var ids=new List<int>();foreach(ItemMember person in giftTargets.CheckedItems)ids.Add(person.id);var kinds=new List<string>();for(int i=0;i<ItemKinds.Length;i++)if(giftKinds.GetItemChecked(i))kinds.Add(ItemKinds[i]);
             if(ids.Count==0||kinds.Count==0){itemFeedback.Text="対象と内容を選んでください。";return;}
             distributeItems.Enabled=false;if(Send("items/distribute",new{recipients=ids.ToArray(),kinds=kinds.ToArray(),quantity=(int)giftQuantity.Value,requestId=Guid.NewGuid().ToString("N")})==null)distributeItems.Enabled=true;
         };
@@ -180,10 +180,10 @@ internal sealed class PanelForm : Form {
         foreach(string key in new[]{"配布日時","対象","内容","個数","受取状態"})giftHistory.Columns.Add(key,key);box.Controls.Add(giftHistory);
         box.Controls.Add(TextLabel("週間特典の設定",36));
         weeklyRewardMode.Items.AddRange(new object[]{"ルーレットで決める","固定で渡す"});weeklyRewardMode.SelectedIndex=0;box.Controls.Add(weeklyRewardMode);
-        var fixedRow=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,8)};foreach(string kind in ItemKinds)weeklyFixedKind.Items.Add(ItemTitle(kind));weeklyFixedKind.SelectedIndex=1;fixedRow.Controls.Add(weeklyFixedKind);fixedRow.Controls.Add(new Label{Text="枚数",AutoSize=true,Margin=new Padding(8,6,6,0)});fixedRow.Controls.Add(weeklyFixedQuantity);box.Controls.Add(fixedRow);
+        var fixedRow=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,8)};foreach(string kind in ItemKinds)weeklyFixedKind.Items.Add(ItemTitle(kind));weeklyFixedKind.SelectedIndex=1;fixedRow.Controls.Add(weeklyFixedKind);fixedRow.Controls.Add(new Label{Text="個数",AutoSize=true,Margin=new Padding(8,6,6,0)});fixedRow.Controls.Add(weeklyFixedQuantity);box.Controls.Add(fixedRow);
         weeklyRewardMode.SelectedIndexChanged+=delegate{bool fixedMode=weeklyRewardMode.SelectedIndex==1;weeklyFixedKind.Enabled=weeklyFixedQuantity.Enabled=fixedMode;foreach(string kind in ItemKinds){rewardQuantities[kind].Enabled=rewardWeights[kind].Enabled=!fixedMode;}};weeklyFixedKind.Enabled=weeklyFixedQuantity.Enabled=false;
-        box.Controls.Add(TextLabel("固定で渡す場合は、選んだ種類・枚数を達成時にプレゼントへ送ります。変更は以後の達成から反映されます。",62));foreach(bool extend in new[]{true,false}){var duration=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,4)};duration.Controls.Add(new Label{Text=extend?"時間延長（分）":"確率UP（抽選回数）",Width=260,Margin=new Padding(0,6,8,0)});duration.Controls.Add(extend?rewardExtension:rewardDraws);box.Controls.Add(duration);}
-        foreach(string kind in ItemKinds){var row=new FlowLayoutPanel{Width=550,AutoSize=true};row.Controls.Add(new Label{Text=ItemTitle(kind),Width=210,Height=36,Margin=new Padding(0,6,8,0)});var quantity=new NumericUpDown{Minimum=1,Maximum=99,Value=kind=="guard"?2:1,Width=65};var weight=new NumericUpDown{Minimum=0,Maximum=100,Value=1,Width=65};rewardQuantities.Add(kind,quantity);rewardWeights.Add(kind,weight);row.Controls.Add(new Label{Text="枚数",AutoSize=true,Margin=new Padding(6,6,6,0)});row.Controls.Add(quantity);row.Controls.Add(new Label{Text="出現比率",AutoSize=true,Margin=new Padding(6,6,6,0)});row.Controls.Add(weight);box.Controls.Add(row);}
+        box.Controls.Add(TextLabel("固定で渡す場合は、選んだ種類・個数を達成時にプレゼントへ送ります。変更は以後の達成から反映されます。",62));foreach(bool extend in new[]{true,false}){var duration=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,4)};duration.Controls.Add(new Label{Text=extend?"時間延長（分）":"確率UP（抽選回数）",Width=260,Margin=new Padding(0,6,8,0)});duration.Controls.Add(extend?rewardExtension:rewardDraws);box.Controls.Add(duration);}
+        foreach(string kind in ItemKinds){var row=new FlowLayoutPanel{Width=550,AutoSize=true};row.Controls.Add(new Label{Text=ItemTitle(kind),Width=210,Height=36,Margin=new Padding(0,6,8,0)});var quantity=new NumericUpDown{Minimum=1,Maximum=99,Value=kind=="guard"?2:1,Width=65};var weight=new NumericUpDown{Minimum=0,Maximum=100,Value=kind=="bathStamp"?0:1,Width=65};rewardQuantities.Add(kind,quantity);rewardWeights.Add(kind,weight);row.Controls.Add(new Label{Text="個数",AutoSize=true,Margin=new Padding(6,6,6,0)});row.Controls.Add(quantity);row.Controls.Add(new Label{Text="出現比率",AutoSize=true,Margin=new Padding(6,6,6,0)});row.Controls.Add(weight);box.Controls.Add(row);}
         box.Controls.Add(TextLabel("チケットの使用制限",36));
         box.Controls.Add(extensionBlocked);
         var hours=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,8)};hours.Controls.Add(extensionBlockedStart);hours.Controls.Add(new Label{Text="〜",AutoSize=true,Margin=new Padding(8,7,8,0)});hours.Controls.Add(extensionBlockedEnd);box.Controls.Add(hours);
@@ -196,7 +196,7 @@ internal sealed class PanelForm : Form {
     void FillRewards(RewardsAdmin value) {
         distributeItems.Enabled=saveRewards.Enabled=true;itemFeedback.Text="持ち物・配布履歴を更新しました。";
         var checkedIds=new HashSet<int>();foreach(ItemMember member in giftTargets.CheckedItems)checkedIds.Add(member.id);giftTargets.Items.Clear();itemInventory.Rows.Clear();
-        foreach(var person in value.members){giftTargets.Items.Add(person,checkedIds.Contains(person.id));var counts=new int[4];foreach(var item in person.wallet){int index=Array.IndexOf(ItemKinds,item.kind);if(index>=0)counts[index]=item.quantity;}itemInventory.Rows.Add(person.name,counts[0],counts[1],counts[2],counts[3],person.boostRemaining);}
+        foreach(var person in value.members){giftTargets.Items.Add(person,checkedIds.Contains(person.id));var counts=new int[ItemKinds.Length];foreach(var item in person.wallet){int index=Array.IndexOf(ItemKinds,item.kind);if(index>=0)counts[index]=item.quantity;}itemInventory.Rows.Add(person.name,counts[0],counts[1],counts[2],counts[3],counts[4],counts[5],person.boostRemaining);}
         giftHistory.Rows.Clear();foreach(var gift in value.history)giftHistory.Rows.Add(DateTime.Parse(gift.createdAt).ToUniversalTime().AddHours(9).ToString("MM/dd HH:mm"),gift.name,ItemTitle(gift.kind),gift.quantity,gift.receivedAt==null?"未受取":"受取済み");
         itemsEnabled.Checked=value.settings.itemsEnabled;standbyFailureDays.Value=value.settings.standbyFailureDays;clientReportMinutes.Value=value.settings.clientReportMinutes;dashboardReportMinutes.Value=value.settings.dashboardReportMinutes;
         distributeItems.Enabled=value.settings.itemsEnabled;

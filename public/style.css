@@ -2653,3 +2653,8 @@ footer .site-credit {
 }
 .stamp-cell:nth-child(3n + 2) .bath-stamp { transform: rotate(6deg); }
 .stamp-cell:nth-child(3n) .bath-stamp { transform: rotate(-4deg); }
+
+.stamp-repair-days { display: grid; gap: 10px; margin-top: 20px; }
+.stamp-repair-day { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 60px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); font-size: 14px; }
+.stamp-repair-day strong { color: #222; font-size: 26px; }
+.stamp-repair-day:disabled { opacity: .5; }

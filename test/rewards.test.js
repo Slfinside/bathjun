@@ -1066,3 +1066,168 @@ test("翌日に入浴報告がなければ以前の様子見を保留し続け�
   f.time("2026-10-26T18:40:01");
   assert.equal((await f.state()).rewards.card.days[0].status, "failed");
 });
+
+test("スタンプとインクの初期報酬・旧設定の補完・固定報酬と配布に対応する", async (t) => {
+  const f = await fixture(t);
+  let config = f.app.getRewardsAdmin().settings;
+  assert.equal(config.weights.bathStamp, 0);
+  assert.equal(config.weights.stampInk, config.weights.extend);
+  assert.equal(config.quantities.stampInk, 1);
+  const db = new DatabaseSync(f.database);
+  delete config.quantities.bathStamp;
+  delete config.quantities.stampInk;
+  delete config.weights.bathStamp;
+  delete config.weights.stampInk;
+  db.prepare("INSERT INTO reward_settings VALUES(1,?)").run(
+    JSON.stringify(config),
+  );
+  db.close();
+  await f.restart();
+  config = f.app.getRewardsAdmin().settings;
+  assert.equal(config.weights.bathStamp, 0);
+  assert.equal(config.weights.stampInk, 1);
+  for (const fixedKind of ["bathStamp", "stampInk"])
+    f.app.saveRewardSettings({ ...config, rewardMode: "fixed", fixedKind });
+  await f.grant(1, ["bathStamp", "stampInk"], 2);
+  const wallet = (await f.state()).rewards.wallet;
+  for (const kind of ["bathStamp", "stampInk"])
+    assert.equal(wallet.find((x) => x.kind === kind).quantity, 2);
+});
+
+test("インクは本人の今週の失敗だけを成功にし、スタンプは残り、予約・完了報告を変えない", async (t) => {
+  const f = await fixture(t);
+  await f.book(1);
+  await f.grant(1, ["bathStamp", "stampInk"], 2);
+  f.time("2026-10-26T08:00:00");
+  assert.equal((await f.state()).rewards.card.days[0].status, "failed");
+  const body = { day: "2026-10-25", requestId: randomUUID(), memberId: 2 };
+  await Promise.all([f.api("items/stamp", body), f.api("items/stamp", body)]);
+  const card = (await f.state()).rewards.card;
+  assert.equal(card.days[0].status, "stamp");
+  assert.equal(card.days[0].reason, "ink");
+  assert.equal((await f.state(2)).rewards.card.days[0].status, "failed");
+  const wallet = (await f.state()).rewards.wallet;
+  assert.equal(wallet.find((x) => x.kind === "bathStamp").quantity, 2);
+  assert.equal(wallet.find((x) => x.kind === "stampInk").quantity, 1);
+  const db = new DatabaseSync(f.database);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) n FROM bath_completions").get().n,
+    0,
+  );
+  assert.equal(
+    db
+      .prepare(
+        "SELECT COUNT(*) n FROM bookings WHERE day='2026-10-25' AND member_id=1",
+      )
+      .get().n,
+    1,
+  );
+  assert.equal(
+    db
+      .prepare(
+        "SELECT COUNT(*) n FROM item_ledger WHERE kind='stampInk' AND delta=-1",
+      )
+      .get().n,
+    1,
+  );
+  db.close();
+  await f.restart();
+  await f.api("items/stamp", body);
+  assert.equal(
+    (await f.state()).rewards.wallet.find((x) => x.kind === "stampInk")
+      .quantity,
+    1,
+  );
+  assert.equal(
+    (await f.request("items/stamp", { ...body, requestId: randomUUID() }))
+      .status,
+    409,
+  );
+  assert.equal((await f.request("items/stamp", body, 2)).status, 409);
+  assert.equal(
+    (await f.request("items/stamp", { ...body, day: "2026-10-26" })).status,
+    409,
+  );
+});
+
+test("スタンプ・インク不足、未確定・過去週・不正日付、アイテム無効時は消費せず拒否する", async (t) => {
+  const f = await fixture(t);
+  await f.grant(1, ["stampInk"]);
+  f.time("2026-10-26T08:00:00");
+  const use = (day) =>
+    f.request("items/stamp", { day, requestId: randomUUID() });
+  assert.equal((await use("2026-10-25")).status, 409);
+  await f.grant(1, ["bathStamp"]);
+  for (const day of ["2026-10-24", "2026-10-26", "2026-10-31"])
+    assert.equal((await use(day)).status, 409);
+  for (const day of ["2026-02-30", "bad", null])
+    assert.equal((await use(day)).status, 400);
+  const config = f.app.getRewardsAdmin().settings;
+  f.app.saveRewardSettings({ ...config, itemsEnabled: false });
+  assert.equal((await use("2026-10-25")).status, 409);
+  f.app.saveRewardSettings(config);
+  assert.equal(
+    (await f.state()).rewards.wallet.find((x) => x.kind === "stampInk")
+      .quantity,
+    1,
+  );
+  await f.api("items/stamp", { day: "2026-10-25", requestId: randomUUID() });
+  f.time("2026-10-27T08:00:00");
+  assert.equal((await use("2026-10-26")).status, 409);
+  assert.equal((await f.state()).rewards.card.days[1].status, "failed");
+});
+
+test("インクで7日そろうと報酬を一度だけ配布し、インクのルーレット当選と固定スタンプ報酬を受け取れる", async (t) => {
+  const f = await fixture(t);
+  const config = f.app.getRewardsAdmin().settings;
+  f.app.saveRewardSettings({
+    ...config,
+    weights: Object.fromEntries(
+      Object.keys(config.weights).map((k) => [k, k === "stampInk" ? 1 : 0]),
+    ),
+  });
+  await f.grant(1, ["bathStamp", "stampInk"]);
+  for (let i = 0; i < 7; i++) {
+    const day = addDay("2026-10-25", i);
+    f.time(day + "T08:00:00");
+    await f.book(1, 1080, 30, null, day);
+    if (i === 2) continue;
+    const b = (await f.state()).bookings.find((x) => x.memberId === 1);
+    f.time(day + "T18:20:00");
+    await f.api("complete", { day, revision: b.revision });
+  }
+  const body = { day: "2026-10-27", requestId: randomUUID() };
+  await f.api("items/stamp", body);
+  let rewards = (await f.state()).rewards;
+  assert.equal(rewards.card.achieved, true);
+  assert.equal(rewards.card.claimed.kind, "stampInk");
+  assert.equal(rewards.card.claimed.quantity, 1);
+  assert.equal(rewards.gifts.filter((x) => x.rewardWeek).length, 1);
+  await f.api("items/stamp", body);
+  await f.restart();
+  rewards = (await f.state()).rewards;
+  assert.equal(rewards.gifts.filter((x) => x.rewardWeek).length, 1);
+  await f.api("gifts/receive", {
+    id: rewards.gifts.find((x) => x.rewardWeek).id,
+  });
+  assert.equal(
+    (await f.state()).rewards.wallet.find((x) => x.kind === "stampInk")
+      .quantity,
+    1,
+  );
+  // A subsequent week's fixed reward may explicitly grant the stamp itself.
+  f.app.saveRewardSettings({
+    ...config,
+    rewardMode: "fixed",
+    fixedKind: "bathStamp",
+  });
+  for (let i = 0; i < 7; i++) {
+    const day = addDay("2026-11-01", i);
+    f.time(day + "T08:00:00");
+    await f.book(1, 1080, 30, null, day);
+    const b = (await f.state()).bookings.find((x) => x.memberId === 1);
+    f.time(day + "T18:20:00");
+    await f.api("complete", { day, revision: b.revision });
+  }
+  assert.equal((await f.state()).rewards.card.claimed.kind, "bathStamp");
+});

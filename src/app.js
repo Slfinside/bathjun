@@ -598,6 +598,7 @@ export function createApp({
       if (!me) fail(401, "ログインしてください。");
       if(req.method==='GET'&&url.pathname==='/api/rewards'){const day=url.searchParams.get('week')||validDay(url.searchParams.get('day')||currentTime().activeDay,true);if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day)))fail(400,'週を確認してください。');return send(200,rewards.view(me.id,day));}
       if(req.method==='POST'&&url.pathname==='/api/gifts/receive')return send(200,rewards.receive(me.id,body?.id));
+      if(req.method==='POST'&&url.pathname==='/api/items/stamp')return send(200,rewards.useStamp(me.id,body));
       if(req.method==='POST'&&url.pathname==='/api/items/boost')return send(200,rewards.activate(me.id,body?.requestId));
       if(req.method==='POST'&&url.pathname==='/api/rewards/celebrate')return send(200,rewards.celebrate(me.id,body?.week));
       if(req.method==='POST'&&url.pathname==='/api/rewards/claim')return send(200,rewards.claim(me.id,body?.week));
