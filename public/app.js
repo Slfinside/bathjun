@@ -1409,6 +1409,11 @@ function renderStampCard(compact = true) {
   return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong class="stamp-mark" aria-label="${d.status === "stamp" ? "成功" : d.status === "failed" ? "失敗" : "未確定"}">${d.status === "stamp" ? '<img class="bath-stamp" src="/stamps/bath.svg" alt="" width="48" height="48">' : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}分${d.reason === "ink" ? "（スタンプのインクを使用）" : d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
 }
 function renderSecondaryPage() {
+  const expandedGifts = new Set(
+    [...root.querySelectorAll(".gift-description[open]")].map(
+      (d) => d.dataset.giftDescription,
+    ),
+  );
   renderHeaderAccount();
   let html = "";
   if (pageView === "stamps") html = renderStampCard(false);
@@ -1419,25 +1424,30 @@ function renderSecondaryPage() {
   if (["gifts", "history"].includes(pageView)) {
     const history = pageView === "history",
       gifts = state.rewards.gifts.filter((g) => history || !g.receivedAt);
-    html = `<section class="gift-page"><h2>プレゼントボックス</h2>${!itemsEnabled() ? '<p class="notice">アイテム機能が無効に設定されています。</p>' : ""}<div class="gift-tabs"><button data-action="nav-gifts" aria-pressed="${!history}">プレゼントボックス ${giftBadge()}</button><button data-action="nav-history" aria-pressed="${history}">配布履歴</button></div>${gifts.length ? gifts.map((g) => `<article class="gift-entry"><span class="item-icon">${g.rewardWeek && !g.receivedAt ? "🎁" : itemIcon(g.kind)}</span><div><strong>${g.rewardWeek && !g.receivedAt ? "週間達成特典" : itemName(g.kind) + " × " + g.quantity}</strong><p>${new Date(g.createdAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}</p>${g.receivedAt ? "<span>受取済み</span>" : !itemsEnabled() ? "<span>未受取</span>" : `<button class="primary" data-action="receive-gift" data-gift="${g.id}">受け取る</button>`}</div></article>`).join("") : '<p class="muted">' + (history ? "配布履歴はありません。" : "受け取れるプレゼントはありません。") + "</p>"}</section>`;
+    html = `<section class="gift-page"><h2>プレゼントボックス</h2>${!itemsEnabled() ? '<p class="notice">アイテム機能が無効に設定されています。</p>' : ""}<div class="gift-tabs"><button data-action="nav-gifts" aria-pressed="${!history}">プレゼントボックス ${giftBadge()}</button><button data-action="nav-history" aria-pressed="${history}">配布履歴</button></div>${gifts.length ? gifts.map((g) => `<article class="gift-entry"><span class="item-icon">${g.rewardWeek && !g.receivedAt ? "🎁" : itemIcon(g.kind)}</span><div><strong>${g.rewardWeek && !g.receivedAt ? "週間達成特典" : itemName(g.kind) + " × " + g.quantity}</strong><p>${new Date(g.createdAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}</p><details class="gift-description" data-gift-description="${g.id}" ${expandedGifts.has(g.id) ? "open" : ""}><summary>説明を見る</summary>${g.rewardWeek && !g.receivedAt ? `<p><strong>${itemName(g.kind)}</strong></p>` : ""}<p>${itemDescription(g.kind)}</p>${ticketLimits(g.kind)}</details>${g.receivedAt ? "<span>受取済み</span>" : !itemsEnabled() ? "<span>未受取</span>" : `<button class="primary" data-action="receive-gift" data-gift="${g.id}">受け取る</button>`}</div></article>`).join("") : '<p class="muted">' + (history ? "配布履歴はありません。" : "受け取れるプレゼントはありません。") + "</p>"}</section>`;
   }
   root.innerHTML = `<button class="back-home" data-action="nav-home">← ホーム</button>${html}`;
   applyMemberColors(root);
 }
+function itemDescription(kind) {
+  const config = state.rewards.settings;
+  return (
+    {
+      skip: "順番を待たずに予約できます。重なる既存の予約は事前希望へ戻します。ガード付きの予約とは重ねられません。",
+      extend: `予約できる時間の上限を${Math.floor(config.extensionMinutes / state.settings.step) * state.settings.step}分伸ばします。ほかの人の予約と重なる時間には使えません。`,
+      boost: `予約順が1番になる確率が、使っていない人の3倍になります。効果は${config.boostDraws}回分の抽選に有効です。`,
+      guard:
+        "確定した予約を順番抜かしから守ります。事前希望への指定では消費せず、確定時に消費します。",
+      bathStamp:
+        "お風呂の絵柄のスタンプ。専用インクを使えば、お風呂に入ったことの証明になる。",
+      stampInk:
+        "おふろスタンプ専用のインク。お風呂に入ったことの証明に使える。実は磁石にくっつく。",
+    }[kind] || ""
+  );
+}
 function showItem(kind) {
   pendingItem = kind;
-  const config = state.rewards.settings;
-  const description = {
-    skip: "順番を待たずに予約できます。重なる既存の予約は事前希望へ戻します。ガード付きの予約とは重ねられません。",
-    extend: `予約できる時間の上限を${Math.floor(config.extensionMinutes / state.settings.step) * state.settings.step}分伸ばします。ほかの人の予約と重なる時間には使えません。`,
-    boost: `予約順が1番になる確率が、使っていない人の3倍になります。効果は${config.boostDraws}回分の抽選に有効です。`,
-    guard:
-      "確定した予約を順番抜かしから守ります。事前希望への指定では消費せず、確定時に消費します。",
-    bathStamp:
-      "お風呂の絵柄のスタンプ。専用インクを使えば、お風呂に入ったことの証明になる。",
-    stampInk:
-      "おふろスタンプ専用のインク。お風呂に入ったことの証明に使える。実は磁石にくっつく。",
-  }[kind];
+  const description = itemDescription(kind);
   const stampItem = ["bathStamp", "stampInk"].includes(kind);
   const usable =
     itemsEnabled() &&

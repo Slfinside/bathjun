@@ -2658,3 +2658,10 @@ footer .site-credit {
 .stamp-repair-day { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 60px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); font-size: 14px; }
 .stamp-repair-day strong { color: #222; font-size: 26px; }
 .stamp-repair-day:disabled { opacity: .5; }
+
+.gift-entry > div { min-width: 0; flex: 1; }
+.gift-description { margin: 10px 0 14px; }
+.gift-description summary { width: fit-content; min-height: 44px; padding: 10px 0; color: var(--green); font-size: 13px; cursor: pointer; }
+.gift-description[open] summary { margin-bottom: 4px; }
+.gift-description p { margin: 0 0 10px; line-height: 1.8; }
+.gift-description summary:focus-visible { outline: 3px solid #d7a764; outline-offset: 4px; border-radius: 4px; }
