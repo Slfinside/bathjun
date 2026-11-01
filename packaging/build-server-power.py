@@ -40,7 +40,7 @@ def build(output,assets):
                     target.write_bytes(archive.extractfile(member).read())
         includes=[work/'include',msvc/'include']+[sdk/'Include'/version/part for part in ['ucrt','shared','um']]
         libraries=[msvc/'lib/x64',sdk/'Lib'/version/'ucrt/x64',sdk/'Lib'/version/'um/x64']
-        command=[str(compiler),'/nologo','/LD','/MT','/std:c++17','/O1','/W4','/WX','/utf-8','/D_WIN32_WINNT=0x0A00','/DNAPI_VERSION=8','/DNODE_GYP_MODULE_NAME=bathjun_power']
+        command=[str(compiler),'/nologo','/LD','/MT','/TP','/std:c++17','/O1','/W4','/WX','/utf-8','/D_WIN32_WINNT=0x0A00','/DNAPI_VERSION=8','/DNODE_GYP_MODULE_NAME=bathjun_power']
         command+=['/I'+str(path) for path in includes]
         command+=[str(ROOT/'packaging/windows/ServerPower.cc'),'/link','/OUT:'+str(output),'/IMPLIB:'+str(work/'power.lib'),'/LIBPATH:'+str(files['library'].parent)]
         command+=['/LIBPATH:'+str(path) for path in libraries]+[str(files['library']),'kernel32.lib']

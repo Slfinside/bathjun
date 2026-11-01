@@ -41,7 +41,10 @@ jobs:
         run: |
           python packaging/build-server-power.py --output native-power/Bathjun-Power.node --assets native-power/assets
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node packaging/windows/tests/check-server-power.mjs native-power/Bathjun-Power.node
+          $runtime = (Get-Content packaging/windows/runtime-lock.json | ConvertFrom-Json).node
+          Invoke-WebRequest $runtime.url -OutFile native-power/node.exe
+          if ((Get-FileHash native-power/node.exe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $runtime.sha256) { throw "Bundled Node checksum mismatch" }
+          & .\native-power\node.exe packaging/windows/tests/check-server-power.mjs native-power/Bathjun-Power.node
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
@@ -89,4 +92,33 @@ jobs:
         with:
           name: windows-dashboard-previews
           path: native-test/screens/*.png
+          retention-days: 7
+
+  distributions:
+    needs: dashboard-windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-power-addon
+          path: native-power
+      - name: Install distribution build tools
+        run: sudo apt-get update && sudo apt-get install -y nsis mono-mcs libmono-system-windows-forms4.0-cil libmono-system-web-extensions4.0-cil mono-devel p7zip-full
+      - name: Build both distributions with the server power guard
+        run: python3 packaging/build-windows.py --assets /tmp/bathjun-assets --power-addon native-power/Bathjun-Power.node
+      - name: Verify both payloads
+        run: |
+          python3 packaging/verify-distribution.py dist/Bathjun-Portable-x64.zip
+          7z x -y -o/tmp/bathjun-installer dist/Bathjun-Setup-x64.exe >/dev/null
+          python3 packaging/verify-distribution.py /tmp/bathjun-installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-distributions-check
+          path: dist/*
           retention-days: 7

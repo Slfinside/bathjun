@@ -27,7 +27,10 @@ jobs:
         run: |
           python packaging/build-server-power.py --output native-power/Bathjun-Power.node --assets native-power/assets
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node packaging/windows/tests/check-server-power.mjs native-power/Bathjun-Power.node
+          $runtime = (Get-Content packaging/windows/runtime-lock.json | ConvertFrom-Json).node
+          Invoke-WebRequest $runtime.url -OutFile native-power/node.exe
+          if ((Get-FileHash native-power/node.exe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $runtime.sha256) { throw "Bundled Node checksum mismatch" }
+          & .\native-power\node.exe packaging/windows/tests/check-server-power.mjs native-power/Bathjun-Power.node
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
