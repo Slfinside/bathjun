@@ -46,7 +46,7 @@ ZIPは `python3 packaging/verify-distribution.py dist/Bathjun-Portable-x64.zip`�
 
 `public/fonts/` に Noto Sans JP の400/700の静的TTF（ネイティブ用）と同じアウトラインのWOFF2（Web用）、OFLと出典・ハッシュを同梱します。`source.json` の出典は上流コミットで固定しています。Webのフォント名は Bathjun Sans、実体はネイティブと同じ Noto Sans JP です。WOFF2名に内容のハッシュを付けて、家族用リンクの保護を保ちながらブラウザー内にキャッシュします。
 
-Windowsは `PrivateFontCollection` から読み込み、システムへのフォント登録はしません。Linuxのlibgdiplusはprivate fontのメトリクスに制限があるため、Linux描画テストはFontconfigに同じ同梱フォントのディレクトリーを指定して実行します。Windows CIの描画テストは製品と同じprivate-font読み込みを直接使い、通常・太字と縦横の描画を検証してからReleaseを作ります。これらは実機の電源・人感センサーの検証ではありません。
+Windowsは `PrivateFontCollection` から同梱の Noto Sans JP の通常・太字を名前とスタイルで選び、そのFontFamilyを描画・測定で直接使います。日本語charsetと言語を明示し、Windowsへのフォントインストールは行いません。Linuxのlibgdiplusはprivate fontのメトリクスに制限があるため、Linux描画テストはFontconfigに同じ同梱フォントのディレクトリーを指定して実行します。Windows CIの描画テストは製品と同じprivate-font読み込みを直接使い、通常・太字と縦横の描画に加え、Windowsが実際に選択するGDIフォント名も確認してからReleaseを作ります。これらは実機の電源・人感センサーの検証ではありません。
 
 ## 予約開始日の区切り（開発中）
 

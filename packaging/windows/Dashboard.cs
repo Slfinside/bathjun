@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.IO;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -152,27 +151,17 @@ internal sealed class DashboardForm : Form {
     RectangleF returnArea,peopleArea,scheduleArea;
     static System.Drawing.Text.PrivateFontCollection sharedFonts;
     static FontFamily sharedTypeface;
-    [DllImport("gdi32.dll",EntryPoint="AddFontResourceExW",CharSet=CharSet.Unicode,SetLastError=true)] static extern int AddFontResourceEx(string file,uint flags,IntPtr reserved);
-    [DllImport("gdi32.dll",EntryPoint="RemoveFontResourceExW",CharSet=CharSet.Unicode)] [return:MarshalAs(UnmanagedType.Bool)] static extern bool RemoveFontResourceEx(string file,uint flags,IntPtr reserved);
     static FontFamily Typeface() {
         if(sharedFonts==null) {
             var fonts=new System.Drawing.Text.PrivateFontCollection();
-            var registered=new List<string>();
             try {
                 string folder=Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"..","app","public","fonts"));
-                foreach(string style in new[]{"Regular","Bold"}){
-                    string file=Path.Combine(folder,"NotoSansJP-"+style+".ttf");
-                    // GDI+ private loading alone does not register the face with
-                    // Windows GDI's font mapper. FR_PRIVATE is process-local.
-                    if(Environment.OSVersion.Platform==PlatformID.Win32NT){if(AddFontResourceEx(file,0x10,IntPtr.Zero)==0)throw new InvalidOperationException("日本語フォントを読み込めませんでした。");registered.Add(file);}
-                    fonts.AddFontFile(file);
-                }
+                foreach(string style in new[]{"Regular","Bold"})fonts.AddFontFile(Path.Combine(folder,"NotoSansJP-"+style+".ttf"));
                 FontFamily selected=null;
                 foreach(var family in fonts.Families)if(family.Name=="Noto Sans JP"&&family.IsStyleAvailable(FontStyle.Regular)&&family.IsStyleAvailable(FontStyle.Bold)){selected=family;break;}
                 if(selected==null)throw new InvalidOperationException("日本語フォントの通常・太字を読み込めませんでした。");
                 sharedFonts=fonts;sharedTypeface=selected;
-                AppDomain.CurrentDomain.ProcessExit+=delegate{foreach(string file in registered)RemoveFontResourceEx(file,0x10,IntPtr.Zero);};
-            }catch{foreach(string file in registered)RemoveFontResourceEx(file,0x10,IntPtr.Zero);fonts.Dispose();throw;}
+            }catch{fonts.Dispose();throw;}
         }
         return sharedTypeface;
     }

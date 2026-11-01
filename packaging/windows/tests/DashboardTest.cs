@@ -20,7 +20,7 @@ internal static class DashboardTest {
             finally{SelectObject(dc,previous);DeleteObject(selected);graphics.ReleaseHdc(dc);}
         }
     }
-    static void BeforeFontRegistration(string directory){
+    static void BeforeFontChange(string directory){
         if(Environment.OSVersion.Platform!=PlatformID.Win32NT)return;
         using(var collection=new System.Drawing.Text.PrivateFontCollection()){
             string folder=Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"..","app","public","fonts"));
@@ -36,7 +36,7 @@ internal static class DashboardTest {
         foreach(bool bold in new[]{false,true}){
             var font=(Font)type.GetMethod("TextFont",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,new object[]{32f,bold});string mapped=MappedFace(font);
             if(!mapped.StartsWith("Noto Sans JP",StringComparison.Ordinal)||font.GdiCharSet!=128)throw new Exception("Japanese text resolved to a substitute font: "+mapped);
-            Console.WriteLine("Registered Japanese face: "+mapped+", bold="+bold);
+            Console.WriteLine("Selected Japanese face: "+mapped+", bold="+bold);
         }
         using(var bitmap=new Bitmap(1000,140))using(var graphics=Graphics.FromImage(bitmap)){
             graphics.Clear(Color.FromArgb(34,40,32));graphics.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
@@ -196,7 +196,7 @@ internal static class DashboardTest {
             scroll.Invoke(null,new object[]{button,100000});if(-panel.AutoScrollPosition.Y<=150)throw new Exception("Long drag did not move scroll position");
             scroll.Invoke(null,new object[]{button,-100000});if(panel.AutoScrollPosition.Y!=0)throw new Exception("Drag exceeded upper bound");button.PerformClick();if(clicks!=1)throw new Exception("Scrolling disabled button taps");host.Close();}
         }
-        DisplaySchedules();ManualDisplays();Preferences(args[1]);BeforeFontRegistration(args[1]);
+        DisplaySchedules();ManualDisplays();Preferences(args[1]);BeforeFontChange(args[1]);
         var type=typeof(DashboardData).Assembly.GetType("DashboardForm");
         var data=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));
         foreach(var size in new[]{new Size(1280,720),new Size(1280,800),new Size(1440,960),new Size(1920,1080),new Size(1920,1280)}) {
