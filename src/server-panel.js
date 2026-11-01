@@ -1,3 +1,4 @@
+import { getServerPowerProtected, renewServerPowerProtection } from "./runtime.js";
 import { dashboardView, dashboardQr } from "./dashboard.js";
 import { createServer, connect } from "node:net";
 import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
@@ -9,7 +10,7 @@ import { fileURLToPath } from "node:url";
 let activePanel;
 const pipePath = (name) => "\\\\.\\pipe\\" + name;
 export function reportServerState(phase, detail, url) {
-  activePanel?.update({ phase, detail, ...(url === undefined ? {} : { url }) });
+  activePanel?.update({ phase, detail, serverPowerHeld:getServerPowerProtected(), ...(url === undefined ? {} : { url }) });
 }
 export function registerServerStop(stop) {
   activePanel?.setStop(stop);
@@ -175,6 +176,10 @@ export function createPanelController({
             if (client.panelAuthenticated)
               send(client, { ok: true, show: true });
           send(socket, { id: message.id, ok: true });
+        } else if (message.command === "power/renew") {
+          state={...state,serverPowerHeld:renewServerPowerProtection()};
+          for(const client of clients)if(client.panelAuthenticated)send(client,{ok:true,state});
+          send(socket,{id:message.id,ok:true});
         } else if (message.command === "stop") {
           send(socket, { id: message.id, ok: true });
           await stop?.();

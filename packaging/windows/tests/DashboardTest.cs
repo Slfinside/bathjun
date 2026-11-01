@@ -20,6 +20,7 @@ internal static class DashboardTest {
             var panelType=typeof(Member).Assembly.GetType("PanelForm");
             var panel=(Form)Activator.CreateInstance(panelType,new object[]{"test-pipe","test-token",false});
             try{
+                Set(panel,"powerHeld",true);Set(panel,"serverPowerHeld",false);var protectedState=panelType.GetProperty("SleepProtectionReady",BindingFlags.Instance|BindingFlags.NonPublic);if((bool)protectedState.GetValue(panel,null))throw new Exception("GUI request alone enabled screen off");Set(panel,"serverPowerHeld",true);if(!(bool)protectedState.GetValue(panel,null))throw new Exception("Server power request was ignored");Set(panel,"powerHeld",false);Set(panel,"serverPowerHeld",false);
                 ((CheckBox)Get(panel,"dashboardFixed")).Checked=true;((NumericUpDown)Get(panel,"dashboardMinutes")).Value=7;
                 if(((NumericUpDown)Get(panel,"dashboardMinutes")).Enabled)throw new Exception("Fixed mode did not disable timeout input");
                 ((CheckBox)Get(panel,"automaticDisplay")).Checked=true;
@@ -132,6 +133,21 @@ internal static class DashboardTest {
         finally{Environment.SetEnvironmentVariable("BATHJUN_DATA_DIR",previous);if(Directory.Exists(folder))Directory.Delete(folder,true);}
     }
 
+    static void ManualDisplays(){
+        int off=0,on=0;bool visible=true;
+        var control=new DisplayScheduleController(value=>visible=value,()=>{if(visible)throw new Exception("Manual off retained display lease");off++;return true;},()=>{if(!visible)throw new Exception("Manual wake did not restore display lease");on++;return true;});
+        var preference=new DisplaySchedulePreferences();var now=JapanTime("2026-10-31 10:00:00");
+        control.RequestManualOff(100);control.Tick(preference,now,true,0,100);control.Tick(preference,now.AddSeconds(1),true,1,100);
+        if(off!=1||!control.ManualOffRequested||!control.IsOffRequested||visible)throw new Exception("Manual off did not persist with schedule disabled");
+        control.Tick(preference,now.AddSeconds(2),true,0,101);if(on!=1||control.IsOffRequested||control.ManualOffRequested||!visible)throw new Exception("New input did not cancel manual off");
+        preference.enabled=true;control.RequestManualOff(200);control.Tick(preference,now,true,0,200);control.Tick(preference,now.AddSeconds(1),true,1,200);
+        if(off!=2||visible)throw new Exception("Scheduled display lease woke manual off");
+        control.RefreshPowerState();control.Tick(preference,now.AddSeconds(2),true,2,200);if(off!=3)throw new Exception("Resume did not reissue off request");
+        control.Tick(preference,JapanTime("2026-10-31 15:00:00"),true,10000,200);if(on!=2||control.IsOffRequested||control.ManualOffRequested)throw new Exception("Scheduled wake did not override manual off at the interval end");
+        preference.enabled=false;control.RequestManualOff(300);control.Tick(preference,now,true,0,300);control.Tick(preference,now.AddSeconds(1),false,0,300);
+        if(control.IsOffRequested||control.ManualOffRequested||on!=3)throw new Exception("Loss of server power safety did not restore the display");
+        control.RequestManualOff(null);control.Tick(preference,now,true,0,null);control.CancelManualOff();control.Tick(preference,now.AddSeconds(1),true,0,null);if(control.IsOffRequested)throw new Exception("Explicit cancel did not wake screen when input tracking is unavailable");
+    }
     [STAThread] static void Main(string[] args) {
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
         string installRoot=(string)typeof(Member).Assembly.GetType("ServerUpdate").GetProperty("InstallRoot",BindingFlags.Static|BindingFlags.NonPublic).GetValue(null,null);if(!Directory.Exists(installRoot))throw new Exception("Install root cannot resolve on .NET Framework");
@@ -142,7 +158,7 @@ internal static class DashboardTest {
             scroll.Invoke(null,new object[]{button,100000});if(-panel.AutoScrollPosition.Y<=150)throw new Exception("Long drag did not move scroll position");
             scroll.Invoke(null,new object[]{button,-100000});if(panel.AutoScrollPosition.Y!=0)throw new Exception("Drag exceeded upper bound");button.PerformClick();if(clicks!=1)throw new Exception("Scrolling disabled button taps");host.Close();}
         }
-        DisplaySchedules();Preferences(args[1]);
+        DisplaySchedules();ManualDisplays();Preferences(args[1]);
         var type=typeof(DashboardData).Assembly.GetType("DashboardForm");
         var data=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));
         foreach(var size in new[]{new Size(1280,720),new Size(1280,800),new Size(1440,960),new Size(1920,1080),new Size(1920,1280)}) {

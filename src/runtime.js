@@ -1,10 +1,13 @@
+import { acquireServerPower } from "./server-power.js";
 import { mkdirSync } from "node:fs";
 import { dataPaths } from "./data-paths.js";
 import { createNotificationPump } from "./notification-pump.js";
 import { networkInterfaces } from "node:os";
 import { createApp } from "./app.js";
 import { createHttpServer } from "./http.js";
-let runningApplication;
+let runningApplication,runningPower;
+export const getServerPowerProtected=()=>runningPower?.protected===true;
+export const renewServerPowerProtection=()=>runningPower?.renew()===true;
 export const getRunningApplication=()=>runningApplication;
 export function openApplication(options = {}) {
   const paths = dataPaths();
@@ -34,6 +37,8 @@ export async function startRuntime({
     app.close();
     throw error;
   }
+  const power=acquireServerPower();runningPower=power;
+  if(process.platform==='win32'&&!power.protected)console.warn("サーバーのスリープ防止を有効にできませんでした。画面消灯は利用できません。");
   runningApplication=app;
   notifications = createNotificationPump(app, {
     onError: () => console.warn("通知の再試行を待っています。"),
@@ -46,6 +51,7 @@ export async function startRuntime({
       await new Promise((resolve) => server.close(resolve));
       if(runningApplication===app)runningApplication=null;
       app.close();
+      power.close();if(runningPower===power)runningPower=null;
     })());
   return { app, server, setPublicOrigin, close, port: server.address().port };
 }

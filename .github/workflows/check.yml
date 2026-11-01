@@ -36,6 +36,18 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build and check the server process power guard
+        shell: pwsh
+        run: |
+          python packaging/build-server-power.py --output native-power/Bathjun-Power.node --assets native-power/assets
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node packaging/windows/tests/check-server-power.mjs native-power/Bathjun-Power.node
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-power-addon
+          path: native-power/Bathjun-Power.node
+          retention-days: 7
       - uses: actions/download-artifact@v4
         with:
           name: mono-native-ui

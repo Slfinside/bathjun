@@ -39,6 +39,11 @@ def build(args):
         subprocess.run(['npm','ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund'],cwd=app,check=True,env={**os.environ,'npm_config_cache':str(assets/'npm-cache')})
         if list((app/'node_modules').rglob('*.node')):raise RuntimeError('Native npm modules need Windows-specific builds')
         binary=payload/'bin';binary.mkdir()
+        power=pathlib.Path(args.power_addon).resolve();raw=power.read_bytes()
+        if len(raw)<256 or len(raw)>2*1024*1024 or raw[:2]!=b'MZ':raise RuntimeError('Windows server power guard is missing or invalid')
+        pe=struct.unpack_from('<I',raw,0x3c)[0]
+        if raw[pe:pe+4]!=b'PE\0\0' or struct.unpack_from('<H',raw,pe+4)[0]!=0x8664:raise RuntimeError('Server power guard must be Windows x64')
+        shutil.copy2(power,binary/'Bathjun-Power.node')
         # Use a standard .res file: Mono mcs silently ignores -win32manifest.
         manifest_data=(ROOT/'packaging/windows/ServerPanel.manifest').read_bytes()
         resource=pathlib.Path(temporary)/'server-panel.res'
@@ -86,4 +91,4 @@ def build(args):
     print(f'Created {output} ({output.stat().st_size:,} bytes)')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--makensis',default='makensis');parser.add_argument('--csc',default='mcs');parser.add_argument('--assets',default='/tmp/bathjun-windows-assets');parser.add_argument('--output',default=str(ROOT/'dist/Bathjun-Setup-x64.exe'));parser.add_argument('--portable-output',default=str(ROOT/'dist/Bathjun-Portable-x64.zip'));build(parser.parse_args())
+    parser=argparse.ArgumentParser();parser.add_argument('--power-addon',required=True);parser.add_argument('--makensis',default='makensis');parser.add_argument('--csc',default='mcs');parser.add_argument('--assets',default='/tmp/bathjun-windows-assets');parser.add_argument('--output',default=str(ROOT/'dist/Bathjun-Setup-x64.exe'));parser.add_argument('--portable-output',default=str(ROOT/'dist/Bathjun-Portable-x64.zip'));build(parser.parse_args())

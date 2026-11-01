@@ -22,6 +22,18 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build and check the server process power guard
+        shell: pwsh
+        run: |
+          python packaging/build-server-power.py --output native-power/Bathjun-Power.node --assets native-power/assets
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node packaging/windows/tests/check-server-power.mjs native-power/Bathjun-Power.node
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-power-addon
+          path: native-power/Bathjun-Power.node
+          retention-days: 7
       - name: Render dashboard with bundled fonts on Windows
         shell: pwsh
         run: |
@@ -65,6 +77,10 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-power-addon
+          path: native-power
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y nsis mono-mcs libmono-system-windows-forms4.0-cil libmono-system-web-extensions4.0-cil mono-devel
       - run: npm ci --ignore-scripts --no-audit --no-fund
@@ -85,7 +101,7 @@ jobs:
       - name: Check Windows release version mapping
         run: python3 packaging/windows/tests/test_release_version.py
       - name: Build both Windows distributions
-        run: python3 packaging/build-windows.py --assets /tmp/bathjun-assets
+        run: python3 packaging/build-windows.py --assets /tmp/bathjun-assets --power-addon native-power/Bathjun-Power.node
       - name: Verify portable payload
         run: python3 packaging/verify-distribution.py dist/Bathjun-Portable-x64.zip
       - name: Publish release

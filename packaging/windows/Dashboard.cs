@@ -45,15 +45,25 @@ public sealed class DisplayScheduleController {
     readonly Action<bool> visible;readonly Func<bool> off,on;
     public bool IsOffRequested {get;private set;}
     public bool Failed {get;private set;}
+    public bool ManualOffRequested {get;private set;}
+    uint? manualInput;bool wasScheduledOff,refreshOff;
     bool? lastTarget;DateTime retryAt=DateTime.MinValue;
     public DisplayScheduleController(Action<bool> visible,Func<bool> off,Func<bool> on){this.visible=visible;this.off=off;this.on=on;}
-    public void Tick(DisplaySchedulePreferences preference,DateTime utc,bool eligible,uint idleSeconds){
-        bool target=eligible&&preference.IsOffTime(utc)&&idleSeconds>=60;
+    public void RequestManualOff(uint? input){ManualOffRequested=true;manualInput=input;RefreshPowerState();}
+    public void CancelManualOff(){ManualOffRequested=false;manualInput=null;}
+    public void RefreshPowerState(){refreshOff=true;retryAt=DateTime.MinValue;}
+    public void Tick(DisplaySchedulePreferences preference,DateTime utc,bool eligible,uint idleSeconds,uint? input=null){
+        bool scheduledOff=eligible&&preference.IsOffTime(utc);
+        if(!eligible||(ManualOffRequested&&manualInput.HasValue&&input.HasValue&&manualInput.Value!=input.Value)||(wasScheduledOff&&!scheduledOff))CancelManualOff();
+        wasScheduledOff=scheduledOff;
+        bool target=eligible&&(ManualOffRequested||(scheduledOff&&idleSeconds>=60));
+        // All display keep-awake requests must follow the same target, including
+        // manual commands. The server's system/execution lease is separate.
         visible(!target);
         if(lastTarget!=target){retryAt=DateTime.MinValue;Failed=false;lastTarget=target;}
-        if(target==IsOffRequested||utc<retryAt)return;
+        if((target==IsOffRequested&&!(target&&refreshOff))||utc<retryAt)return;
         bool result=target?off():on();Failed=!result;
-        if(result)IsOffRequested=target;else retryAt=utc.AddSeconds(30);
+        if(result){IsOffRequested=target;refreshOff=false;}else retryAt=utc.AddSeconds(30);
     }
 }
 
@@ -85,7 +95,7 @@ internal sealed class DashboardForm : Form {
     void Reveal(Graphics g,RectangleF rect,Action draw){if(transition<=0)return;var state=g.Save();g.SetClip(new RectangleF(rect.X,rect.Y,rect.Width,rect.Height*(float)transition));draw();g.Restore(state);}
     bool displaySuppressed;
     public void ResetDisplayPower(){display.Dispose();held=false;}
-    public void SetDisplaySuppressed(bool value){if(displaySuppressed==value)return;displaySuppressed=value;if(value){display.Dispose();held=false;}}
+    public void SetDisplaySuppressed(bool value){if(displaySuppressed==value)return;displaySuppressed=value;if(value){display.Dispose();held=false;}else if(!held&&IsHandleCreated&&Visible)held=display.Acquire(true);}
     bool held,waiting; double requestedAt; string problem="";
     public DashboardForm(Action request,bool usePresence):this(request,usePresence,Typeface()) {}
     public DashboardForm(Action request,bool usePresence,FontFamily typeface) {
