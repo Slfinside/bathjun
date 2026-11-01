@@ -63,7 +63,7 @@ test('通常順への復帰を再読込や再起動で戻さず、次の夜に�
 });
 test('翌朝まで続く前夜の予約は、自動様子見の適用時にも維持する',async t=>{
  const f=await fixture(t);await f.book(1,1800);await f.api('auto-standby',{enabled:true});f.setTime('2026-10-29T06:00:00');
- const old=await f.api('state');assert.equal(old.day,'2026-10-28');assert.equal(old.bookings[0].start,1800);assert.deepEqual(old.skips,[]);
+ assert.equal((await f.api('state')).day,'2026-10-29');const old=await f.api('state?day=2026-10-28');assert.equal(old.day,'2026-10-28');assert.equal(old.bookings[0].start,1800);assert.deepEqual(old.skips,[]);
  assert.deepEqual((await f.state('2026-10-29')).skips,[1]);
 });
 test('複数の自動様子見は元の順番を保ち、手動で末尾へ回った人はその後へ',async t=>{

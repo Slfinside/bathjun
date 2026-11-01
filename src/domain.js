@@ -1,4 +1,4 @@
-import { bathCalendar } from './bath-calendar.js';
+import { bathCalendar } from "./bath-calendar.js";
 import { randomInt } from "node:crypto";
 import { DEFAULT_SCHEDULE } from "./server-settings.js";
 
@@ -19,12 +19,19 @@ export function japanTime(now = new Date(), schedule = DEFAULT_SCHEDULE) {
         : today,
   };
 }
-export function lotteryOpen(day, now, schedule = DEFAULT_SCHEDULE, referenceDay) {
-  const t = bathCalendar(now, schedule.dayRollover);
-  const today=referenceDay || t.today;
+export function lotteryOpen(
+  day,
+  now,
+  schedule = DEFAULT_SCHEDULE,
+  referenceDay,
+) {
+  const t = bathCalendar(now);
+  const today = referenceDay || t.today;
   if (day !== today || slotDate(day, schedule.bathEnd) <= now) return false;
-  return !schedule.lotteryTimeRestricted ||
-    (t.minute >= schedule.lotteryStart && t.minute < schedule.lotteryEnd);
+  return (
+    !schedule.lotteryTimeRestricted ||
+    (t.minute >= schedule.lotteryStart && t.minute < schedule.lotteryEnd)
+  );
 }
 
 export function slotDate(day, minutes) {
@@ -40,8 +47,9 @@ export function validateSlot(start, duration, schedule = DEFAULT_SCHEDULE) {
     start % schedule.step === 0 &&
     duration >= schedule.minDuration &&
     duration <= schedule.maxDuration &&
+    duration <= 1440 &&
     duration % schedule.step === 0 &&
-    start + duration <= schedule.bathEnd
+    start < schedule.bathEnd
   );
 }
 export function shuffle(ids) {

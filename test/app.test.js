@@ -78,15 +78,16 @@ test("日本時間の日付区切りと抽選時間（6:00・15:00・翌7:00）"
   assert.equal(lotteryOpen("2026-10-28", at("15:00:00"), {...DEFAULT_SCHEDULE,lotteryTimeRestricted:true}), false);
   assert.equal(lotteryOpen("2026-10-27", at("08:00:00"), {...DEFAULT_SCHEDULE,lotteryTimeRestricted:true}), false);
 });
-test("15〜90分、15分刻み、翌7時までを検証する", () => {
+test("15〜90分、15分刻み、開始時刻は翌7時までを検証する", () => {
   assert.equal(validateSlot(900, 15), true);
   assert.equal(validateSlot(1770, 90), true);
+  assert.equal(validateSlot(1845,30),true);
   for (const args of [
-    [885, 30],
+    [405, 30],
     [900, 14],
     [900, 105],
     [901, 30],
-    [1845, 30],
+    [1860, 30],
     [1800, NaN],
     ["900", 30],
     [900, 22],
@@ -196,7 +197,7 @@ test("複数端末の同時抽選・優先順位・重複防止・変更・取�
     409,
   );
 });
-test("抽選前の予約・時間外の抽選・翌7時を超える予約を拒否する", async (t) => {
+test("抽選前の予約・時間外の抽選・翌7時以降に開始する予約を拒否する", async (t) => {
   const f = await fixture(t, { at: "2026-10-28T05:59:00+09:00" });
   const cookie = await f.register(1);
   assert.equal(
@@ -222,7 +223,7 @@ test("抽選前の予約・時間外の抽選・翌7時を超える予約を拒�
     (
       await f.request(
         "book",
-        { day: "2026-10-28", start: 1845, duration: 30 },
+        { day: "2026-10-28", start: 1860, duration: 30 },
         cookie,
       )
     ).status,
@@ -251,7 +252,8 @@ test("翌日の深夜も同じ予約を共有し、開始済みの予約は変�
     200,
   );
   f.setTime("2026-10-29T06:00:00+09:00");
-  const state = (await f.request("state", undefined, cookie)).body;
+  assert.equal((await f.request("state", undefined, cookie)).body.day,"2026-10-29");
+  const state = (await f.request("state?day=2026-10-28", undefined, cookie)).body;
   assert.equal(state.day, "2026-10-28");
   assert.equal(state.bookings.length, 1);
   assert.equal(

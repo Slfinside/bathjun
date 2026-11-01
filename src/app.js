@@ -18,11 +18,10 @@ import { validateProfile } from "./member-profile.js";
 import { createAdminData } from "./admin-data.js";
 import { createBookingReminders } from "./booking-reminders.js";
 import { createPasskeys } from "./passkeys.js";
-import { createServerSettings, rawJapanDate } from "./server-settings.js";
-import { bathCalendar } from "./bath-calendar.js";
+import { createServerSettings } from "./server-settings.js";
+import { shiftDay, bathCalendar } from "./bath-calendar.js";
 import { requestUrl } from "./request-url.js";
 import {
-  japanTime,
   lotteryOpen,
   slotDate,
   validateSlot,
@@ -147,6 +146,10 @@ export function createApp({
       ) || null
     );
   };
+  function overlapsAdjacentDay(day,start,duration) {
+    const from=slotDate(day,start).getTime(),to=slotDate(day,start+duration).getTime();
+    return db.prepare("SELECT day,start,duration FROM bookings WHERE day IN (?,?,?,?)").all(shiftDay(day,-2),shiftDay(day,-1),shiftDay(day,1),shiftDay(day,2)).some(row=>slotDate(row.day,row.start).getTime()<to&&slotDate(row.day,row.start+row.duration).getTime()>from);
+  }
   function advanceWishes(day) {
     function candidate() {
       const id=currentTurn(day);
@@ -155,6 +158,7 @@ export function createApp({
       if(!wish || slotDate(day,wish.start)<=now())return null;
       if(!rewards.settings().itemsEnabled)wish.ticket=null;
       try{rewards.checkTicketSlot(day,wish.ticket,wish.start,wish.duration);if(!validateSlot(wish.start,wish.duration,rewards.bookingRule(day,id,wish.ticket)))return null;}catch{return null;}
+      if(overlapsAdjacentDay(day,wish.start,wish.duration))return null;
       // Half-open intervals: another bath may start exactly when this one ends.
       if(db.prepare('SELECT 1 FROM bookings WHERE day=? AND member_id!=? AND start<? AND start+duration>? LIMIT 1').get(day,id,wish.start+wish.duration,wish.start))return null;
       const order=reservationOrder(day),rank=order.indexOf(id);
@@ -343,13 +347,8 @@ export function createApp({
   const completionReminders=createCompletionReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,reportMinutes:()=>rewards.settings().clientReportMinutes});
   const reminders=createBookingReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed});
   const nudges=createNudges({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn,isDayOpen:day=>day<=currentTime().today&&slotDate(day,scheduleForDay(day).bathEnd)>now()&&bookingOpensAt(day)<=now().getTime()});
-  const currentTime = () => {
-    const time=bathCalendar(now(),scheduleForDay(rawJapanDate(now())).dayRollover);
-    const raw=japanTime(now()),previousRule=scheduleForDay(raw.yesterday);
-    const activeDay=previousRule.bathEnd>1440&&raw.minute<previousRule.bathEnd-1440?raw.yesterday:time.today;
-    return {...time,activeDay};
-  };
-  const bookingOpensAt = day => slotDate(day,scheduleForDay(day).dayRollover).getTime();
+  const currentTime = () => bathCalendar(now());
+  const bookingOpensAt = day => slotDate(day,0).getTime();
   function applyDailyStandby(notify=true) {
     const day=currentTime().today;
     if(!db.prepare("SELECT 1 FROM draws WHERE day=?").get(day))return;
@@ -400,7 +399,8 @@ export function createApp({
   const validDay = (day, allowTomorrow = false) => {
     applyDailyStandby();
     const time = currentTime();
-    if (day !== time.today && day !== time.yesterday && !(allowTomorrow && [time.tomorrow,time.dayAfterTomorrow].includes(day)))
+    const continuing=day===shiftDay(time.today,-2)&&db.prepare("SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)").all(day).some(b=>slotDate(day,b.start)<=now()&&now().getTime()<=slotDate(day,b.start+b.duration).getTime()+Math.max(rewards.settings().clientReportMinutes,rewards.settings().dashboardReportMinutes)*60000);
+    if (day !== time.today && day !== time.yesterday && !continuing && !(allowTomorrow && [time.tomorrow,time.dayAfterTomorrow].includes(day)))
       fail(400, "表示できる日付、または受付中の日付を選んでください。");
     return day;
   };
@@ -904,6 +904,7 @@ export function createApp({
           fail(400, "時間変更の相談について選択し直してください。");
         if (existing && slotDate(day, existing.start) <= now())
           fail(409, "開始済みの予約は変更できません。");
+        if(overlapsAdjacentDay(day,start,duration))fail(409,"前日・翌日分の予約と時間が重なっています。");
         const turn = currentTurn(day);
         if (!existing && turn !== me.id && selectedTicket!=='skip')
           fail(
@@ -964,9 +965,12 @@ export function createApp({
     handle,
     getDashboard: () => {
       applyDailyStandby();
-      const time=currentTime();let day=time.activeDay;
-      const previous=time.yesterday;
-      if(previous!==day&&db.prepare('SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)').all(previous).some(b=>slotDate(previous,b.start+b.duration)<=now()&&now().getTime()<=slotDate(previous,b.start+b.duration).getTime()+rewards.settings().dashboardReportMinutes*60000))day=previous;
+      const time=currentTime();
+      const previousRule=scheduleForDay(time.yesterday);
+      let day=previousRule.bathEnd>1440&&time.minute<previousRule.bathEnd-1440?time.yesterday:time.today;
+      for(const candidate of [shiftDay(time.today,-2),time.yesterday]) {
+        if(db.prepare('SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)').all(candidate).some(b=>slotDate(candidate,b.start)<=now()&&now().getTime()<=slotDate(candidate,b.start+b.duration).getTime()+rewards.settings().dashboardReportMinutes*60000)){day=candidate;break;}
+      }
       return {day,now:now().toISOString(),reportMinutes:rewards.settings().dashboardReportMinutes,settings:scheduleForDay(day),members:allMembers(false).map(({id,name,active,emoji,color})=>({id,name,active,emoji,color})),
         bookings:db.prepare("SELECT member_id AS memberId,start,duration,ticket,revision,(SELECT reported_at FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id) AS completedAt FROM bookings WHERE day=? ORDER BY start").all(day),
         wishes:db.prepare("SELECT member_id AS memberId,start,duration FROM wishes WHERE day=? ORDER BY start,member_id").all(day),

@@ -16,12 +16,12 @@ test('公開版はメンバー未登録・抽選時間の制限なし。初回�
   assert.equal(app.saveServerSettings({members:[{name:'テスト利用者',active:true}],schedule:config.upcoming}).members[0].name,'テスト利用者');
  } finally {app.close();}
 });
-test('抽選は日付設定に基づく当日だけ。先行抽選と終了後は拒否',()=>{
+test('抽選は暦日の当日だけ。0時前の先行抽選と翌日分は拒否',()=>{
  const day='2026-10-28';
  for(const time of ['02:00:00','05:59:59','15:00:00','23:59:59'])assert.equal(lotteryOpen(day,new Date(`${day}T${time}+09:00`)),true);
- assert.equal(lotteryOpen(day,new Date('2026-10-29T01:59:59+09:00')),true);
+ assert.equal(lotteryOpen(day,new Date('2026-10-29T01:59:59+09:00')),false);
  assert.equal(lotteryOpen(day,new Date('2026-10-29T02:00:00+09:00')),false);
- assert.equal(lotteryOpen(day,new Date('2026-10-28T01:59:59+09:00')),false);
+ assert.equal(lotteryOpen(day,new Date('2026-10-28T01:59:59+09:00')),true);
  assert.equal(lotteryOpen('2026-10-29',new Date('2026-10-28T23:59:59+09:00')),false);
  const restricted={...DEFAULT_SCHEDULE,lotteryTimeRestricted:true};
  assert.equal(lotteryOpen(day,new Date(`${day}T15:00:00+09:00`),restricted),false);

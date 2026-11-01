@@ -120,7 +120,7 @@ internal sealed class DashboardForm : Form {
     void Poll(){waiting=true;requestedAt=elapsed.Elapsed.TotalSeconds;request();}
     public void UpdateData(DashboardData value){data=value;serverTime=DateTime.Parse(value.now,CultureInfo.InvariantCulture,DateTimeStyles.AdjustToUniversal|DateTimeStyles.AssumeUniversal);receivedAt=elapsed.Elapsed.TotalSeconds;waiting=false;reportBusy=false;problem="";Invalidate();}
     public void Fail(string message){waiting=false;reportBusy=false;problem=message;Invalidate();}
-    static string Time(int minute){return (minute>=1440?"翌":"")+(minute/60%24).ToString("00")+":"+(minute%60).ToString("00");}
+    static string Time(int minute){return (minute>=2880?"翌々":minute>=1440?"翌":"")+(minute/60%24).ToString("00")+":"+(minute%60).ToString("00");}
     void Write(Graphics g,string text,float size,Color color,RectangleF rect,bool bold=false) {
         var font=TextFont(size,bold);
         using(var brush=new SolidBrush(color))
@@ -341,6 +341,7 @@ internal sealed class DashboardForm : Form {
             var bar=new RectangleF(x+2,y+1,Math.Max(1,laneWidth-4),Math.Max(3,bottom-y-2));
             Box(g,bar,wish?Paper:Color.FromArgb(48,62,38),conflict?Orange:Green,4,wish);
             if(conflict)foreach(var overlap in entry.overlaps){float a=ChartY(overlap.start,parts,chartTop,chartHeight),b=ChartY(overlap.end,parts,chartTop,chartHeight);using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Orange,Color.Transparent))g.FillRectangle(brush,bar.X,a,bar.Width,Math.Max(1,b-a));}
+            if(conflict&&bar.Height>=26)using(var brush=new SolidBrush(Paper))g.FillRectangle(brush,new RectangleF(bar.X+3,bar.Y+2,Math.Max(1,bar.Width-6),24));
             if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+entry.name,Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
         }
         foreach(var part in parts)if(part.end-part.start>=120&&part.weight==60){float y=ChartY((part.start+part.end)/2,parts,chartTop,chartHeight);Write(g,"〜",16,Muted,new RectangleF(trackX,y-10,trackWidth,24));}

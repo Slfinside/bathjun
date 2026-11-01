@@ -187,6 +187,8 @@ internal static class DashboardTest {
                     if(!compact)Call(form,"ShowDetails");
                     using(var bitmap=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,size));if(!compact){var people=(RectangleF)Get(form,"peopleArea");var schedule=(RectangleF)Get(form,"scheduleArea");if(schedule.Left<people.Right||schedule.Height<people.Height*1.4f)throw new Exception("Detailed schedule is not a tall column on the right");}bitmap.Save(Path.Combine(args[1],"dashboard-"+size.Width+"x"+size.Height+(compact?"-away":"")+".png"));}
                     if(compact&&size.Width==1280&&size.Height==720){
+                        var empty=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));empty.entries=new DashboardEntry[0];type.GetMethod("UpdateData").Invoke(form,new object[]{empty});
+                        foreach(bool detailedEmpty in new[]{false,true}){Set(form,"transition",detailedEmpty?1d:0d);using(var image=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(image,new Rectangle(Point.Empty,size));image.Save(Path.Combine(args[1],detailedEmpty?"dashboard-empty-detail.png":"dashboard-empty-compact.png"));}}Set(form,"transition",0d);
                         var idle=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));idle.now="2026-10-29T18:45:00+09:00";
                         type.GetMethod("UpdateData").Invoke(form,new object[]{idle});
                         using(var bitmap=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,size));bitmap.Save(Path.Combine(args[1],"dashboard-idle.png"));}

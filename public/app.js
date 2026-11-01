@@ -143,7 +143,7 @@ function renderHeaderAccount() {
   if (me) applyMemberColors(account);
 }
 const time = (minute) =>
-  `${minute >= 1440 ? "翌" : ""}${String(Math.floor(minute / 60) % 24).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+  `${minute >= 2880 ? "翌々" : minute >= 1440 ? "翌" : ""}${String(Math.floor(minute / 60) % 24).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 const dateLabel = (day) =>
   new Intl.DateTimeFormat("ja-JP", {
     month: "long",
@@ -387,7 +387,7 @@ document
       notify(
         "毎日の予約設定を保存しました。" +
           dateLabel(result.appliesFrom) +
-          "の夜分から反映します。",
+          "分から反映します。",
       );
     } catch (error) {
       form.querySelector(".form-error").textContent = error.message;
@@ -652,7 +652,7 @@ function renderDashboard() {
   const yourTurn = turn === me.id && !expired;
   const allBooked = state.draw && !turn;
   renderHeaderAccount();
-  root.innerHTML = `  <div class="date-bar"><div><span class="date-caption">BATH DAY</span><h2>${dateLabel(state.day)}</h2><p>${time(state.settings.bathStart)} <span>—</span> ${time(state.settings.bathEnd)} <span class="jst">日本時間</span></p></div><div class="day-switch" aria-label="日付切り替え"><button data-day="${state.yesterday}" class="${state.day === state.yesterday ? "active" : ""}" aria-pressed="${state.day === state.yesterday}">昨日の夜～</button><button data-day="${state.today}" class="${state.day === state.today ? "active" : ""}" aria-pressed="${state.day === state.today}">今日の夜～</button><button data-day="${state.tomorrow}" class="${state.day === state.tomorrow ? "active" : ""}" aria-pressed="${state.day === state.tomorrow}">明日の夜～</button><button data-day="${state.dayAfterTomorrow}" class="${state.day === state.dayAfterTomorrow ? "active" : ""}" aria-pressed="${state.day === state.dayAfterTomorrow}">明後日の夜～</button></div></div>
+  root.innerHTML = `  <div class="date-bar"><div><span class="date-caption">BATH DAY</span><h2>${dateLabel(state.day)}</h2><p>${time(state.settings.bathStart)} <span>—</span> ${time(state.settings.bathEnd)} <span class="jst">に開始する予約 · 日本時間</span></p></div><div class="day-switch" aria-label="日付切り替え"><button data-day="${state.yesterday}" class="${state.day === state.yesterday ? "active" : ""}" aria-pressed="${state.day === state.yesterday}">昨日</button><button data-day="${state.today}" class="${state.day === state.today ? "active" : ""}" aria-pressed="${state.day === state.today}">今日</button><button data-day="${state.tomorrow}" class="${state.day === state.tomorrow ? "active" : ""}" aria-pressed="${state.day === state.tomorrow}">明日</button><button data-day="${state.dayAfterTomorrow}" class="${state.day === state.dayAfterTomorrow ? "active" : ""}" aria-pressed="${state.day === state.dayAfterTomorrow}">明後日</button></div></div>
   <div class="dashboard-grid"><div class="left-column"><section class="draw-card">${
     state.draw
       ? `
@@ -668,11 +668,11 @@ function renderDashboard() {
       )}</ol>${state.settings.orderMode === "fixed" ? '<p class="fine-print">固定順は全端末で共通。「入らない/様子見」は末尾へ回ります。</p>' : ""}`
       : state.settings.orderMode === "fixed"
         ? '<h2>予約の順番</h2><p class="muted">固定順は当日に確定します。時刻の予約も当日からです。</p>'
-        : `<div class="draw-illustration" aria-hidden="true">${icon("shuffle")}<span>?</span></div><h2>この夜の順番、くじで決めよう。</h2><p class="muted">${activeMembers().length}人の予約する順番をランダムに決定。<br>だれか1人が引けば、みんなに共有されます。</p><button class="primary" data-action="draw" ${state.lotteryOpen ? "" : "disabled"}>${icon("shuffle")}${state.lotteryOpen ? "この夜の順番を抽選する" : "抽選できる時間を待ってね"}</button><p class="fine-print">${icon("clock")}${state.settings.lotteryTimeRestricted ? `抽選できる時間：当日 ${time(state.settings.lotteryStart)}〜${time(state.settings.lotteryEnd)}（締切）` : "当日分を抽選できます（対象日のおふろ終了まで）"}</p>${state.settings.lotteryTimeRestricted && !state.lotteryOpen && state.day === state.today && state.minute >= state.settings.lotteryEnd ? '<p class="form-error">今日は抽選時間が終了しました。次は明日の抽選時間に操作してください。</p>' : ""}`
+        : `<div class="draw-illustration" aria-hidden="true">${icon("shuffle")}<span>?</span></div><h2>この日の順番、くじで決めよう。</h2><p class="muted">${activeMembers().length}人の予約する順番をランダムに決定。<br>だれか1人が引けば、みんなに共有されます。</p><button class="primary" data-action="draw" ${state.lotteryOpen ? "" : "disabled"}>${icon("shuffle")}${state.lotteryOpen ? "この日の順番を抽選する" : "抽選できる時間を待ってね"}</button><p class="fine-print">${icon("clock")}${state.settings.lotteryTimeRestricted ? `抽選できる時間：当日 ${time(state.settings.lotteryStart)}〜${time(state.settings.lotteryEnd)}（締切）` : "当日分を抽選できます（対象日のおふろ終了まで）"}</p>${state.settings.lotteryTimeRestricted && !state.lotteryOpen && state.day === state.today && state.minute >= state.settings.lotteryEnd ? '<p class="form-error">今日は抽選時間が終了しました。次は明日の抽選時間に操作してください。</p>' : ""}`
   }</section>${renderWishes()}${renderStampCard()}
   <aside class="rules-card"><span class="rules-icon">♨</span><div><h3>わが家のおふろルール</h3><p>1回 <strong>${state.settings.minDuration}〜${state.settings.maxDuration}分</strong>、${state.settings.step}分刻みで予約。<br>脱衣所に入ってから、出るまでの時間です。<br>1人1枠。予約後も、開始前なら変更できます。</p></div></aside></div>
   <div class="right-column">${renderBookingBanner(booking, turn, expired, canEdit)}
-  <section class="schedule-card"><div class="card-title"><h2>スケジュール</h2><span class="count">${state.bookings.length} 人予約${state.skips.filter((id) => !state.bookings.some((b) => b.memberId === id)).length ? ` · ${state.skips.filter((id) => !state.bookings.some((b) => b.memberId === id)).length} 人様子見` : ""}</span></div><div id="connection-status" class="connection-status" role="status">共有データを更新済み</div><div class="schedule"><div class="timeline-label"><span class="timeline-dot"></span>${time(state.settings.bathStart)}<span>おふろ、はじまり</span></div>${renderSchedule()}<div class="timeline-label end"><span class="timeline-dot"></span>${time(state.settings.bathEnd)}</div></div></section></div></div>`;
+  <section class="schedule-card"><div class="card-title"><h2>スケジュール</h2><span class="count">${state.bookings.length} 人予約${state.skips.filter((id) => !state.bookings.some((b) => b.memberId === id)).length ? ` · ${state.skips.filter((id) => !state.bookings.some((b) => b.memberId === id)).length} 人様子見` : ""}</span></div><div id="connection-status" class="connection-status" role="status">共有データを更新済み</div><div class="schedule"><div class="timeline-label"><span class="timeline-dot"></span>${time(state.settings.bathStart)}<span>予約開始の区切り</span></div>${renderSchedule()}<div class="timeline-label end"><span class="timeline-dot"></span>${time(scheduleEnd())}</div></div></section></div></div>`;
   applyMemberColors(root);
   root.querySelectorAll("[data-top]").forEach((node) => {
     node.style.top = `${Number(node.dataset.top)}%`;
@@ -715,7 +715,7 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
   let content;
   if (expired)
     content =
-      '<span class="banner-symbol">☾</span><div><h3>この日のおふろは終了しました。</h3><p>今日の夜～のタブから次のおふろを確認できます。</p></div>';
+      '<span class="banner-symbol">☾</span><div><h3>この日のおふろは終了しました。</h3><p>今日のタブから次のおふろを確認できます。</p></div>';
   else if (booking)
     content = `${icon("check")}<div><span class="eyebrow">YOUR BATH TIME</span><h3>${time(booking.start)} <span>〜</span> ${time(booking.start + booking.duration)}</h3><p>${booking.autoConfirmed ? "希望から自動確定" : "あなたの予約"} · ${booking.duration}分</p></div>${canEdit ? `<button class="primary" data-action="book" aria-label="自分の予約を変更">${icon("edit")}予約を変更</button>` : ""}`;
   else if (yourTurn)
@@ -750,6 +750,12 @@ function renderWish(w) {
     );
   return `<article class="wish-item"><div class="wish-person">${avatar(w.memberId, true)}<strong>${escapeHTML(memberName(w.memberId))}</strong><span>希望・未確定</span></div><div class="wish-time">${time(w.start)}〜${time(w.start + w.duration)}<small>${w.duration}分</small></div>${w.note ? `<p class="booking-note">${escapeHTML(w.note)}</p>` : ""}${conflict ? '<p class="wish-conflict">ほかの予約・希望と重なっています。</p>' : ""}</article>`;
 }
+const scheduleEnd = () =>
+  Math.max(
+    state.settings.bathEnd,
+    ...state.bookings.map((b) => b.start + b.duration),
+    ...state.wishes.map((w) => w.start + w.duration),
+  );
 function renderSchedule() {
   const ruler = (segment) =>
     `<div class="quarter-ruler" aria-label="15分刻み">${quarterTicks(
@@ -764,7 +770,7 @@ function renderSchedule() {
   const segments = scheduleSegments(
     state.bookings,
     state.settings.bathStart,
-    state.settings.bathEnd,
+    scheduleEnd(),
     state.wishes,
   );
   return (
@@ -809,7 +815,7 @@ function renderSchedule() {
 }
 function available(start, duration) {
   return (
-    start + duration <= state.settings.bathEnd &&
+    start < state.settings.bathEnd &&
     slotDate(start) > serverNow() &&
     !state.bookings.some(
       (b) =>
@@ -839,7 +845,8 @@ function openBooking(mode = "booking") {
       length:
         1 +
         Math.floor(
-          (state.settings.maxDuration + extra - state.settings.minDuration) /
+          (Math.min(1440, state.settings.maxDuration + extra) -
+            state.settings.minDuration) /
             state.settings.step,
         ),
     },
@@ -930,8 +937,7 @@ function updateSlots(preferred) {
     if (!ticketSlotAllowed(start, duration)) continue;
     if (
       dialog.dataset.mode === "wish"
-        ? start + duration > state.settings.bathEnd ||
-          slotDate(start) <= serverNow()
+        ? start >= state.settings.bathEnd || slotDate(start) <= serverNow()
         : !available(start, duration)
     )
       continue;
@@ -1393,7 +1399,7 @@ function renderStampCard(compact = true) {
     last = card.days[6].day;
   const shortDate = (value) => value.slice(5).replace("-", "/");
   const period = `<span class="stamp-period"><small>${card.week.slice(0, 4)}年</small><span>${shortDate(card.week)} 〜 ${shortDate(last)}</span></span>`;
-  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong>${d.status === "stamp" ? (d.reason === "standby" ? "○" : "♨") : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}の夜${d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
+  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong>${d.status === "stamp" ? (d.reason === "standby" ? "○" : "♨") : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}分${d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
 }
 function renderSecondaryPage() {
   renderHeaderAccount();
@@ -1416,7 +1422,7 @@ function showItem(kind) {
   const config = state.rewards.settings;
   const description = {
     skip: "順番を待たずに予約できます。重なる既存の予約は事前希望へ戻します。ガード付きの予約とは重ねられません。",
-    extend: `予約できる時間の上限を${Math.floor(config.extensionMinutes / state.settings.step) * state.settings.step}分伸ばします。ほかの予約との重なりや入浴時間帯のはみ出しはできません。`,
+    extend: `予約できる時間の上限を${Math.floor(config.extensionMinutes / state.settings.step) * state.settings.step}分伸ばします。ほかの人の予約と重なる時間には使えません。`,
     boost: `予約順が1番になる確率が、使っていない人の3倍になります。効果は${config.boostDraws}回分の抽選に有効です。`,
     guard:
       "確定した予約を順番抜かしから守ります。事前希望への指定では消費せず、確定時に消費します。",

@@ -100,7 +100,8 @@ test("時間設定は翌日から反映し、旧範囲の外の予約も新ル�
   const f = await fixture(t);
   const config = f.app.getServerSettings();
   const schedule = {
-    bathStart: 720,
+    bookingCutoff: 540,
+    bathStart: 540,
     bathEnd: 1980,
     lotteryStart: 300,
     lotteryEnd: 720,
@@ -118,11 +119,11 @@ test("時間設定は翌日から反映し、旧範囲の外の予約も新ル�
   );
   f.setTime("2026-10-29T06:00:00+09:00");
   // The previous day's bath still ends at 07:00, even though today's new rule ends at 09:00.
-  assert.equal((await f.api("state", undefined, first)).body.day, "2026-10-28");
+  assert.equal((await f.api("state", undefined, first)).body.day, "2026-10-29");
   const today = (await f.api("state?day=2026-10-29", undefined, first)).body;
   assert.deepEqual(today.settings, {
     ...schedule,
-    dayRollover: 120,
+    dayRollover: 0,
     lotteryTimeRestricted: false,
     orderMode: "random",
     fixedOrder: [1, 2, 3, 4, 5],
@@ -192,7 +193,8 @@ test("時間設定は翌日から反映し、旧範囲の外の予約も新ル�
     400,
   );
   f.setTime("2026-10-30T08:30:00+09:00");
-  assert.equal((await f.api("state", undefined, first)).body.day, "2026-10-29");
+  assert.equal((await f.api("state", undefined, first)).body.day, "2026-10-30");
+  assert.equal(f.app.getDashboard().day,"2026-10-29");
 });
 test("不正な設定を原子的に拒否し、既存メンバーを消さない", async (t) => {
   const f = await fixture(t);
@@ -216,9 +218,9 @@ test("不正な設定を原子的に拒否し、既存メンバーを消さな�
     }),
   );
   assert.throws(() => validateSchedule({ ...DEFAULT_SCHEDULE, step: 7 }));
-  assert.throws(() => validateSchedule({ ...DEFAULT_SCHEDULE, bathEnd: 899 }));
+  assert.throws(() => validateSchedule({ ...DEFAULT_SCHEDULE, bookingCutoff: 1440 }));
   assert.throws(() =>
-    validateSchedule({ ...DEFAULT_SCHEDULE, lotteryTimeRestricted: true, lotteryEnd: 1000 }),
+    validateSchedule({ ...DEFAULT_SCHEDULE, lotteryTimeRestricted: true, lotteryEnd: 1441 }),
   );
   assert.throws(() =>
     validateSchedule({ ...DEFAULT_SCHEDULE, minDuration: 25 }),

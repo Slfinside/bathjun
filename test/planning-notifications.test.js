@@ -26,31 +26,30 @@ async function fixture(t,{subscribe=true}={}) {
   wish:(id,start=1080,day='2026-10-28')=>api('wish',{day,start,duration:30},id),
   flush:()=>app.flushNotifications(),restart:async()=>{await new Promise(r=>server.close(r));app.close();app=open();await listen();}};
 }
-test('日付の切り替えは初期2時、入浴時間と独立して変更できる',()=>{
- assert.equal(DEFAULT_SCHEDULE.dayRollover,120);
- assert.equal(bathCalendar(at('2026-10-29T01:59:59')).today,'2026-10-28');
- assert.equal(bathCalendar(at('2026-10-29T02:00:00')).today,'2026-10-29');
- assert.equal(bathCalendar(at('2026-10-29T02:00:00'),420).today,'2026-10-28');
- assert.equal(bathCalendar(at('2026-10-29T07:00:00'),420).today,'2026-10-29');
- for(const value of [-1,1440,1.5,'120'])assert.throws(()=>validateSchedule({...DEFAULT_SCHEDULE,dayRollover:value}));
+test('日付は0時に切り替わり、予約・スタンプの区切りは初期7時',()=>{
+ assert.equal(DEFAULT_SCHEDULE.dayRollover,0);assert.equal(DEFAULT_SCHEDULE.bookingCutoff,420);
+ assert.equal(bathCalendar(at('2026-10-28T23:59:59')).today,'2026-10-28');
+ assert.equal(bathCalendar(at('2026-10-29T00:00:00')).today,'2026-10-29');
+ assert.equal(bathCalendar(at('2026-10-29T03:00:00'),420).today,'2026-10-29');
+ for(const value of [-1,1440,1.5,'420'])assert.throws(()=>validateSchedule({...DEFAULT_SCHEDULE,bookingCutoff:value}));
 });
 test('朝は前夜の予約確認と当日の午後の予約を並行できる',async t=>{
  const f=await fixture(t,{subscribe:false});await f.book(1800);f.setTime('2026-10-29T06:00:00');
- const previous=await f.api('state');assert.equal(previous.day,'2026-10-28');assert.equal(previous.today,'2026-10-29');assert.equal(previous.bookings[0].start,1800);
+ assert.equal((await f.api('state')).day,'2026-10-29');const previous=await f.api('state?day=2026-10-28');assert.equal(previous.day,'2026-10-28');assert.equal(previous.today,'2026-10-29');assert.equal(previous.bookings[0].start,1800);
  assert.equal(f.app.getDashboard().day,'2026-10-28');
  const today=await f.api('state?day=2026-10-29');assert.ok(today.draw);await f.book(1080,1,'2026-10-29');
  assert.equal((await f.api('state?day=2026-10-28')).bookings[0].start,1800);
  assert.equal((await f.api('state?day=2026-10-29')).bookings[0].start,1080);
  f.setTime('2026-10-29T07:00:00');assert.equal((await f.api('state')).day,'2026-10-29');
 });
-test('日付設定は保存した翌日から適用し、入浴時間帯を変えない',async t=>{
+test('予約の区切りは翌日から反映し、今日と抽選の日付は0時のまま',async t=>{
  const f=await fixture(t,{subscribe:false}),settings=f.app.getServerSettings();
- f.app.saveServerSettings({members:settings.members,schedule:{...settings.upcoming,dayRollover:420}});
- assert.equal((await f.api('state')).dayRollover,120);
- f.setTime('2026-10-29T06:59:59');const before=await f.api('state');assert.equal(before.today,'2026-10-28');assert.equal(before.dayRollover,420);assert.equal(before.settings.bathEnd,1860);
- assert.equal((await f.api('state?day=2026-10-29')).draw,null);
- f.setTime('2026-10-29T07:00:00');const after=await f.api('state');assert.equal(after.today,'2026-10-29');assert.equal(after.day,'2026-10-29');assert.ok(after.draw);assert.equal(after.settings.bathStart,900);
+ f.app.saveServerSettings({members:settings.members,schedule:{...settings.upcoming,bookingCutoff:540}});
+ assert.equal((await f.api('state')).settings.bookingCutoff,420);
+ f.setTime('2026-10-29T03:00:00');const state=await f.api('state');
+ assert.equal(state.today,'2026-10-29');assert.equal(state.day,'2026-10-29');assert.equal(state.settings.bathStart,540);assert.equal(state.settings.bathEnd,1980);assert.ok(state.draw);
 });
+
 test('2日先の希望は抽選前から共有できるが、先行抽選・予約は拒否する',async t=>{
  const f=await fixture(t);await f.wish(1,1080,'2026-10-30');const future=await f.api('state?day=2026-10-30');
  assert.equal(future.dayAfterTomorrow,'2026-10-30');assert.equal(future.draw,null);assert.equal(future.wishes.length,1);assert.equal(future.lotteryOpen,false);await f.flush();assert.equal(f.sent.length,0);
@@ -87,5 +86,5 @@ test('本人の通知分数を変えると未送信の予定を移動し、送�
 test('希望の結果通知の失敗は再起動後も再試行し、全リセットで設定も消す',async t=>{
  const f=await fixture(t);await f.wish(2);f.setFailure(true);await f.book();await f.flush();await f.restart();
  f.setFailure(false);f.setTime('2026-10-28T08:00:31');await f.flush();assert.equal(f.sent.filter(s=>s.payload.tag.startsWith('bath-wish-wishConfirmed')).length,1);
- await f.api('notification-preferences',{wishConfirmed:false});const reset=f.app.resetAllData({confirmation:'RESET_ALL_DATA'});assert.equal(reset.settings.members.length,0);assert.equal(reset.settings.current.dayRollover,120);assert.equal(f.app.notificationDueAt(),null);
+ await f.api('notification-preferences',{wishConfirmed:false});const reset=f.app.resetAllData({confirmation:'RESET_ALL_DATA'});assert.equal(reset.settings.members.length,0);assert.equal(reset.settings.current.dayRollover,0);assert.equal(f.app.notificationDueAt(),null);
 });

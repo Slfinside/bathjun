@@ -47,3 +47,7 @@ ZIPは `python3 packaging/verify-distribution.py dist/Bathjun-Portable-x64.zip`�
 `public/fonts/` に Noto Sans JP の400/700の静的TTF（ネイティブ用）と同じアウトラインのWOFF2（Web用）、OFLと出典・ハッシュを同梱します。`source.json` の出典は上流コミットで固定しています。Webのフォント名は Bathjun Sans、実体はネイティブと同じ Noto Sans JP です。WOFF2名に内容のハッシュを付けて、家族用リンクの保護を保ちながらブラウザー内にキャッシュします。
 
 Windowsは `PrivateFontCollection` から読み込み、システムへのフォント登録はしません。Linuxのlibgdiplusはprivate fontのメトリクスに制限があるため、Linux描画テストはFontconfigに同じ同梱フォントのディレクトリーを指定して実行します。Windows CIの描画テストは製品と同じprivate-font読み込みを直接使い、通常・太字と縦横の描画を検証してからReleaseを作ります。これらは実機の電源・人感センサーの検証ではありません。
+
+## 予約開始日の区切り（開発中）
+
+`bookingCutoff`が所属日の境界で、`bathStart` / `bathEnd`はその日の予約開始時刻の範囲として内部的に保持します。今日と抽選は日本時間0:00固定です。開始時刻を境界未満に制限し、終了は境界をまたげます。異なる日付の予約も実際の時刻で重複検証します。旧時間帯の履歴を残し、翌日以降のルールを一度だけ24時間枠へ移行します。予約・希望テーブルの終了時刻制約も全列・インデックス・トリガーを保持して拡張します。
