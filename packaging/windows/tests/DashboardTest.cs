@@ -67,6 +67,9 @@ internal static class DashboardTest {
             var longName=new object[]{graphics,new DashboardEntry{name=new string('名',30),endsAt=data.entries[0].endsAt},DateTime.UtcNow,500f,0f};
             if(!(bool)fits.Invoke(form,shortName)||(bool)fits.Invoke(form,longName))throw new Exception("Countdown inline/fallback layout did not follow available width");
         }
+        using(var bitmap=new Bitmap(600,150))using(var g=Graphics.FromImage(bitmap)){
+            foreach(float width in new[]{200f,500f}){var rect=new RectangleF(0,0,width,80);var fitted=type.GetMethod("FittedSize",BindingFlags.Instance|BindingFlags.NonPublic);float size=(float)fitted.Invoke(form,new object[]{g,"次の予約はありません",32f,14f,rect,true});var font=(Font)type.GetMethod("TextFont",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,new object[]{size,true});if(g.MeasureString("次の予約はありません",font).Width>width)throw new Exception("Empty booking label is truncated");}
+        }
         var format=type.GetMethod("CountdownText",BindingFlags.Static|BindingFlags.NonPublic);
         var cases=new Dictionary<int,string>{{0,"0分"},{59,"59分"},{60,"1時間"},{90,"1時間30分"},{120,"2時間"},{135,"2時間15分"},{1440,"24時間"}};
         foreach(var item in cases)if((string)format.Invoke(null,new object[]{item.Key})!=item.Value)throw new Exception("Countdown duration format failed: "+item.Key);
@@ -182,7 +185,7 @@ internal static class DashboardTest {
                     until=(double)Get(form,"detailedUntil");if(until-elapsed.Elapsed.TotalSeconds<299||until-elapsed.Elapsed.TotalSeconds>300)throw new Exception("Configured timeout ignored");
                     Set(form,"transition",compact?0d:1d);
                     if(!compact)Call(form,"ShowDetails");
-                    using(var bitmap=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,size));bitmap.Save(Path.Combine(args[1],"dashboard-"+size.Width+"x"+size.Height+(compact?"-away":"")+".png"));}
+                    using(var bitmap=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,size));if(!compact){var people=(RectangleF)Get(form,"peopleArea");var schedule=(RectangleF)Get(form,"scheduleArea");if(schedule.Left<people.Right||schedule.Height<people.Height*1.4f)throw new Exception("Detailed schedule is not a tall column on the right");}bitmap.Save(Path.Combine(args[1],"dashboard-"+size.Width+"x"+size.Height+(compact?"-away":"")+".png"));}
                     if(compact&&size.Width==1280&&size.Height==720){
                         var idle=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));idle.now="2026-10-29T18:45:00+09:00";
                         type.GetMethod("UpdateData").Invoke(form,new object[]{idle});

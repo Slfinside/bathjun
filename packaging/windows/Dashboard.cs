@@ -126,8 +126,16 @@ internal sealed class DashboardForm : Form {
         using(var brush=new SolidBrush(color))
         using(var format=new StringFormat{Trimming=StringTrimming.EllipsisCharacter,FormatFlags=StringFormatFlags.NoWrap})g.DrawString(text??"",font,brush,rect,format);
     }
+    float FittedSize(Graphics g,string text,float preferred,float minimum,RectangleF rect,bool bold) {
+        float size=preferred;
+        while(size>minimum && g.MeasureString(text,TextFont(size,bold)).Width>rect.Width)size=Math.Max(minimum,size-.5f);
+        return size;
+    }
+    void WriteFit(Graphics g,string text,float preferred,float minimum,Color color,RectangleF rect,bool bold) {
+        Write(g,text,FittedSize(g,text,preferred,minimum,rect,bold),color,rect,bold);
+    }
     static readonly Color Background=Color.FromArgb(24,29,23),Paper=Color.FromArgb(34,40,32),Line=Color.FromArgb(57,65,51),Ink=Color.FromArgb(211,217,201),Muted=Color.FromArgb(153,165,140),Green=Color.FromArgb(179,199,151),Orange=Color.FromArgb(215,151,104);
-    RectangleF returnArea;
+    RectangleF returnArea,peopleArea,scheduleArea;
     static System.Drawing.Text.PrivateFontCollection sharedFonts;
     static FontFamily Typeface() {
         if(sharedFonts==null) {
@@ -196,102 +204,43 @@ internal sealed class DashboardForm : Form {
             Box(g,new RectangleF(0,0,42,42),Color.FromArgb(53,64,43),Line,14);
             Write(g,"♨",29,Green,new RectangleF(6,0,38,44));
             Write(g,"ふろきゅ～",25,fg,new RectangleF(54,0,200,44),true);
-            Write(g,data==null?"今日の夜～":DateTime.Parse(data.day,CultureInfo.InvariantCulture).ToString("M月d日（ddd）",CultureInfo.GetCultureInfo("ja-JP"))+"の夜～",13,Muted,new RectangleF(2,51,360,25));
+            Write(g,data==null?"今日の夜～":DateTime.Parse(data.day,CultureInfo.InvariantCulture).ToString("M月d日（ddd）",CultureInfo.GetCultureInfo("ja-JP"))+"分",13,Muted,new RectangleF(2,51,360,25));
             Reveal(g,new RectangleF(width-150,0,150,42),delegate{
                 Box(g,new RectangleF(width-150,0,150,42),Paper,Line,12);
                 Write(g,"戻る  ·  Esc / F11",13,Muted,new RectangleF(width-135,10,130,26));
             });
             Divider(g,0,85,width);
         }
-        float top=105,gap=20,left=width*.62f,right=width-left-gap;
-        bool swap=(int)(elapsed.Elapsed.TotalMinutes/5)%2==1;
-        float a=swap?right+gap:0,b=swap?0:left+gap;
-        // A generous moving margin changes the whole card's location, including QR and clock.
+        float top=105,gap=20,left=width*.58f,right=width-left-gap;
+        float compactLeft=width*.62f,compactRight=width-compactLeft-gap;
         float driftX=(shift*19%37),driftY=(shift*13%33);
         float compactTop=105+driftY,compactHeight=height*.72f;
         DashboardEntry layoutCurrent,layoutNext,layoutAfter;PeopleAt(ServerNow,out layoutCurrent,out layoutNext,out layoutAfter);
         float detailHeight=PendingCompletion(ServerNow)!=null&&layoutCurrent!=null?280:232;
-        var main=MixRect(new RectangleF(driftX,compactTop,left-36,compactHeight),new RectangleF(a,top,left,detailHeight),(float)transition);
-        var share=MixRect(new RectangleF(left+gap,compactTop,right-36,compactHeight),new RectangleF(b,top,right,detailHeight),(float)transition);
-        DrawPeople(g,main,fg,vivid,age);
+        var main=MixRect(new RectangleF(driftX,compactTop,compactLeft-36,compactHeight),new RectangleF(0,top,left,detailHeight),(float)transition);
+        var share=MixRect(new RectangleF(compactLeft+gap,compactTop,compactRight-36,compactHeight),new RectangleF(left+gap,top,right,Math.Max(1,height-top-44)),(float)transition);
+        peopleArea=main;
+        DrawPeople(g,peopleArea,fg,vivid,age);
         Box(g,share,Paper,Line);
-        int qrSize=148;
-        float qrY=share.Y+Mix(18,(detailHeight-qrSize)/2);
-        DrawQr(g,share.X+18,qrY,qrSize,Muted);
-        Write(g,"家族用リンク",Mix(19,15),Green,new RectangleF(share.X+182,qrY+50,share.Width-200,35),true);
-        float chartHeight=Math.Max(0,share.Height-202)*(1-(float)transition);
-        if(chartHeight>0) {
-            var state=g.Save();g.SetClip(new RectangleF(share.X+12,share.Y+182,share.Width-24,chartHeight));
-            DrawVerticalSchedule(g,new RectangleF(share.X+18,share.Y+182,share.Width-36,Math.Max(170,chartHeight)),fg,age);
-            g.Restore(state);
-        }
+        var compactLink=new RectangleF(share.X,share.Y,share.Width,182);
+        var detailedLink=new RectangleF(0,top+detailHeight+20,left,Math.Max(1,height-top-detailHeight-64));
+        var link=MixRect(compactLink,detailedLink,(float)transition);
+        Reveal(g,link,delegate{Box(g,link,Paper,Line);});
+        int qrSize=(int)Mix(148,Math.Min(196,Math.Max(100,detailedLink.Height-36)));
+        float qrY=link.Y+Math.Max(18,(link.Height-qrSize)/2);
+        DrawQr(g,link.X+18,qrY,qrSize,Muted);
+        WriteFit(g,"家族用リンク",Mix(19,23),12,Green,new RectangleF(link.X+qrSize+36,qrY+qrSize/2-18,Math.Max(1,link.Width-qrSize-54),40),true);
+        var chart=MixRect(new RectangleF(share.X+18,share.Y+182,share.Width-36,Math.Max(1,share.Height-202)),new RectangleF(share.X+18,share.Y+18,share.Width-36,Math.Max(1,share.Height-36)),(float)transition);
+        scheduleArea=chart;
+        if(chart.Height>0){var state=g.Save();g.SetClip(scheduleArea);DrawVerticalSchedule(g,scheduleArea,fg,age);g.Restore(state);}
         DateTime utc=ServerNow;
-        var clockRect=new RectangleF(width-430,-1,264,70);
-        Write(g,utc.AddHours(9).ToString("HH:mm:ss"),Mix(48,34),fg,clockRect,true);
-        float lists=main.Bottom+38,boxHeight=Math.Max(1,height-lists-44);
-        float scheduleHeight=portrait?Math.Min(280,(boxHeight-18)/2):boxHeight;
-        Reveal(g,new RectangleF(0,lists-24,width,boxHeight+24),delegate{
-            Write(g,"入浴中・入浴済は予約時刻による表示です",11,Muted,new RectangleF(a+2,lists-29,left,24));
-            DrawSchedule(g,new RectangleF(portrait?0:a,lists,portrait?width:left,scheduleHeight),fg);
-            DrawMembers(g,portrait?new RectangleF(0,lists+scheduleHeight+18,width,boxHeight-scheduleHeight-18):new RectangleF(b,lists,right,boxHeight),fg,vivid);
-        });
+        Write(g,utc.AddHours(9).ToString("HH:mm:ss"),Mix(48,34),fg,new RectangleF(width-430,-1,264,70),true);
         if(transition<.99)return;
         string health=problem.Length>0?problem:data==null?"読み込み中…":age>20?"更新が途絶えています":data.phase=="ready"?"サーバー接続中":"サーバー準備中";
         using(var brush=new SolidBrush(age>20&&data!=null?Orange:Green))g.FillEllipse(brush,1,height-24,6,6);
         Write(g,health+"  ·  最終更新 "+(data==null?"—":serverTime.AddHours(9).ToString("HH:mm:ss")),11,Muted,new RectangleF(14,height-32,width*.59f,24));
         Write(g,usePresence?presence.Status:"",10,Muted,new RectangleF(width*.6f,height-32,width*.4f,24));
         if(!held&&!displaySuppressed)Write(g,"自動消灯を抑止できませんでした。Windowsの電源設定を確認してください。",12,Orange,new RectangleF(0,height-5,width,26));
-    }
-    void DrawSchedule(Graphics g,RectangleF rect,Color fg) {
-        float a=rect.X,top=rect.Y,width=rect.Width,height=rect.Height;
-        Box(g,rect,Paper,Line);
-        Write(g,"スケジュール",18,fg,new RectangleF(a+24,top+17,width-48,32),true);
-        Write(g,data==null?"":Time(data.bathStart)+" 〜 "+Time(data.bathEnd),12,Muted,new RectangleF(a+24,top+51,width-48,25));
-        if(data==null)return;
-        var entries=data.entries??new DashboardEntry[0];
-        int rows=Math.Max(1,(int)((height-110)/53));
-        int rangeStart=entries.Length==0?data.bathStart:int.MaxValue,rangeEnd=data.bathStart;
-        foreach(var entry in entries){rangeStart=Math.Min(rangeStart,entry.start);rangeEnd=Math.Max(rangeEnd,entry.start+entry.duration);}
-        float span=Math.Max(1,rangeEnd-rangeStart);
-        Write(g,Time(rangeStart)+" → "+Time(rangeEnd),10,Muted,new RectangleF(a+width-208,top+51,190,24));
-        int pages=Math.Max(1,(entries.Length+rows-1)/rows),page=(int)(elapsed.Elapsed.TotalSeconds/12)%pages;
-        for(int i=page*rows;i<Math.Min(entries.Length,(page+1)*rows);i++) {
-            var item=entries[i];float y=top+78+(i-page*rows)*53;bool wish=item.kind!="予約";
-            bool conflict=item.overlaps!=null&&item.overlaps.Length>0;
-            Box(g,new RectangleF(a+17,y,width-34,49),wish?Color.FromArgb(35,41,35):Color.FromArgb(42,52,36),conflict?Orange:wish?Color.FromArgb(85,99,74):Line,10,wish);
-            Write(g,Time(item.start)+"–"+Time(item.start+item.duration),13,wish?Muted:Green,new RectangleF(a+28,y+3,148,25),true);
-            Write(g,item.name,14,wish?Muted:fg,new RectangleF(a+177,y+2,width-295,25),true);
-            Write(g,item.ticket=="guard"?"◇ ガード":item.ticket=="skip"?"↗ 順番抜かし":item.ticket=="extend"?"＋ 時間延長":conflict?"重なりあり":wish?"未確定":"予約済",11,conflict?Orange:wish?Muted:Green,new RectangleF(a+width-105,y+4,91,24));
-            float trackX=a+28,trackWidth=width-56;
-            using(var pen=new Pen(Line,1))g.DrawLine(pen,trackX,y+36,trackX+trackWidth,y+36);
-            float barX=trackX+(item.start-rangeStart)/span*trackWidth,barWidth=item.duration/span*trackWidth;
-            Box(g,new RectangleF(barX,y+29,Math.Max(2,barWidth),13),wish?Paper:Green,wish?Muted:Green,3,wish);
-            if(conflict)foreach(var overlap in item.overlaps) {
-                float x=trackX+(overlap.start-rangeStart)/span*trackWidth,w=(overlap.end-overlap.start)/span*trackWidth;
-                using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Orange,Paper))g.FillRectangle(brush,x,y+29,Math.Max(2,w),13);
-            }
-        }
-        if(entries.Length==0)Write(g,"予約・希望はまだありません",16,Muted,new RectangleF(a+24,top+94,width-48,32));
-        if(pages>1)Write(g,"全 "+entries.Length+" 件 · "+(page+1)+" / "+pages+"（自動切替）",11,Muted,new RectangleF(a+24,top+height-26,width-48,24));
-    }
-    void DrawMembers(Graphics g,RectangleF rect,Color fg,bool vivid) {
-        float x=rect.X,top=rect.Y,width=rect.Width,height=rect.Height;
-        Box(g,rect,Paper,Line);
-        Write(g,"メンバー",18,fg,new RectangleF(x+22,top+17,width-44,32),true);
-        if(data==null)return;
-        var people=data.members??new DashboardMember[0];
-        int count=Math.Max(1,(int)((height-88)/36));
-        int total=Math.Max(1,(people.Length+count-1)/count),p=(int)(elapsed.Elapsed.TotalSeconds/12)%total;
-        for(int i=p*count;i<Math.Min(people.Length,(p+1)*count);i++) {
-            var person=people[i];float y=top+63+(i-p*count)*36;
-            if(person.status=="入浴中")Box(g,new RectangleF(x+12,y-2,width-24,33),Color.FromArgb(48,62,38),Color.FromArgb(48,62,38),10);
-            Avatar(g,person.emoji,person.color,x+22,y+1,28,vivid);
-            Write(g,person.name,15,fg,new RectangleF(x+64,y+2,width-174,27),true);
-            Write(g,person.deferred?person.status+"/様子見":person.status,11,person.status=="入浴中"?Green:Muted,new RectangleF(x+width-106,y+4,94,24));
-            if(person.status!="入浴中")Divider(g,x+22,y+32,width-44);
-        }
-        if(people.Length==0)Write(g,"管理画面でメンバーを追加",13,Muted,new RectangleF(x+22,top+75,width-44,32));
-        if(total>1)Write(g,(p+1)+" / "+total+"（自動切替）",11,Muted,new RectangleF(x+22,top+height-26,width-44,24));
     }
     DateTime ServerNow {get{return data==null?DateTime.UtcNow:serverTime.AddSeconds(elapsed.Elapsed.TotalSeconds-receivedAt);}}
     static int MinutesUntil(DateTime target,DateTime now){return (int)Math.Max(0,Math.Ceiling((target-now).TotalMinutes));}
@@ -347,7 +296,8 @@ internal sealed class DashboardForm : Form {
         Write(g,pending!=null?"入浴完了":current!=null?"入浴中":"次にお風呂に入る人",Mix(24,16),Green,new RectangleF(x,y+18,canReport?w-168:w,36),true);
         float avatarSize=Mix(68,42),nameX=x+avatarSize+18;
         if(first!=null&&age<=20)Avatar(g,first.emoji,first.color,x,y+Mix(67,64),avatarSize,vivid);
-        Write(g,age>20?"更新待ち":first==null?"次の予約はありません":first.name,Mix(62,29),fg,new RectangleF(first==null?x:nameX,y+Mix(59,57),first==null?w:w-avatarSize-18,Mix(94,46)),true);
+        var firstRect=new RectangleF(first==null?x:nameX,y+Mix(59,57),first==null?w:w-avatarSize-18,Mix(94,46));
+        WriteFit(g,age>20?"更新待ち":first==null?"次の予約はありません":first.name,first==null?Mix(32,23):Mix(62,29),15,fg,firstRect,true);
         if(age<=20&&first!=null) {
             if(pending!=null)Write(g,"完了報告をお願いします",Mix(24,16),Green,new RectangleF(x,y+Mix(180,108),w,Mix(64,38)),true);
             else if(current!=null){
@@ -362,7 +312,8 @@ internal sealed class DashboardForm : Form {
         Write(g,pending!=null&&current!=null?"入浴中":pending!=null||current!=null?"次に入る人":"その次に入る人",Mix(22,12),Green,new RectangleF(x,divider+Mix(23,10),w,34),true);
         var secondName=MixRect(new RectangleF(x,divider+65,w,70),new RectangleF(x,divider+37,Math.Min(150,w*.3f),30),(float)transition);
         var secondTime=MixRect(new RectangleF(x,divider+137,w,58),new RectangleF(x+Math.Min(150,w*.3f)+18,divider+37,w-Math.Min(150,w*.3f)-18,30),(float)transition);
-        Write(g,age>20?"更新待ち":second==null?"次の予約はありません":second.name,Mix(44,17),fg,secondName,true);
+        if(second==null)secondName.Width=w;
+        WriteFit(g,age>20?"更新待ち":second==null?"次の予約はありません":second.name,second==null?Mix(28,16):Mix(44,17),14,fg,secondName,true);
         Write(g,age>20||second==null?"":pending!=null&&second==current?"あと "+CountdownText(MinutesUntil(Instant(current.endsAt),now))+" | 〜"+Time(current.start+current.duration):UpcomingTime(second,now),Mix(31,18),Green,secondTime,true);
         if(age<=20&&pending!=null&&current!=null)ReportButton(g,current,new RectangleF(x+w-154,divider+Mix(16,76),154,44));
     }
@@ -382,7 +333,7 @@ internal sealed class DashboardForm : Form {
             int to=entry.start+entry.duration;if(to>end){parts.Add(new ChartPart{start=end,end=to,weight=to-end});end=to;}}
         var laneEnds=new List<int>();var lanes=new List<int>();foreach(var entry in entries){int lane=0;while(lane<laneEnds.Count&&laneEnds[lane]>entry.start)lane++;if(lane==laneEnds.Count)laneEnds.Add(0);laneEnds[lane]=entry.start+entry.duration;lanes.Add(lane);}
         float chartTop=rect.Y+43,chartHeight=Math.Max(1,rect.Height-64),trackX=rect.X+70,trackWidth=rect.Width-70,laneWidth=trackWidth/Math.Max(1,laneEnds.Count);
-        var ticks=new SortedSet<int>();foreach(var entry in entries){ticks.Add(entry.start);ticks.Add(entry.start+entry.duration);}
+        var ticks=new SortedSet<int>();foreach(var entry in entries){ticks.Add(entry.start);ticks.Add(entry.start+entry.duration);for(int minute=(entry.start/15+1)*15;minute<entry.start+entry.duration;minute+=15)ticks.Add(minute);}
         float last=-100;foreach(int tick in ticks){float lineY=ChartY(tick,parts,chartTop,chartHeight);if(lineY-last>=16){Write(g,Time(tick),11,Muted,new RectangleF(rect.X,lineY-8,68,22));last=lineY;using(var pen=new Pen(Line,1))g.DrawLine(pen,trackX,lineY,rect.Right,lineY);}}
         for(int i=0;i<entries.Count;i++) {
             var entry=entries[i];float y=ChartY(entry.start,parts,chartTop,chartHeight),bottom=ChartY(entry.start+entry.duration,parts,chartTop,chartHeight);
@@ -390,7 +341,7 @@ internal sealed class DashboardForm : Form {
             var bar=new RectangleF(x+2,y+1,Math.Max(1,laneWidth-4),Math.Max(3,bottom-y-2));
             Box(g,bar,wish?Paper:Color.FromArgb(48,62,38),conflict?Orange:Green,4,wish);
             if(conflict)foreach(var overlap in entry.overlaps){float a=ChartY(overlap.start,parts,chartTop,chartHeight),b=ChartY(overlap.end,parts,chartTop,chartHeight);using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Orange,Color.Transparent))g.FillRectangle(brush,bar.X,a,bar.Width,Math.Max(1,b-a));}
-            if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+entry.name,11,wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),22),true);
+            if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+entry.name,Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
         }
         foreach(var part in parts)if(part.end-part.start>=120&&part.weight==60){float y=ChartY((part.start+part.end)/2,parts,chartTop,chartHeight);Write(g,"〜",16,Muted,new RectangleF(trackX,y-10,trackWidth,24));}
     }
