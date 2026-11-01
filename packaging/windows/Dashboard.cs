@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.IO;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -81,6 +82,9 @@ internal sealed class DashboardForm : Form {
     readonly Stopwatch elapsed=Stopwatch.StartNew();
     readonly HumanPresenceReader presence=new HumanPresenceReader();
     DashboardData data; double receivedAt; DateTime serverTime;
+    readonly FontFamily dashboardTypeface;
+    const byte JapaneseCharset=128;
+    const int JapaneseLanguage=0x0411;
     readonly Dictionary<string,Font> textFonts=new Dictionary<string,Font>();
     bool disposed;
     double detailedUntil,transition,transitionFrom,transitionTarget,transitionStarted;
@@ -99,12 +103,12 @@ internal sealed class DashboardForm : Form {
     bool held,waiting; double requestedAt; string problem="";
     public DashboardForm(Action request,bool usePresence):this(request,usePresence,Typeface()) {}
     public DashboardForm(Action request,bool usePresence,FontFamily typeface) {
-        this.request=request;this.usePresence=usePresence;
+        this.request=request;this.usePresence=usePresence;dashboardTypeface=typeface;
         animation.Tick+=delegate{Animate();};
         AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
         Text="ふろきゅ～";FormBorderStyle=FormBorderStyle.None;WindowState=FormWindowState.Maximized;
         BackColor=Background;ForeColor=Ink;DoubleBuffered=true;KeyPreview=true;
-        Font=new Font(typeface,12,FontStyle.Regular);
+        Font=new Font(typeface,12,FontStyle.Regular,GraphicsUnit.Point,JapaneseCharset);
         KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Escape||e.KeyCode==Keys.F11)Close();};
         // First tap always opens details; the return target only closes from details.
         MouseDown+=delegate(object sender,MouseEventArgs e){foreach(var area in reportAreas)if(area.Key.Contains(e.Location)){if(!reportBusy&&Report!=null){reportBusy=true;Report(area.Value);Invalidate();}return;}if(Detailed&&returnArea.Contains(e.Location))Close();else ShowDetails();};
@@ -124,7 +128,7 @@ internal sealed class DashboardForm : Form {
     Font TextFont(float size,bool bold) {
         size=(float)Math.Round(size*2)/2;
         string key=size.ToString(CultureInfo.InvariantCulture)+(bold?"b":"r");Font value;
-        if(!textFonts.TryGetValue(key,out value)){value=new Font(Font.FontFamily,size,bold?FontStyle.Bold:FontStyle.Regular,GraphicsUnit.Pixel);textFonts.Add(key,value);}
+        if(!textFonts.TryGetValue(key,out value)){value=new Font(dashboardTypeface,size,bold?FontStyle.Bold:FontStyle.Regular,GraphicsUnit.Pixel,JapaneseCharset);textFonts.Add(key,value);}
         return value;
     }
     void Poll(){waiting=true;requestedAt=elapsed.Elapsed.TotalSeconds;request();}
@@ -134,7 +138,7 @@ internal sealed class DashboardForm : Form {
     void Write(Graphics g,string text,float size,Color color,RectangleF rect,bool bold=false) {
         var font=TextFont(size,bold);
         using(var brush=new SolidBrush(color))
-        using(var format=new StringFormat{Trimming=StringTrimming.EllipsisCharacter,FormatFlags=StringFormatFlags.NoWrap})g.DrawString(text??"",font,brush,rect,format);
+        using(var format=new StringFormat(StringFormatFlags.NoWrap,JapaneseLanguage){Trimming=StringTrimming.EllipsisCharacter})g.DrawString(text??"",font,brush,rect,format);
     }
     float FittedSize(Graphics g,string text,float preferred,float minimum,RectangleF rect,bool bold) {
         float size=preferred;
@@ -147,14 +151,30 @@ internal sealed class DashboardForm : Form {
     static readonly Color Background=Color.FromArgb(24,29,23),Paper=Color.FromArgb(34,40,32),Line=Color.FromArgb(57,65,51),Ink=Color.FromArgb(211,217,201),Muted=Color.FromArgb(153,165,140),Green=Color.FromArgb(179,199,151),Orange=Color.FromArgb(215,151,104);
     RectangleF returnArea,peopleArea,scheduleArea;
     static System.Drawing.Text.PrivateFontCollection sharedFonts;
+    static FontFamily sharedTypeface;
+    [DllImport("gdi32.dll",EntryPoint="AddFontResourceExW",CharSet=CharSet.Unicode,SetLastError=true)] static extern int AddFontResourceEx(string file,uint flags,IntPtr reserved);
+    [DllImport("gdi32.dll",EntryPoint="RemoveFontResourceExW",CharSet=CharSet.Unicode)] [return:MarshalAs(UnmanagedType.Bool)] static extern bool RemoveFontResourceEx(string file,uint flags,IntPtr reserved);
     static FontFamily Typeface() {
         if(sharedFonts==null) {
             var fonts=new System.Drawing.Text.PrivateFontCollection();
-            string folder=System.IO.Path.GetFullPath(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"..","app","public","fonts"));
-            foreach(string style in new[]{"Regular","Bold"})fonts.AddFontFile(System.IO.Path.Combine(folder,"NotoSansJP-"+style+".ttf"));
-            sharedFonts=fonts;
+            var registered=new List<string>();
+            try {
+                string folder=Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"..","app","public","fonts"));
+                foreach(string style in new[]{"Regular","Bold"}){
+                    string file=Path.Combine(folder,"NotoSansJP-"+style+".ttf");
+                    // GDI+ private loading alone does not register the face with
+                    // Windows GDI's font mapper. FR_PRIVATE is process-local.
+                    if(Environment.OSVersion.Platform==PlatformID.Win32NT){if(AddFontResourceEx(file,0x10,IntPtr.Zero)==0)throw new InvalidOperationException("日本語フォントを読み込めませんでした。");registered.Add(file);}
+                    fonts.AddFontFile(file);
+                }
+                FontFamily selected=null;
+                foreach(var family in fonts.Families)if(family.Name=="Noto Sans JP"&&family.IsStyleAvailable(FontStyle.Regular)&&family.IsStyleAvailable(FontStyle.Bold)){selected=family;break;}
+                if(selected==null)throw new InvalidOperationException("日本語フォントの通常・太字を読み込めませんでした。");
+                sharedFonts=fonts;sharedTypeface=selected;
+                AppDomain.CurrentDomain.ProcessExit+=delegate{foreach(string file in registered)RemoveFontResourceEx(file,0x10,IntPtr.Zero);};
+            }catch{foreach(string file in registered)RemoveFontResourceEx(file,0x10,IntPtr.Zero);fonts.Dispose();throw;}
         }
-        return sharedFonts.Families[0];
+        return sharedTypeface;
     }
     static System.Drawing.Drawing2D.GraphicsPath Rounded(RectangleF r,float radius) {
         float diameter=Math.Min(radius*2,Math.Min(r.Width,r.Height));
@@ -191,7 +211,7 @@ internal sealed class DashboardForm : Form {
         var icon=string.IsNullOrEmpty(emoji)?null:EmojiImage(emoji);
         if(icon!=null){var saved=g.Save();g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;float inset=diameter*.16f;g.DrawImage(icon,new RectangleF(x+inset,y+inset,diameter-2*inset,diameter-2*inset));g.Restore(saved);return;}
         // Custom emoji use the system emoji font rather than the Japanese private font.
-        using(var font=new Font(string.IsNullOrEmpty(emoji)?Font.FontFamily.Name:"Segoe UI Emoji",diameter*.52f,FontStyle.Regular,GraphicsUnit.Pixel))
+        using(var font=string.IsNullOrEmpty(emoji)?new Font(dashboardTypeface,diameter*.52f,FontStyle.Regular,GraphicsUnit.Pixel,JapaneseCharset):new Font("Segoe UI Emoji",diameter*.52f,FontStyle.Regular,GraphicsUnit.Pixel))
         using(var brush=new SolidBrush(Ink))using(var format=new StringFormat{Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center})g.DrawString(string.IsNullOrEmpty(emoji)?"?":emoji,font,brush,new RectangleF(x,y,diameter,diameter),format);
     }
     protected override void OnPaint(PaintEventArgs e) {
@@ -287,7 +307,7 @@ internal sealed class DashboardForm : Form {
         nameWidth=g.MeasureString(entry.name??"",TextFont(29,true),int.MaxValue,StringFormat.GenericTypographic).Width+8;
         return 42+18+nameWidth+20+RemainingWidth(g,entry,now,15,29)+8<=width;
     }
-    float Baseline(float size){return size*Font.FontFamily.GetCellAscent(FontStyle.Bold)/Font.FontFamily.GetEmHeight(FontStyle.Bold);}
+    float Baseline(float size){return size*dashboardTypeface.GetCellAscent(FontStyle.Bold)/dashboardTypeface.GetEmHeight(FontStyle.Bold);}
     void DrawRemaining(Graphics g,DashboardEntry entry,DateTime now,float x,float y,float width) {
         float small=Mix(24,15),large=Mix(80,29),height=Mix(106,40);
         string[] parts=RemainingParts(entry,now);float cursor=x;

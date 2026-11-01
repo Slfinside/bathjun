@@ -3,11 +3,49 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 // Render without showing the form: no power requests, sensor access or live IPC.
 internal static class DashboardTest {
+    [DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr dc,IntPtr value);
+    [DllImport("gdi32.dll")] [return:MarshalAs(UnmanagedType.Bool)] static extern bool DeleteObject(IntPtr value);
+    [DllImport("gdi32.dll",EntryPoint="GetTextFaceW",CharSet=CharSet.Unicode)] static extern int GetTextFace(IntPtr dc,int count,StringBuilder name);
+    static string MappedFace(Font font){
+        using(var bitmap=new Bitmap(1,1))using(var graphics=Graphics.FromImage(bitmap)){
+            IntPtr dc=graphics.GetHdc(),selected=font.ToHfont(),previous=SelectObject(dc,selected);
+            try{var name=new StringBuilder(128);if(GetTextFace(dc,name.Capacity,name)==0)throw new Exception("Could not inspect the mapped Windows font");return name.ToString();}
+            finally{SelectObject(dc,previous);DeleteObject(selected);graphics.ReleaseHdc(dc);}
+        }
+    }
+    static void BeforeFontRegistration(string directory){
+        if(Environment.OSVersion.Platform!=PlatformID.Win32NT)return;
+        using(var collection=new System.Drawing.Text.PrivateFontCollection()){
+            string folder=Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"..","app","public","fonts"));
+            foreach(string style in new[]{"Regular","Bold"})collection.AddFontFile(Path.Combine(folder,"NotoSansJP-"+style+".ttf"));
+            using(var font=new Font(collection.Families[0],32,FontStyle.Bold,GraphicsUnit.Pixel)){
+                Console.WriteLine("Private collection only: requested="+font.Name+", GDI="+MappedFace(font));
+                using(var bitmap=new Bitmap(1000,140))using(var graphics=Graphics.FromImage(bitmap)){graphics.Clear(Color.FromArgb(34,40,32));graphics.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;using(var brush=new SolidBrush(Color.FromArgb(211,217,201))){graphics.DrawString("予約の順番 ／ 入浴時間 ／ 次の予約",font,brush,10,10);graphics.DrawString("骨・直・令・返・曜・確認・待機",font,brush,10,70);}bitmap.Save(Path.Combine(directory,"font-before.png"));}
+            }
+        }
+    }
+    static void CheckJapaneseTypeface(Form form,Type type,string directory){
+        if(Environment.OSVersion.Platform!=PlatformID.Win32NT)return;
+        foreach(bool bold in new[]{false,true}){
+            var font=(Font)type.GetMethod("TextFont",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,new object[]{32f,bold});string mapped=MappedFace(font);
+            if(!mapped.StartsWith("Noto Sans JP",StringComparison.Ordinal)||font.GdiCharSet!=128)throw new Exception("Japanese text resolved to a substitute font: "+mapped);
+            Console.WriteLine("Registered Japanese face: "+mapped+", bold="+bold);
+        }
+        using(var bitmap=new Bitmap(1000,140))using(var graphics=Graphics.FromImage(bitmap)){
+            graphics.Clear(Color.FromArgb(34,40,32));graphics.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            var write=type.GetMethod("Write",BindingFlags.Instance|BindingFlags.NonPublic);
+            write.Invoke(form,new object[]{graphics,"予約の順番 ／ 入浴時間 ／ 次の予約",32f,Color.FromArgb(211,217,201),new RectangleF(10,10,980,50),true});
+            write.Invoke(form,new object[]{graphics,"骨・直・令・返・曜・確認・待機",32f,Color.FromArgb(211,217,201),new RectangleF(10,70,980,50),true});
+            bitmap.Save(Path.Combine(directory,"font-after.png"));
+        }
+    }
     static void Set(object target,string name,object value){target.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).SetValue(target,value);}
     static object Get(object target,string name){return target.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).GetValue(target);}
     static void Call(object target,string name,params object[] values){target.GetType().GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic).Invoke(target,values);}
@@ -158,7 +196,7 @@ internal static class DashboardTest {
             scroll.Invoke(null,new object[]{button,100000});if(-panel.AutoScrollPosition.Y<=150)throw new Exception("Long drag did not move scroll position");
             scroll.Invoke(null,new object[]{button,-100000});if(panel.AutoScrollPosition.Y!=0)throw new Exception("Drag exceeded upper bound");button.PerformClick();if(clicks!=1)throw new Exception("Scrolling disabled button taps");host.Close();}
         }
-        DisplaySchedules();ManualDisplays();Preferences(args[1]);
+        DisplaySchedules();ManualDisplays();Preferences(args[1]);BeforeFontRegistration(args[1]);
         var type=typeof(DashboardData).Assembly.GetType("DashboardForm");
         var data=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));
         foreach(var size in new[]{new Size(1280,720),new Size(1280,800),new Size(1440,960),new Size(1920,1080),new Size(1920,1280)}) {
@@ -170,6 +208,7 @@ internal static class DashboardTest {
                     ? new object[]{(Action)(()=>{}),true}
                     : new object[]{(Action)(()=>{}),true,new FontFamily("Noto Sans JP")};
                 var form=(Form)Activator.CreateInstance(type,arguments);
+                CheckJapaneseTypeface(form,type,args[1]);
                 if(form.Font.Name!="Noto Sans JP")throw new Exception("Dashboard did not load the shared typeface");
                 using(var bold=new Font(form.Font.FontFamily,18,FontStyle.Bold))if(bold.Height<=0)throw new Exception("Shared bold font cannot be measured");
                 try {
