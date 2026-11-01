@@ -1614,10 +1614,17 @@ function maybeCelebrate() {
     "#dee7eb",
   ];
   const wheelBackground = `conic-gradient(${rouletteKinds.map((k, i) => `${colors[i % colors.length]} ${i * sector}deg ${(i + 1) * sector}deg`).join(",")})`;
-  dialog.innerHTML = `<div class="sheet-heading"><h2 class="celebration-heading" id="booking-title"><span>1週間達成、</span><span>おめでとう！</span></h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p>${roulette ? `<div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel" style="background:${wheelBackground}">${rouletteKinds.map((k, i) => `<span style="transform:rotate(${(i + 0.5) * sector}deg) translateY(-65px) rotate(${-(i + 0.5) * sector}deg)">${itemIcon(k)}</span>`).join("")}</div></div>` : ""}<div class="${roulette ? "roulette-result" : "fixed-result"} celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}${itemUnit(pending.kind)} 獲得！</strong></div><button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 class="celebration-heading" id="booking-title"><span>1週間達成、</span><span>おめでとう！</span></h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p>${roulette ? `<div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel">${rouletteKinds.map((k) => `<span>${itemIcon(k)}</span>`).join("")}</div></div>` : ""}<div class="${roulette ? "roulette-result" : "fixed-result"} celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}${itemUnit(pending.kind)} 獲得！</strong></div><button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
+  const wheel = dialog.querySelector(".roulette-wheel");
+  if (wheel) {
+    wheel.style.background = wheelBackground;
+    wheel.querySelectorAll(":scope > span").forEach((entry, i) => {
+      const angle = (i + 0.5) * sector;
+      entry.style.transform = `rotate(${angle}deg) translateY(-65px) rotate(${-angle}deg)`;
+    });
+  }
   dialog.showModal();
   requestAnimationFrame(() => {
-    const wheel = dialog.querySelector(".roulette-wheel");
     if (wheel)
       wheel.style.transform = `rotate(${1440 - (rouletteKinds.indexOf(pending.kind) + 0.5) * sector}deg)`;
   });
