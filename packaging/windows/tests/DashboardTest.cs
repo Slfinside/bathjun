@@ -39,7 +39,7 @@ internal static class DashboardTest {
             Console.WriteLine("Selected Japanese face: "+mapped+", bold="+bold);
         }
         using(var bitmap=new Bitmap(1000,140))using(var graphics=Graphics.FromImage(bitmap)){
-            graphics.Clear(Color.FromArgb(34,40,32));graphics.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            graphics.Clear(Color.FromArgb(34,40,32));graphics.TextRenderingHint=System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
             var write=type.GetMethod("Write",BindingFlags.Instance|BindingFlags.NonPublic);
             write.Invoke(form,new object[]{graphics,"予約の順番 ／ 入浴時間 ／ 次の予約",32f,Color.FromArgb(211,217,201),new RectangleF(10,10,980,50),true});
             write.Invoke(form,new object[]{graphics,"骨・直・令・返・曜・確認・待機",32f,Color.FromArgb(211,217,201),new RectangleF(10,70,980,50),true});

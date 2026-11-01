@@ -206,7 +206,7 @@ internal sealed class DashboardForm : Form {
     protected override void OnPaint(PaintEventArgs e) {
         base.OnPaint(e);reportAreas.Clear();var g=e.Graphics;g.Clear(Background);
         g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+        g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         bool portrait=ClientSize.Height>ClientSize.Width;
         float scale=Math.Min(ClientSize.Width/(portrait?760f:1100f),ClientSize.Height/(portrait?1120f:720f));if(scale<=0)return;
         float width=ClientSize.Width/scale-72,height=ClientSize.Height/scale-72;
