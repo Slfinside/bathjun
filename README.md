@@ -10,7 +10,7 @@
 
 [RC版の使い方](docs/v2-preview-guide.md)と[変更・未搭載の範囲](docs/release-notes.md)をご確認ください。
 
-開発中のソースには、[日付・予約の区切りとダッシュボードの変更](docs/calendar-days.md)を追加しています。この変更は上記rc3の配布物にはまだ含まれていません。
+開発中のソースには、[日付・予約の区切りとダッシュボードの変更](docs/calendar-days.md)、[消灯後の通信停止に関する修正](docs/screen-off-investigation.md)を追加しています。この変更は上記rc3の配布物にはまだ含まれていません。
 
 ## 安定版のダウンロード
 

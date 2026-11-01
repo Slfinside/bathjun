@@ -16,7 +16,7 @@ npm test
 
 ## Windows版を再ビルドする
 
-NSIS 3以降・Python 3・Node.js・C#コンパイラー（Mono mcsなど）があるビルド用マシンで `python packaging/build-windows.py --makensis makensis --csc mcs` を実行します。アプリ本体・固定バージョンの公式Node.jsとライセンス・JS依存だけを集め、チェックサムを検証してから `dist/Bathjun-Setup-x64.exe` を作ります。`data`・秘密鍵・既存パスワード・予約・開発テスト用データは含めません。配布するNode.jsのバージョンとSHA-256は `packaging/windows/runtime-lock.json` で管理しています。TailscaleはPC側で署名を検証して導入するため、初回のオンライン接続が必要です。
+最初にWindows x64のMSVC／Windows SDKがあるビルダーで `python packaging/build-server-power.py --output build/Bathjun-Power.node` を実行します。Node-APIヘッダーとインポートライブラリはバージョン・SHA-256を固定して取得します。次にNSIS 3以降・Python 3・Node.js・C#コンパイラー（Mono mcsなど）があるビルド用マシンで `python packaging/build-windows.py --power-addon build/Bathjun-Power.node --makensis makensis --csc mcs` を実行します。アプリ本体・固定バージョンの公式Node.jsとライセンス・JS依存だけを集め、チェックサムを検証してから `dist/Bathjun-Setup-x64.exe` を作ります。`data`・秘密鍵・既存パスワード・予約・開発テスト用データは含めません。配布するNode.jsのバージョンとSHA-256は `packaging/windows/runtime-lock.json` で管理しています。TailscaleはPC側で署名を検証して導入するため、初回のオンライン接続が必要です。
 
 
 ## ソースの構成
@@ -51,3 +51,9 @@ Windowsは `PrivateFontCollection` から読み込み、システムへのフォ
 ## 予約開始日の区切り（開発中）
 
 `bookingCutoff`が所属日の境界で、`bathStart` / `bathEnd`はその日の予約開始時刻の範囲として内部的に保持します。今日と抽選は日本時間0:00固定です。開始時刻を境界未満に制限し、終了は境界をまたげます。異なる日付の予約も実際の時刻で重複検証します。旧時間帯の履歴を残し、翌日以降のルールを一度だけ24時間枠へ移行します。予約・希望テーブルの終了時刻制約も全列・インデックス・トリガーを保持して拡張します。
+
+## Windowsでの消灯中の実行継続（開発中）
+
+`src/server-power.js` が `bin/Bathjun-Power.node` を予約サーバー内へ読み込み、System／Execution／threadの要求をそのプロセスで保持します。管理用IPCの `serverPowerHeld` と管理画面自身の要求の両方が有効な場合だけ消灯します。復帰時の認証済み `power/renew` で再取得し、ランタイム終了・Node環境終了の両方で解除します。モジュールを含まないWindowsのソース起動では消灯が無効になります。Windows以外では読み込みません。
+
+Source checksではWindows上で配布用Nodeのチェックサムを検証して実要求をテストし、その保護モジュールを使ってLinuxビルダーでインストーラとZIPを組み立てます。配布ワークフローも同じ流れです。C++モジュールは静的CRTでビルドし、追加のVisual C++ランタイム配布を必要としません。[調査内容と実機検証の範囲](screen-off-investigation.md)も参照してください。

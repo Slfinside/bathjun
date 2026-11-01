@@ -1,3 +1,6 @@
+import { mkdirSync, copyFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -21,3 +24,27 @@ assert.equal(addon.state().protected, false);
 console.log(
   "Node owns system/execution/thread power requests; renew and release passed.",
 );
+
+// Exercise the default relative load path used by the actual distribution.
+const fixture = join(dirname(resolve(process.argv[2])), "package-fixture");
+mkdirSync(join(fixture, "app", "src"), { recursive: true });
+mkdirSync(join(fixture, "bin"), { recursive: true });
+writeFileSync(
+  join(fixture, "app", "package.json"),
+  JSON.stringify({ type: "module" }),
+);
+copyFileSync(
+  fileURLToPath(new URL("../../../src/server-power.js", import.meta.url)),
+  join(fixture, "app", "src", "server-power.js"),
+);
+copyFileSync(
+  resolve(process.argv[2]),
+  join(fixture, "bin", "Bathjun-Power.node"),
+);
+const packaged = await import(
+  pathToFileURL(join(fixture, "app", "src", "server-power.js")).href
+);
+const packagedLease = packaged.acquireServerPower();
+assert.equal(packagedLease.protected, true);
+packagedLease.close();
+console.log("Default packaged power-guard path passed.");
