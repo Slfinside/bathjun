@@ -1525,3 +1525,18 @@ test("順番前に手入力した希望を取り消した日は、自動希望�
   assert.equal(s.wishes.length, 0);
   assert.equal(s.bookings.length, 1);
 });
+
+test("自動希望の失敗通知を待つ間に様子見へ変えたら未送信の通知を破棄する", async (t) => {
+  const f = await fixture(t);
+  await enableReportPush(f, reportSubscription("automatic-standby-stale"));
+  await f.api("auto-wishes", weeklyPlan(1, 1200));
+  f.time("2026-10-26T21:00:00");
+  await f.restart();
+  await f.api("skip", { day: "2026-10-26", skip: true });
+  await f.app.flushNotifications();
+  assert.equal(
+    f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishUnconfirmed"))
+      .length,
+    0,
+  );
+});

@@ -92,7 +92,7 @@ export function createWishNotifications({
               ) ||
             db
               .prepare(
-                "SELECT 1 FROM auto_wish_runs r WHERE r.day=? AND r.member_id=? AND r.revision=? AND r.status='rejected' AND NOT EXISTS(SELECT 1 FROM bookings b WHERE b.day=r.day AND b.member_id=r.member_id) AND NOT EXISTS(SELECT 1 FROM wishes w WHERE w.day=r.day AND w.member_id=r.member_id)",
+                "SELECT 1 FROM auto_wish_runs r WHERE r.day=? AND r.member_id=? AND r.revision=? AND r.status='rejected' AND NOT EXISTS(SELECT 1 FROM bookings b WHERE b.day=r.day AND b.member_id=r.member_id) AND NOT EXISTS(SELECT 1 FROM wishes w WHERE w.day=r.day AND w.member_id=r.member_id) AND NOT EXISTS(SELECT 1 FROM bath_skips s WHERE s.day=r.day AND s.member_id=r.member_id AND s.automatic=0)",
               )
               .get(job.day, job.member_id, job.revision);
       if (
