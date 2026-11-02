@@ -89,7 +89,12 @@ export function createWishNotifications({
                 job.member_id,
                 job.revision,
                 currentTurn(job.day) ?? -1,
-              );
+              ) ||
+            db
+              .prepare(
+                "SELECT 1 FROM auto_wish_runs r WHERE r.day=? AND r.member_id=? AND r.revision=? AND r.status='rejected' AND NOT EXISTS(SELECT 1 FROM bookings b WHERE b.day=r.day AND b.member_id=r.member_id) AND NOT EXISTS(SELECT 1 FROM wishes w WHERE w.day=r.day AND w.member_id=r.member_id)",
+              )
+              .get(job.day, job.member_id, job.revision);
       if (
         !valid ||
         !job.active ||

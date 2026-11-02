@@ -573,8 +573,8 @@ export function createRewards({ db, now, scheduleForDay }) {
       if (balance(member, "bathStamp") < 1)
         bad("おふろスタンプを持っていません。", 409);
       const target = card(member, today).days.find((cell) => cell.day === day);
-      if (target?.status !== "failed")
-        bad("失敗になった日を選んでください。", 409);
+      if (!target || target.status === "stamp" || day > today)
+        bad("今日までの未確定または失敗の日を選んでください。", 409);
       spend(member, "stampInk", "stamp:" + day);
       db.prepare("INSERT INTO stamp_repairs VALUES(?,?,?,?)").run(
         day,

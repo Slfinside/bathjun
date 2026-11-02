@@ -370,6 +370,77 @@ function notificationPreferencesForm() {
       "",
     )}<label class="reminder-minutes">入浴の何分前に通知するか<input type="number" name="reminderMinutes" min="1" max="180" step="1" required value="${Number(settings.reminderMinutes) || 10}"><span>分前</span></label><p class="muted">種類と分数は、自分の端末間で共通です。通知の許可は端末ごとに必要です。</p><button type="submit" class="primary">通知設定を保存</button><p class="form-error" role="alert"></p></form>`;
 }
+function autoWishesForm() {
+  const days = state.autoWishes.days;
+  const durations = Array.from(
+    {
+      length:
+        Math.floor(
+          (state.settings.maxDuration - state.settings.minDuration) /
+            state.settings.step,
+        ) + 1,
+    },
+    (_, i) => state.settings.minDuration + i * state.settings.step,
+  );
+  return `<form id="auto-wishes-form" class="notification-preferences"><h3>曜日ごとの自動予約</h3><p class="muted">曜日ごとに設定した時間を、当日0:00以降に事前希望として送ります。順番が来たら通常の希望と同じ条件で確定し、結果を通知します。</p><p class="muted">区切りの${time(state.settings.bathStart)}より早い時刻は翌朝です。入力済みの予約・希望・「入らない/様子見」は上書きしません。保存当日も、まだ自動送信していなければ適用します。その日一度送った希望は、取り消しても自動で出し直しません。</p><div class="auto-wish-days">${days
+    .map(
+      (d) =>
+        `<fieldset class="auto-wish-day"><legend><label><input type="checkbox" name="enabled-${d.weekday}" data-auto-wish-weekday="${d.weekday}" ${d.enabled ? "checked" : ""}>${"日月火水木金土"[d.weekday]}曜日</label></legend><div class="auto-wish-time"><label>開始時刻<input type="time" name="start-${d.weekday}" step="${state.settings.step * 60}" value="${String(Math.floor(d.start / 60)).padStart(2, "0")}:${String(d.start % 60).padStart(2, "0")}" ${d.enabled ? "" : "disabled"} required></label><label>長さ<select name="duration-${d.weekday}" ${d.enabled ? "" : "disabled"}>${[
+          ...new Set([...durations, d.duration]),
+        ]
+          .sort((a, b) => a - b)
+          .map(
+            (n) =>
+              `<option value="${n}" ${n === d.duration ? "selected" : ""}>${n}分</option>`,
+          )
+          .join(
+            "",
+          )}</select></label></div><label>備考<input type="text" name="note-${d.weekday}" maxlength="300" value="${escapeHTML(d.note)}" ${d.enabled ? "" : "disabled"}></label></fieldset>`,
+    )
+    .join(
+      "",
+    )}</div><button class="primary" type="submit">自動予約設定を保存</button><p class="form-error" role="alert"></p></form>`;
+}
+root.addEventListener("change", (event) => {
+  if (!event.target.matches("[data-auto-wish-weekday]")) return;
+  const row = event.target.closest("fieldset");
+  row
+    .querySelectorAll('input:not([type="checkbox"]),select')
+    .forEach((input) => (input.disabled = !event.target.checked));
+});
+root.addEventListener("submit", async (event) => {
+  if (event.target.id !== "auto-wishes-form") return;
+  event.preventDefault();
+  if (busy) return;
+  busy = true;
+  const form = event.target,
+    button = form.querySelector('[type="submit"]'),
+    data = new FormData(form);
+  button.disabled = true;
+  try {
+    const days = state.autoWishes.days.map((previous) => {
+      const weekday = previous.weekday,
+        clock = data.get(`start-${weekday}`)?.split(":");
+      return {
+        weekday,
+        enabled: data.has(`enabled-${weekday}`),
+        start: clock
+          ? Number(clock[0]) * 60 + Number(clock[1])
+          : previous.start,
+        duration: Number(data.get(`duration-${weekday}`) ?? previous.duration),
+        note: data.get(`note-${weekday}`) ?? previous.note,
+      };
+    });
+    await api("auto-wishes", { days });
+    await refresh(true);
+    notify("曜日ごとの自動予約設定を保存しました。");
+  } catch (error) {
+    form.querySelector(".form-error").textContent = error.message;
+  } finally {
+    busy = false;
+    button.disabled = false;
+  }
+});
 function autoStandbyForm() {
   return `<form id="auto-standby-form" class="notification-preferences"><h3>毎日の予約設定</h3><label class="notification-choice"><input type="checkbox" name="enabled" ${state.autoStandby ? "checked" : ""}><span>自動で「入らない/様子見」にする</span></label><p class="muted">次に順番を決める夜から、予約順の末尾へ回ります。予約や希望は取り消しません。順番が決まっている今日分は「入らない/様子見」や「通常の順番に戻す」で変更できます。</p><p class="muted">${state.rewards.settings.standbyFailureDays}日連続で入浴しないと、その連続した日が失敗になります。判定前は「−」で表示します。</p><button type="submit" class="primary">予約設定を保存</button><p class="form-error" role="alert"></p></form>`;
 }
@@ -588,6 +659,7 @@ async function refresh(force = false) {
       data.lotteryOpen,
       data.notificationPreferences,
       data.autoStandby,
+      data.autoWishes,
       data.rewards,
       data.standbyWarning,
       data.ignoreLowerPriorityWishes,
@@ -631,7 +703,7 @@ async function refresh(force = false) {
       (force || signature !== lastSignature) &&
       (force ||
         !document.activeElement?.closest(
-          "#notification-preference-form, #auto-standby-form",
+          "#notification-preference-form, #auto-standby-form, #auto-wishes-form",
         ))
     ) {
       renderDashboard();
@@ -1418,7 +1490,7 @@ function renderSecondaryPage() {
   let html = "";
   if (pageView === "stamps") html = renderStampCard(false);
   if (pageView === "settings")
-    html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoStandbyForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
+    html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoWishesForm()}${autoStandbyForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
   if (pageView === "inventory")
     html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}${itemUnit(x.kind)}</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
   if (["gifts", "history"].includes(pageView)) {
@@ -1454,14 +1526,16 @@ function showItem(kind) {
     owned(kind) > 0 &&
     (!stampItem || (owned("bathStamp") > 0 && owned("stampInk") > 0));
   dialog.dataset.mode = "item";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}${itemUnit(kind)}</p>${stampItem ? `<p class="muted">今週の失敗した日を選び、インクを1個使って成功にできます。おふろスタンプ本体はなくなりません。</p>${!owned("bathStamp") ? '<p class="notice">おふろスタンプが必要です。</p>' : !owned("stampInk") ? '<p class="notice">スタンプのインクがありません。</p>' : ""}` : ""}<button class="primary" data-action="use-item" ${usable ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}${itemUnit(kind)}</p>${stampItem ? `<p class="muted">今週の今日までの「−」または「×」の日を選び、インクを1個使って成功にできます。おふろスタンプ本体はなくなりません。</p>${!owned("bathStamp") ? '<p class="notice">おふろスタンプが必要です。</p>' : !owned("stampInk") ? '<p class="notice">スタンプのインクがありません。</p>' : ""}` : ""}<button class="primary" data-action="use-item" ${usable ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
   dialog.showModal();
 }
 async function openStampPicker() {
   const rewards = await api("rewards?day=" + encodeURIComponent(state.today));
-  const failed = rewards.card.days.filter((d) => d.status === "failed");
+  const stampable = rewards.card.days.filter(
+    (d) => d.status !== "stamp" && d.day <= state.today,
+  );
   dialog.dataset.mode = "stamp-ink";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">おふろスタンプを押す</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon("bathStamp")}</div><p>今週の失敗した日を選んでください。インクを1個使って成功にします。</p><p class="muted">${rewards.card.week}からの7日間 · インク ${rewards.wallet.find((x) => x.kind === "stampInk").quantity}個</p><div class="stamp-repair-days">${failed.map((d) => `<button class="stamp-repair-day" data-action="apply-stamp" data-stamp-day="${d.day}" data-request-id="${crypto.randomUUID()}"><span>${d.day.slice(5).replace("-", "/")}（${"日月火水木金土"[new Date(d.day + "T12:00:00Z").getUTCDay()]}）</span><strong aria-hidden="true">×</strong><span>スタンプを押す</span></button>`).join("")}</div>${failed.length ? "" : '<p class="notice">今週はスタンプを押せる失敗の日がありません。</p>'}`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">おふろスタンプを押す</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon("bathStamp")}</div><p>今週の今日までの「−」または「×」の日を選んでください。インクを1個使って成功にします。</p><p class="muted">${rewards.card.week}からの7日間 · インク ${rewards.wallet.find((x) => x.kind === "stampInk").quantity}個</p><div class="stamp-repair-days">${stampable.map((d) => `<button class="stamp-repair-day" data-action="apply-stamp" data-stamp-day="${d.day}" data-request-id="${crypto.randomUUID()}"><span>${d.day.slice(5).replace("-", "/")}（${"日月火水木金土"[new Date(d.day + "T12:00:00Z").getUTCDay()]}）</span><strong aria-hidden="true">${d.status === "failed" ? "×" : "−"}</strong><span>スタンプを押す</span></button>`).join("")}</div>${stampable.length ? "" : '<p class="notice">今週はスタンプを押せる日がありません。</p>'}`;
 }
 async function handleRewardsAction(action, event) {
   if (!action) return false;

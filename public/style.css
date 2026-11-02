@@ -2665,3 +2665,15 @@ footer .site-credit {
 .gift-description[open] summary { margin-bottom: 4px; }
 .gift-description p { margin: 0 0 10px; line-height: 1.8; }
 .gift-description summary:focus-visible { outline: 3px solid #d7a764; outline-offset: 4px; border-radius: 4px; }
+
+.auto-wish-days { display: grid; gap: 16px; margin: 20px 0; }
+.auto-wish-day { min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; }
+.auto-wish-day legend { padding: 0 8px; }
+.auto-wish-day legend label { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 0; }
+.auto-wish-day input[type="checkbox"] { width: 20px; height: 20px; }
+.auto-wish-time { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+.auto-wish-day input, .auto-wish-day select { min-width: 0; max-width: 100%; }
+.auto-wish-day input:disabled, .auto-wish-day select:disabled { opacity: .5; }
+.auto-wish-time > label, .auto-wish-day > label { display: grid; gap: 8px; }
+.auto-wish-day > label { margin-top: 14px; }
+.auto-wish-day input[type="time"], .auto-wish-day input[type="text"] { width: 100%; min-height: 44px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; }

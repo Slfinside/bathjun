@@ -1150,7 +1150,7 @@ test("インクは本人の今週の失敗だけを成功にし、スタンプ�
   );
 });
 
-test("スタンプ・インク不足、未確定・過去週・不正日付、アイテム無効時は消費せず拒否する", async (t) => {
+test("スタンプ・インク不足、未来日・過去週・不正日付、アイテム無効時は消費せず拒否する", async (t) => {
   const f = await fixture(t);
   await f.grant(1, ["stampInk"]);
   f.time("2026-10-26T08:00:00");
@@ -1158,7 +1158,7 @@ test("スタンプ・インク不足、未確定・過去週・不正日付、�
     f.request("items/stamp", { day, requestId: randomUUID() });
   assert.equal((await use("2026-10-25")).status, 409);
   await f.grant(1, ["bathStamp"]);
-  for (const day of ["2026-10-24", "2026-10-26", "2026-10-31"])
+  for (const day of ["2026-10-24", "2026-10-27", "2026-10-31"])
     assert.equal((await use(day)).status, 409);
   for (const day of ["2026-02-30", "bad", null])
     assert.equal((await use(day)).status, 400);
@@ -1230,4 +1230,261 @@ test("インクで7日そろうと報酬を一度だけ配布し、インクの�
     await f.api("complete", { day, revision: b.revision });
   }
   assert.equal((await f.state()).rewards.card.claimed.kind, "bathStamp");
+});
+
+test("インクは今日の未確定・過去日の保留にも使え、未来日と成功済みには使えない", async (t) => {
+  const f = await fixture(t);
+  await f.grant(1, ["bathStamp", "stampInk"], 3);
+  await f.api("skip", { day: "2026-10-25", skip: true });
+  f.time("2026-10-26T06:00:00");
+  let card = (await f.state()).rewards.card;
+  assert.equal(card.days[0].status, "pending");
+  assert.equal(card.days[1].status, "pending");
+  assert.equal(
+    (
+      await f.request("items/stamp", {
+        day: "2026-10-27",
+        requestId: randomUUID(),
+      })
+    ).status,
+    409,
+  );
+  for (const day of ["2026-10-25", "2026-10-26"])
+    await f.api("items/stamp", { day, requestId: randomUUID() });
+  card = (await f.state()).rewards.card;
+  assert.deepEqual(
+    card.days.slice(0, 2).map((d) => d.status),
+    ["stamp", "stamp"],
+  );
+  assert.equal(
+    (
+      await f.request("items/stamp", {
+        day: "2026-10-26",
+        requestId: randomUUID(),
+      })
+    ).status,
+    409,
+  );
+  const db = new DatabaseSync(f.database);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) n FROM bath_completions").get().n,
+    0,
+  );
+  db.close();
+  assert.equal(
+    (await f.state()).rewards.wallet.find((x) => x.kind === "stampInk")
+      .quantity,
+    1,
+  );
+});
+
+const weeklyPlan = (weekday, start = 1200, duration = 30) => ({
+  days: Array.from({ length: 7 }, (_, i) => ({
+    weekday: i,
+    enabled: i === weekday,
+    start,
+    duration,
+    note: "毎週の希望",
+  })),
+});
+
+test("曜日ごとの自動希望は本人だけが設定でき、不正な曜日・刻み幅・長さを拒否する", async (t) => {
+  const f = await fixture(t);
+  assert.equal(
+    (await f.api("auto-wishes")).days.filter((d) => d.enabled).length,
+    0,
+  );
+  assert.equal((await f.request("auto-wishes", {}, 99)).status, 401);
+  const config = weeklyPlan(1);
+  await f.api("auto-wishes", { ...config, memberId: 2 });
+  assert.deepEqual(await f.api("auto-wishes"), config);
+  assert.equal(
+    (await f.api("auto-wishes", undefined, 2)).days.some((d) => d.enabled),
+    false,
+  );
+  for (const value of [
+    { days: [] },
+    { days: config.days.map((d) => ({ ...d, weekday: 0 })) },
+    weeklyPlan(1, 1201),
+    weeklyPlan(1, 1200, 200),
+    { days: config.days.map((d) => ({ ...d, enabled: "yes" })) },
+  ])
+    assert.equal((await f.request("auto-wishes", value)).status, 400);
+});
+
+test("日付が変わるとアクセスなしで自動希望を送り、固定順で確定・通常の成功通知を一度だけ送る", async (t) => {
+  const f = await fixture(t);
+  await enableReportPush(f, reportSubscription("automatic-success"));
+  await f.api("auto-wishes", weeklyPlan(1, 1200));
+  assert.equal(
+    f.app.notificationDueAt(),
+    Date.parse("2026-10-26T00:00:00+09:00"),
+  );
+  f.time("2026-10-26T00:00:00");
+  await f.app.flushNotifications();
+  let s = await f.state();
+  assert.equal(s.bookings.find((b) => b.memberId === 1).start, 1200);
+  assert.equal(s.bookings[0].autoConfirmed, 1);
+  const revision = s.bookings[0].revision;
+  assert.equal(
+    f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishConfirmed"))
+      .length,
+    1,
+  );
+  await f.app.flushNotifications();
+  await f.restart();
+  await f.app.flushNotifications();
+  s = await f.state();
+  assert.equal(s.bookings[0].revision, revision);
+  assert.equal(
+    f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishConfirmed"))
+      .length,
+    1,
+  );
+  assert.equal(
+    f.app.notificationDueAt() > Date.parse("2026-10-26T00:00:00+09:00"),
+    true,
+  );
+});
+
+test("自動希望は入力済みの希望・予約・様子見を上書きせず、取り消した希望を出し直さない", async (t) => {
+  const f = await fixture(t, { random: true });
+  await f.api("auto-wishes", weeklyPlan(1));
+  await f.api("auto-wishes", weeklyPlan(1), 2);
+  await f.api("auto-wishes", weeklyPlan(1), 3);
+  await f.api("wish", {
+    day: "2026-10-26",
+    start: 1260,
+    duration: 30,
+    note: "手入力",
+  });
+  f.time("2026-10-26T00:00:00");
+  await f.app.flushNotifications();
+  const s = await f.state();
+  assert.equal(s.wishes.find((w) => w.memberId === 1).note, "手入力");
+  assert.equal(s.wishes.filter((w) => w.memberId !== 1).length, 2);
+  await f.api("wish/cancel", { day: "2026-10-26" }, 2);
+  await f.app.flushNotifications();
+  await f.restart();
+  assert.equal(
+    (await f.state()).wishes.some((w) => w.memberId === 2),
+    false,
+  );
+  // An explicit standby choice remains untouched when enabling a plan that day.
+  const other = await fixture(t, { random: true });
+  await other.api("skip", { day: "2026-10-25", skip: true });
+  await other.api("auto-wishes", weeklyPlan(0));
+  assert.equal((await other.state()).skips.includes(1), true);
+  assert.equal((await other.state()).wishes.length, 0);
+});
+
+test("自動希望は全員分を作ってから重複判定し、通常の失敗通知と通知の有効無効を使う", async (t) => {
+  const f = await fixture(t);
+  const config = f.app.getServerSettings();
+  f.app.saveServerSettings({
+    members: config.members,
+    schedule: config.current,
+    ignoreLowerPriorityWishes: false,
+  });
+  await enableReportPush(f, reportSubscription("automatic-conflict"));
+  await f.api("auto-wishes", weeklyPlan(1));
+  await f.api("auto-wishes", weeklyPlan(1), 2);
+  f.time("2026-10-26T00:00:00");
+  await f.app.flushNotifications();
+  const s = await f.state();
+  assert.equal(s.wishes.length, 2);
+  assert.equal(s.bookings.length, 0);
+  assert.equal(
+    f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishUnconfirmed"))
+      .length,
+    1,
+  );
+  await f.app.flushNotifications();
+  assert.equal(
+    f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishUnconfirmed"))
+      .length,
+    1,
+  );
+  await f.api("notification-preferences", { wishUnconfirmed: false });
+  await f.api("auto-wishes", weeklyPlan(2));
+  await f.api("auto-wishes", weeklyPlan(2), 2);
+  f.time("2026-10-27T00:00:00");
+  await f.app.flushNotifications();
+  assert.equal(
+    f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishUnconfirmed"))
+      .length,
+    1,
+  );
+});
+
+test("自動希望は翌朝の時刻を正しく所属させ、停止中に開始を過ぎた場合も通常の失敗通知を送る", async (t) => {
+  const f = await fixture(t);
+  await f.api("auto-wishes", weeklyPlan(1, 180));
+  f.time("2026-10-26T08:00:00");
+  await f.app.flushNotifications();
+  assert.equal(
+    (await f.state()).bookings.find((b) => b.memberId === 1).start,
+    1620,
+  );
+  const missed = await fixture(t);
+  await enableReportPush(missed, reportSubscription("automatic-missed"));
+  await missed.api("auto-wishes", weeklyPlan(1, 1200));
+  f.time("2026-10-27T04:00:00");
+  missed.time("2026-10-26T23:00:00");
+  await missed.restart();
+  await missed.app.flushNotifications();
+  assert.equal((await missed.state()).wishes.length, 0);
+  assert.equal(
+    missed.sent.filter((n) =>
+      n.payload.tag.startsWith("bath-wish-wishUnconfirmed"),
+    ).length,
+    1,
+  );
+  await missed.app.flushNotifications();
+  assert.equal(
+    missed.sent.filter((n) =>
+      n.payload.tag.startsWith("bath-wish-wishUnconfirmed"),
+    ).length,
+    1,
+  );
+});
+
+test("自動希望は予約済みの枠を変えず、設定を無効にすれば次の曜日に送らない・全リセットで消える", async (t) => {
+  const f = await fixture(t);
+  await f.book(1, 1080, 30);
+  await f.api("auto-wishes", weeklyPlan(0, 1200));
+  assert.equal((await f.state()).bookings[0].start, 1080);
+  await f.api("auto-wishes", weeklyPlan(1, 1200));
+  const disabled = weeklyPlan(1);
+  disabled.days.forEach((d) => (d.enabled = false));
+  await f.api("auto-wishes", disabled);
+  f.time("2026-10-26T00:00:00");
+  await f.app.flushNotifications();
+  assert.equal((await f.state()).bookings.length, 0);
+  await f.api("auto-wishes", weeklyPlan(2));
+  assert.notEqual(f.app.notificationDueAt(), null);
+  f.app.resetAllData({ confirmation: "RESET_ALL_DATA" });
+  assert.equal(f.app.notificationDueAt(), null);
+  const db = new DatabaseSync(f.database);
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM auto_wish_preferences").get().n,
+    0,
+  );
+  assert.equal(db.prepare("SELECT count(*) n FROM auto_wish_runs").get().n, 0);
+  db.close();
+});
+
+test("遅延した自動希望の失敗通知も、本人が別の希望を出していれば破棄する", async (t) => {
+  const f = await fixture(t, { random: true });
+  await enableReportPush(f, reportSubscription("automatic-stale"));
+  await f.api("auto-wishes", weeklyPlan(1, 1200));
+  f.time("2026-10-26T21:00:00");
+  await f.restart();
+  await f.api("wish", { day: "2026-10-26", start: 1380, duration: 30 });
+  await f.app.flushNotifications();
+  assert.equal(
+    f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishUnconfirmed"))
+      .length,
+    0,
+  );
 });

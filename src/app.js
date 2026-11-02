@@ -1,6 +1,7 @@
 import { createCompletionReminders } from './completion-reminders.js';
 import {createRewards} from './rewards.js';
 import {createNudges} from './nudges.js';
+import {createAutoWishes} from './auto-wishes.js';
 import {createAutoStandby} from './auto-standby.js';
 import { getNotificationPreferences, saveNotificationPreferences } from './notification-preferences.js';
 import { createWishNotifications } from './wish-notifications.js';
@@ -217,6 +218,7 @@ export function createApp({
     if (flushing || closed) return;
     flushing = true;
     try {
+      processAutoWishes();
       await wishNotifications.flush();
       if(closed)return;
       await nudges.flush();
@@ -349,6 +351,16 @@ export function createApp({
   const nudges=createNudges({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn,isDayOpen:day=>day<=currentTime().today&&slotDate(day,scheduleForDay(day).bathEnd)>now()&&bookingOpensAt(day)<=now().getTime()});
   const currentTime = () => bathCalendar(now());
   const bookingOpensAt = day => slotDate(day,0).getTime();
+  const autoWishes=createAutoWishes({db,now,scheduleForDay,onRejected:wish=>wishNotifications.record(wish,"wishUnconfirmed")});
+  function processAutoWishes() {
+    const day=currentTime().today,previous=currentTurn(day);
+    if(autoWishes.apply()) {
+      const hadDraw=!!db.prepare("SELECT 1 FROM draws WHERE day=?").get(day);
+      ensureFixedDraw(day);
+      if(hadDraw)enqueueTurn(day,previous);
+    }
+  }
+
   function applyDailyStandby(notify=true) {
     const day=currentTime().today;
     if(!db.prepare("SELECT 1 FROM draws WHERE day=?").get(day))return;
@@ -397,6 +409,7 @@ export function createApp({
     );
   };
   const validDay = (day, allowTomorrow = false) => {
+    processAutoWishes();
     applyDailyStandby();
     const time = currentTime();
     const continuing=day===shiftDay(time.today,-2)&&db.prepare("SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)").all(day).some(b=>slotDate(day,b.start)<=now()&&now().getTime()<=slotDate(day,b.start+b.duration).getTime()+Math.max(rewards.settings().clientReportMinutes,rewards.settings().dashboardReportMinutes)*60000);
@@ -596,6 +609,10 @@ export function createApp({
       }
       const me = memberFor(req);
       if (!me) fail(401, "ログインしてください。");
+      if(req.method==='GET'&&url.pathname==='/api/auto-wishes')return send(200,autoWishes.get(me.id));
+      if(req.method==='POST'&&url.pathname==='/api/auto-wishes'){
+        const result=autoWishes.save(me.id,body);processAutoWishes();onNotificationQueued();return send(200,result);
+      }
       if(req.method==='GET'&&url.pathname==='/api/rewards'){const day=url.searchParams.get('week')||validDay(url.searchParams.get('day')||currentTime().activeDay,true);if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day)))fail(400,'週を確認してください。');return send(200,rewards.view(me.id,day));}
       if(req.method==='POST'&&url.pathname==='/api/gifts/receive')return send(200,rewards.receive(me.id,body?.id));
       if(req.method==='POST'&&url.pathname==='/api/items/stamp')return send(200,rewards.useStamp(me.id,body));
@@ -710,6 +727,7 @@ export function createApp({
           standbyWarning:rewards.standbyWarning(me.id,day),
           notificationPreferences:getNotificationPreferences(db,me.id),
           autoStandby:autoStandby.enabled(me.id),
+          autoWishes:autoWishes.get(me.id),
           nudge:nudges.status(day,me.id),
           ignoreLowerPriorityWishes:serverSettings.ignoreLowerPriorityWishes(),
           shareUrl: req.bathSecure
@@ -958,6 +976,7 @@ export function createApp({
       });
     }
   }
+  processAutoWishes();
   applyDailyStandby();
   reminders.restore();
   completionReminders.restore();
@@ -965,6 +984,7 @@ export function createApp({
     ...createAdminData({db,setFamilyPassword,getSettings:serverSettings.get,onNotificationsChanged:onNotificationQueued}),
     handle,
     getDashboard: () => {
+      processAutoWishes();
       applyDailyStandby();
       const time=currentTime();
       const previousRule=scheduleForDay(time.yesterday);
@@ -996,10 +1016,10 @@ export function createApp({
       return result;
     },
     flushNotifications,
-    notificationDueAt: () =>
-      db
-        .prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM wish_notification_jobs WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM nudge_jobs UNION ALL SELECT MIN(next_attempt) AS due FROM completion_reminders WHERE sent=0)")
-        .get().due,
+    notificationDueAt: () => {
+      const values=[autoWishes.dueAt(),db.prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM wish_notification_jobs WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM nudge_jobs UNION ALL SELECT MIN(next_attempt) AS due FROM completion_reminders WHERE sent=0)").get().due].filter(value=>value!==null);
+      return values.length?Math.min(...values):null;
+    },
     setFamilyPassword,
     familyConfigured: () => !!familyConfig().password_hash,
     accessToken: () => familyConfig().access_token,
