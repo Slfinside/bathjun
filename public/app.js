@@ -382,7 +382,7 @@ function autoWishesForm() {
     },
     (_, i) => state.settings.minDuration + i * state.settings.step,
   );
-  return `<form id="auto-wishes-form" class="notification-preferences"><h3>曜日ごとの自動予約</h3><p class="muted">曜日ごとに設定した時間を、当日0:00以降に事前希望として送ります。順番が来たら通常の希望と同じ条件で確定し、結果を通知します。</p><p class="muted">区切りの${time(state.settings.bathStart)}より早い時刻は翌朝です。入力済みの予約・希望・「入らない/様子見」は上書きしません。保存当日も、まだ自動送信していなければ適用します。その日一度送った希望は、取り消しても自動で出し直しません。</p><div class="auto-wish-days">${days
+  return `<form id="auto-wishes-form" class="notification-preferences"><h3>曜日ごとの自動予約</h3><p class="muted">自分の予約順が回ってきたら、曜日ごとに設定した時間を自動で送信します。空いていれば確定し、重なりがあれば事前希望として残して結果を通知します。</p><p class="muted">区切りの${time(state.settings.bathStart)}より早い時刻は翌朝です。入力済みの予約・希望・「入らない/様子見」は上書きしません。保存当日も、自分の順番でまだ自動送信していなければ適用します。その日一度送った希望は、取り消しても自動で出し直しません。</p><div class="auto-wish-days">${days
     .map(
       (d) =>
         `<fieldset class="auto-wish-day"><legend><label><input type="checkbox" name="enabled-${d.weekday}" data-auto-wish-weekday="${d.weekday}" ${d.enabled ? "checked" : ""}>${"日月火水木金土"[d.weekday]}曜日</label></legend><div class="auto-wish-time"><label>開始時刻<input type="time" name="start-${d.weekday}" step="${state.settings.step * 60}" value="${String(Math.floor(d.start / 60)).padStart(2, "0")}:${String(d.start % 60).padStart(2, "0")}" ${d.enabled ? "" : "disabled"} required></label><label>長さ<select name="duration-${d.weekday}" ${d.enabled ? "" : "disabled"}>${[

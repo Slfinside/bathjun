@@ -1347,22 +1347,18 @@ test("日付が変わるとアクセスなしで自動希望を送り、固定�
   );
 });
 
-test("自動希望は入力済みの希望・予約・様子見を上書きせず、取り消した希望を出し直さない", async (t) => {
-  const f = await fixture(t, { random: true });
-  await f.api("auto-wishes", weeklyPlan(1));
+test("自動希望は順番が来る前には出さず、取り消した希望を出し直さない", async (t) => {
+  const f = await fixture(t);
   await f.api("auto-wishes", weeklyPlan(1), 2);
-  await f.api("auto-wishes", weeklyPlan(1), 3);
-  await f.api("wish", {
-    day: "2026-10-26",
-    start: 1260,
-    duration: 30,
-    note: "手入力",
-  });
   f.time("2026-10-26T00:00:00");
   await f.app.flushNotifications();
-  const s = await f.state();
-  assert.equal(s.wishes.find((w) => w.memberId === 1).note, "手入力");
-  assert.equal(s.wishes.filter((w) => w.memberId !== 1).length, 2);
+  let s = await f.state();
+  assert.equal(s.wishes.length, 0);
+  assert.equal(s.bookings.length, 0);
+  // The first person's booking makes member 2 eligible; only now is the plan submitted.
+  await f.book(1, 1200, 30, null, "2026-10-26");
+  s = await f.state();
+  assert.equal(s.wishes.find((w) => w.memberId === 2).start, 1200);
   await f.api("wish/cancel", { day: "2026-10-26" }, 2);
   await f.app.flushNotifications();
   await f.restart();
@@ -1370,7 +1366,6 @@ test("自動希望は入力済みの希望・予約・様子見を上書きせ�
     (await f.state()).wishes.some((w) => w.memberId === 2),
     false,
   );
-  // An explicit standby choice remains untouched when enabling a plan that day.
   const other = await fixture(t, { random: true });
   await other.api("skip", { day: "2026-10-25", skip: true });
   await other.api("auto-wishes", weeklyPlan(0));
@@ -1378,7 +1373,7 @@ test("自動希望は入力済みの希望・予約・様子見を上書きせ�
   assert.equal((await other.state()).wishes.length, 0);
 });
 
-test("自動希望は全員分を作ってから重複判定し、通常の失敗通知と通知の有効無効を使う", async (t) => {
+test("自動希望は順番に確定し、重複は通常の失敗通知と通知の有効無効を使う", async (t) => {
   const f = await fixture(t);
   const config = f.app.getServerSettings();
   f.app.saveServerSettings({
@@ -1386,14 +1381,23 @@ test("自動希望は全員分を作ってから重複判定し、通常の失�
     schedule: config.current,
     ignoreLowerPriorityWishes: false,
   });
-  await enableReportPush(f, reportSubscription("automatic-conflict"));
+  await f.api(
+    "notification-preferences",
+    { reservationTurn: false, bathReminder: false },
+    2,
+  );
+  await f.api(
+    "push/subscribe",
+    { subscription: reportSubscription("automatic-conflict") },
+    2,
+  );
   await f.api("auto-wishes", weeklyPlan(1));
   await f.api("auto-wishes", weeklyPlan(1), 2);
   f.time("2026-10-26T00:00:00");
   await f.app.flushNotifications();
   const s = await f.state();
-  assert.equal(s.wishes.length, 2);
-  assert.equal(s.bookings.length, 0);
+  assert.equal(s.wishes.length, 1);
+  assert.equal(s.bookings.length, 1);
   assert.equal(
     f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishUnconfirmed"))
       .length,
@@ -1405,7 +1409,7 @@ test("自動希望は全員分を作ってから重複判定し、通常の失�
       .length,
     1,
   );
-  await f.api("notification-preferences", { wishUnconfirmed: false });
+  await f.api("notification-preferences", { wishUnconfirmed: false }, 2);
   await f.api("auto-wishes", weeklyPlan(2));
   await f.api("auto-wishes", weeklyPlan(2), 2);
   f.time("2026-10-27T00:00:00");
@@ -1475,7 +1479,7 @@ test("自動希望は予約済みの枠を変えず、設定を無効にすれ�
 });
 
 test("遅延した自動希望の失敗通知も、本人が別の希望を出していれば破棄する", async (t) => {
-  const f = await fixture(t, { random: true });
+  const f = await fixture(t);
   await enableReportPush(f, reportSubscription("automatic-stale"));
   await f.api("auto-wishes", weeklyPlan(1, 1200));
   f.time("2026-10-26T21:00:00");
@@ -1487,4 +1491,37 @@ test("遅延した自動希望の失敗通知も、本人が別の希望を出�
       .length,
     0,
   );
+});
+
+test("抽選モードでは抽選前も順番待ちの間も送らず、自分の番で自動確定する", async (t) => {
+  const f = await fixture(t, { random: true });
+  for (const id of [1, 2, 3])
+    await f.api("auto-wishes", weeklyPlan(1, 1080 + id * 60), id);
+  f.time("2026-10-26T00:00:00");
+  await f.app.flushNotifications();
+  let s = await f.state();
+  assert.equal(s.wishes.length, 0);
+  assert.equal(s.bookings.length, 0);
+  // Reserve every member through the ordinary draw->turn chain, without opening any booking form.
+  await f.api("draw", { day: "2026-10-26" });
+  s = await f.state();
+  assert.equal(s.bookings.length, 3);
+  assert.equal(s.wishes.length, 0);
+  for (const id of [1, 2, 3])
+    assert.equal(
+      s.bookings.find((b) => b.memberId === id).start,
+      1080 + id * 60,
+    );
+});
+
+test("順番前に手入力した希望を取り消した日は、自動希望を作らない", async (t) => {
+  const f = await fixture(t);
+  await f.api("auto-wishes", weeklyPlan(1), 2);
+  await f.api("wish", { day: "2026-10-26", start: 1260, duration: 30 }, 2);
+  f.time("2026-10-26T00:00:00");
+  await f.api("wish/cancel", { day: "2026-10-26" }, 2);
+  await f.book(1, 1080, 30, null, "2026-10-26");
+  const s = await f.state();
+  assert.equal(s.wishes.length, 0);
+  assert.equal(s.bookings.length, 1);
 });

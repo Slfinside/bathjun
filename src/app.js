@@ -155,6 +155,7 @@ export function createApp({
     function candidate() {
       const id=currentTurn(day);
       if(!id)return null;
+      autoWishes.apply(day,id);
       let wish=db.prepare("SELECT * FROM wishes WHERE day=? AND member_id=?").get(day,id);
       if(!wish || slotDate(day,wish.start)<=now())return null;
       if(!rewards.settings().itemsEnabled)wish.ticket=null;
@@ -351,13 +352,14 @@ export function createApp({
   const nudges=createNudges({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn,isDayOpen:day=>day<=currentTime().today&&slotDate(day,scheduleForDay(day).bathEnd)>now()&&bookingOpensAt(day)<=now().getTime()});
   const currentTime = () => bathCalendar(now());
   const bookingOpensAt = day => slotDate(day,0).getTime();
-  const autoWishes=createAutoWishes({db,now,scheduleForDay,onRejected:wish=>wishNotifications.record(wish,"wishUnconfirmed")});
+  const autoWishes=createAutoWishes({db,now,scheduleForDay,currentTurn,onRejected:wish=>wishNotifications.record(wish,"wishUnconfirmed")});
   function processAutoWishes() {
-    const day=currentTime().today,previous=currentTurn(day);
-    if(autoWishes.apply()) {
-      const hadDraw=!!db.prepare("SELECT 1 FROM draws WHERE day=?").get(day);
-      ensureFixedDraw(day);
-      if(hadDraw)enqueueTurn(day,previous);
+    const time=currentTime();
+    for(const day of [time.yesterday,time.today]) {
+      if(slotDate(day,scheduleForDay(day).bathEnd)<=now())continue;
+      if(day===time.today && scheduleForDay(day).orderMode==="fixed" && autoWishes.hasPlans(day) && !db.prepare("SELECT 1 FROM draws WHERE day=?").get(day))ensureFixedDraw(day);
+      const previous=currentTurn(day);
+      if(previous && autoWishes.hasPlans(day))enqueueTurn(day,previous);
     }
   }
 
@@ -826,6 +828,7 @@ export function createApp({
         try {
           db.prepare("INSERT OR IGNORE INTO daily_standby_state VALUES(?,?,0)").run(day,me.id);
           if (body.skip) {
+            autoWishes.suppress(day,me.id);
             const deferred = db
               .prepare(
                 "SELECT tail_order FROM bath_skips WHERE day=? AND member_id=?",
@@ -894,6 +897,7 @@ export function createApp({
       }
       if (req.method === "POST" && url.pathname === "/api/wish/cancel") {
         const day = validDay(body.day,true), previous=currentTurn(day);
+        autoWishes.suppress(day,me.id);
         db.prepare("DELETE FROM wishes WHERE day=? AND member_id=?").run(
           day,
           me.id,
@@ -959,6 +963,7 @@ export function createApp({
         if (slotDate(day, booking.start) <= now())
           fail(409, "開始済みの予約は取り消せません。");
         const previousTurn = currentTurn(day);
+        autoWishes.suppress(day,me.id);
         db.prepare("DELETE FROM bookings WHERE day=? AND member_id=?").run(
           day,
           me.id,

@@ -6,7 +6,13 @@ const weekday = (day) => new Date(day + "T12:00:00Z").getUTCDay();
 const bad = (message) => {
   throw Object.assign(new Error(message), { status: 400 });
 };
-export function createAutoWishes({ db, now, scheduleForDay, onRejected }) {
+export function createAutoWishes({
+  db,
+  now,
+  scheduleForDay,
+  onRejected,
+  currentTurn,
+}) {
   db.exec(
     readFileSync(
       new URL("../migrations/0017_auto_wishes.sql", import.meta.url),
@@ -86,91 +92,100 @@ export function createAutoWishes({ db, now, scheduleForDay, onRejected }) {
       )
       .all();
   }
-  function apply() {
-    const today = bathCalendar(now()).today,
-      rule = scheduleForDay(today);
-    let changed = false;
+  function planFor(day, member) {
+    if (
+      !member ||
+      !db.prepare("SELECT 1 FROM members WHERE id=? AND active=1").get(member)
+    )
+      return null;
+    return (
+      get(member).days.find((d) => d.weekday === weekday(day) && d.enabled) ||
+      null
+    );
+  }
+  function ready(day, member) {
+    return (
+      !!planFor(day, member) &&
+      !db
+        .prepare("SELECT 1 FROM auto_wish_runs WHERE day=? AND member_id=?")
+        .get(day, member)
+    );
+  }
+  function suppress(day, member) {
+    if (!planFor(day, member)) return;
+    db.prepare(
+      "INSERT OR IGNORE INTO auto_wish_runs VALUES(?,?,'skipped',?,?)",
+    ).run(day, member, randomBytes(16).toString("hex"), now().toISOString());
+  }
+  function apply(day, member) {
+    if (!ready(day, member)) return false;
+    const plan = planFor(day, member),
+      rule = scheduleForDay(day);
     db.exec("SAVEPOINT automatic_wishes");
     try {
-      for (const row of enabledMembers()) {
-        const plan = JSON.parse(row.days_json).find(
-          (d) => d.weekday === weekday(today),
-        );
-        if (
-          !plan?.enabled ||
-          db
-            .prepare("SELECT 1 FROM auto_wish_runs WHERE day=? AND member_id=?")
-            .get(today, row.member_id)
+      const revision = randomBytes(16).toString("hex"),
+        start = relativeStart(plan.start, rule);
+      const existing = db
+        .prepare(
+          "SELECT 1 FROM bookings WHERE day=? AND member_id=? UNION ALL SELECT 1 FROM wishes WHERE day=? AND member_id=? UNION ALL SELECT 1 FROM bath_skips WHERE day=? AND member_id=? AND automatic=0",
         )
-          continue;
-        const revision = randomBytes(16).toString("hex"),
-          start = relativeStart(plan.start, rule);
-        const existing = db
-          .prepare(
-            "SELECT 1 FROM bookings WHERE day=? AND member_id=? UNION ALL SELECT 1 FROM wishes WHERE day=? AND member_id=? UNION ALL SELECT 1 FROM bath_skips WHERE day=? AND member_id=? AND automatic=0",
-          )
-          .get(
-            today,
-            row.member_id,
-            today,
-            row.member_id,
-            today,
-            row.member_id,
-          );
-        const rejected =
-          !validateSlot(start, plan.duration, rule) ||
-          slotDate(today, start) <= now();
-        const status = existing
-          ? "skipped"
-          : rejected
-            ? "rejected"
-            : "submitted";
-        db.prepare("INSERT INTO auto_wish_runs VALUES(?,?,?,?,?)").run(
-          today,
-          row.member_id,
-          status,
-          revision,
-          now().toISOString(),
-        );
-        if (existing) continue;
+        .get(day, member, day, member, day, member);
+      const rejected =
+        !validateSlot(start, plan.duration, rule) ||
+        slotDate(day, start) <= now();
+      const status = existing ? "skipped" : rejected ? "rejected" : "submitted";
+      db.prepare("INSERT INTO auto_wish_runs VALUES(?,?,?,?,?)").run(
+        day,
+        member,
+        status,
+        revision,
+        now().toISOString(),
+      );
+      if (!existing) {
         const wish = {
-          day: today,
-          member_id: row.member_id,
+          day,
+          member_id: member,
           start,
           duration: plan.duration,
           note: plan.note,
           revision,
         };
-        if (rejected) {
-          onRejected(wish);
-          continue;
-        }
-        db.prepare(
-          "INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced) VALUES(?,?,?,?,?,?,NULL,0)",
-        ).run(today, row.member_id, start, plan.duration, plan.note, revision);
-        changed = true;
+        if (rejected) onRejected(wish);
+        else
+          db.prepare(
+            "INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced) VALUES(?,?,?,?,?,?,NULL,0)",
+          ).run(day, member, start, plan.duration, plan.note, revision);
       }
       db.exec("RELEASE automatic_wishes");
+      return !existing && !rejected;
     } catch (error) {
       db.exec("ROLLBACK TO automatic_wishes; RELEASE automatic_wishes");
       throw error;
     }
-    return changed;
+  }
+  function hasPlans(day) {
+    return enabledMembers().some((row) =>
+      JSON.parse(row.days_json).some(
+        (d) => d.weekday === weekday(day) && d.enabled,
+      ),
+    );
   }
   function dueAt() {
     const today = bathCalendar(now()).today;
+    for (const day of [shiftDay(today, -1), today])
+      if (ready(day, currentTurn(day))) return now().getTime();
+    if (
+      scheduleForDay(today).orderMode === "fixed" &&
+      hasPlans(today) &&
+      !db.prepare("SELECT 1 FROM draws WHERE day=?").get(today)
+    )
+      return now().getTime();
     let due = null;
     for (const row of enabledMembers()) {
       const plans = JSON.parse(row.days_json);
-      for (let offset = 0; offset <= 7; offset++) {
+      for (let offset = 1; offset <= 7; offset++) {
         const day = shiftDay(today, offset);
-        if (!plans.find((d) => d.weekday === weekday(day))?.enabled) continue;
-        if (
-          offset === 0 &&
-          db
-            .prepare("SELECT 1 FROM auto_wish_runs WHERE day=? AND member_id=?")
-            .get(day, row.member_id)
-        )
+        if (!plans.some((d) => d.weekday === weekday(day) && d.enabled))
           continue;
         const value = slotDate(day, 0).getTime();
         due = due === null ? value : Math.min(due, value);
@@ -179,5 +194,5 @@ export function createAutoWishes({ db, now, scheduleForDay, onRejected }) {
     }
     return due;
   }
-  return { get, save, apply, dueAt };
+  return { get, save, apply, ready, suppress, hasPlans, dueAt };
 }
