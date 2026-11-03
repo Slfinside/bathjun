@@ -310,6 +310,27 @@ AC電源につないで使ってください。ダッシュボード表示中は
 
 Tailscaleのトレイアイコン → Preferences → **Run unattended** が有効か確認します。Tailscale公式では、Windowsのログアウト・再起動後も接続を維持するための設定です。Modern Standby中の通信継続を保証する設定ではありません。ふろきゅ～はこの設定を自動変更しません。
 
-消灯中にローカルHTTPが応答し、共有HTTPSだけが失敗するなら、Tailscale側の切り分けが優先です。家族用リンクのホスト部分を `http://PCのローカルIP:3000` へ置き換え、後ろの長いパスは残して、同じWi-Fiからログイン画面を表示できるか確認します。テスト時にログインする必要はありません。HTTPも接続できない場合は、PCやネットワーク全体の省電力動作も確認対象です。
+公開モードの本体は `127.0.0.1` だけで待ち受けます。別端末からLANのIPへ直接接続する方法では本体を確認できません。サーバーPC側でlocalhostの応答とFunnelの公開状態を切り分けてください。`tailscale funnel status` では8443番ポートの公開設定を確認します。共有URLには、管理画面からコピーしたポート番号と長いパスを含むリンクを使ってください。
 
 参考：[TailscaleのRun unattended](https://tailscale.com/kb/1088/run-unattended)・[WindowsのPowerSetRequest](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-powersetrequest)。画面オフの要求自体はWindows APIで可能ですが、その後も通常実行と通信が継続するかは端末・OS・電源ポリシーに依存します。
+
+### 消灯前後の応答を記録する（任意）
+
+次のPowerShellはサーバーPC上でローカルHTTPと公開HTTPSの応答を記録します。`$publicOrigin` を共有URLのホスト・ポート部分だけに置き換えます（`/family/...` の秘密のパスは含めません）。管理者権限・設定変更・ログインは不要です。実行後に消灯し、復帰後にログを確認します。公開モードでは未認証のルートが404でも、HTTP応答が返っていれば接続自体は成立しています。000は応答を得られなかった記録です。
+
+```powershell
+$publicOrigin = 'https://端末名.ネットワーク名.ts.net:8443'
+$diagnosticLog = Join-Path $env:TEMP 'bathjun-display-check.log'
+1..60 | ForEach-Object {
+    $recordedAt = Get-Date -Format o
+    $localCode = & curl.exe -s -o NUL -w '%{http_code}' --connect-timeout 2 --max-time 4 'http://127.0.0.1:3000/'
+    $localExit = $LASTEXITCODE
+    $publicCode = & curl.exe -s -o NUL -w '%{http_code}' --connect-timeout 2 --max-time 4 "$publicOrigin/"
+    $publicExit = $LASTEXITCODE
+    "$recordedAt local=$localCode exit=$localExit public=$publicCode exit=$publicExit" | Add-Content -LiteralPath $diagnosticLog
+    Start-Sleep -Seconds 5
+}
+$diagnosticLog
+```
+
+ローカル応答が続いて公開だけ失敗する場合はFunnel側が確認対象です。両方失敗する場合や、時刻の記録自体に長い空白がある場合は、OS・プロセス・通信の省電力動作も確認します。ログだけで停止原因を断定できるものではありません。
