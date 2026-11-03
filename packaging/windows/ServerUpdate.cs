@@ -50,7 +50,7 @@ internal static class ServerUpdate {
             return Process.Start(new ProcessStartInfo(helper,"--apply-update "+Quote(staged)+" "+Quote(root)+" "+Process.GetCurrentProcess().Id+" "+serverPid+" "+(publicMode?"public":"local")+" "+digest){UseShellExecute=false});
         }catch{try{Directory.Delete(folder,true);}catch{}throw;}
     }
-    static string Quote(string value){return """+value.Replace(""","")+""";}
+    static string Quote(string value){return "\""+value.Replace("\"","")+"\"";}
     static void Wait(int id){try{using(var process=Process.GetProcessById(id)){if(!process.WaitForExit(60000))throw new TimeoutException("サーバーの終了を確認できませんでした。管理画面から停止して、もう一度更新してください。");}}catch(ArgumentException){}}
     internal static void Run(string[] args) {
         if(args.Length!=7)return;
