@@ -26,6 +26,6 @@
 
 Nodeテスト184件、スマホ幅を含むブラウザー操作、Windowsでの描画・設定・更新判定、インストーラ・ZIPのビルド・同梱内容・ハッシュ・個人データ混入を検証しています。
 
-**消灯後の動作はWindows設定も確認してください。** スリープを「なし」にしていても、消灯中はiPhoneからHTTPSへ接続できず、ロック解除後に接続できる端末の報告があります。実消灯は維持していますが、復帰後のロック画面はWindows Helloの「サインインを再度求めるタイミング」が原因と報告者が確認しました。設定変更後の消灯中の通信は再確認が必要です。[確認手順](https://github.com/Slfinside/bathjun/blob/v2.0.0-beta1/docs/administrator-guide.md#実消灯後にロック解除が必要https接続が止まる場合)と[調査記録](https://github.com/Slfinside/bathjun/blob/v2.0.0-beta1/docs/screen-off-investigation.md)を参照してください。アプリからWindowsのセキュリティ・電源ポリシーは変更しません。
+**消灯後の動作はWindows設定も確認してください。** スリープを「なし」にしていても、消灯中はiPhoneからHTTPSへ接続できず、ロック解除後に接続できる端末の報告があります。実消灯は維持していますが、復帰後のロック画面はWindows Helloの「サインインを再度求めるタイミング」が原因と報告者が確認しました。消灯中に別端末からERR_TIMED_OUTになる報告が残っており、本体・Funnel・OSのどこで止まるかは未特定です。[確認手順](https://github.com/Slfinside/bathjun/blob/v2.0.0-beta1/docs/administrator-guide.md#実消灯後にロック解除が必要https接続が止まる場合)と[調査記録](https://github.com/Slfinside/bathjun/blob/v2.0.0-beta1/docs/screen-off-investigation.md)を参照してください。アプリからWindowsのセキュリティ・電源ポリシーは変更しません。
 
 実機iPhoneのPush到達・実機タッチ・パネルの消灯／点灯は未検証です。インストーラは未署名です。起動入口の一本化、自動バックアップ・復元、端末単位のログイン管理、更新署名の強化は未搭載です。
