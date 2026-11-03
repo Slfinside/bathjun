@@ -788,7 +788,7 @@ function renderNudge(id) {
 }
 function renderBookingBanner(booking, turn, expired, canEdit) {
   if (state.day > state.today)
-    return `<section class="booking-banner"><div><h3>事前希望</h3><button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div><div><h3>${state.day === state.tomorrow ? "明日" : "明後日"}の夜の予定</h3><p>希望は抽選前から出せます。抽選・予約は当日からです。日付は${time(state.dayRollover)}に切り替わります。</p></div></section>`;
+    return `<section class="booking-banner"><div><h3>事前希望</h3><button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div><div><h3>${state.day === state.tomorrow ? "明日" : "明後日"}の夜の予定</h3><p>希望は抽選前から出せます。抽選・予約は当日からです。日付は${time(state.dayRollover)}に切り替わります。</p>${isDeferred() ? "<p>入らない/様子見を共有済みです。</p>" : ""}<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button></div></section>`;
   const yourTurn = turn === me.id && !expired;
   let content;
   if (expired)
@@ -813,7 +813,15 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
   return `<section class="booking-banner ${yourTurn ? "is-turn" : ""}">${content}${beforeTurn ? `<div class="preference-action"><h3>事前希望</h3>${ownWish() ? `<p>${time(ownWish().start)}〜${time(ownWish().start + ownWish().duration)}</p>` : ""}<button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div>` : ""}${completion ? '<button class="primary" data-action="complete-bath">完了を報告</button>' : booking?.completedAt ? "<p>入浴済み・完了報告済み</p>" : ""}${yourTurn ? `<button class="primary" data-action="book">時間を選ぶ${icon("arrow")}</button>` : ""}${!expired && (!booking || canEdit) ? `<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button>` : ""}</section>`;
 }
 function renderWishes() {
-  return `<section class="wishes-card"><div class="card-title"><h2>みんなの希望</h2></div>${state.wishes.length ? state.wishes.map(renderWish).join("") : '<p class="empty-wish">まだ希望はありません。</p>'}</section>`;
+  return `<section class="wishes-card"><div class="card-title"><h2>みんなの希望</h2></div>${state.wishes.map(renderWish).join("")}${state.skips
+    .filter((id) => !state.bookings.some((b) => b.memberId === id))
+    .map(
+      (id) =>
+        `<div class="standby-wish">${avatar(id, true)}<span><strong>${escapeHTML(memberName(id))}</strong><small>入らない/様子見</small></span></div>`,
+    )
+    .join(
+      "",
+    )}${!state.wishes.length && !state.skips.length ? '<p class="empty-wish">まだ希望はありません。</p>' : ""}</section>`;
 }
 function renderWish(w) {
   const conflict =
@@ -940,7 +948,7 @@ function openBooking(mode = "booking") {
           .map((w) => renderWish(w))
           .join("")}</details>`
       : ""
-  }${itemsEnabled() && pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}${ticketLimits(pendingItem || booking?.ticket)}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish ? "希望する開始時刻" : "脱衣所に入る時刻"}</label><select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${booking?.noNegotiation ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "重なっている時間にも希望を出せます。重なりがある間は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
+  }${itemsEnabled() && pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}${ticketLimits(pendingItem || booking?.ticket)}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish ? "希望する開始時刻" : "脱衣所に入る時刻"}</label><select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${booking?.noNegotiation ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "重なっている時間にも希望を出せます。重なりがある間は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish ? `<button type="button" class="skip-button" data-action="wish-standby">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見を伝える"}</button>` : ""}${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
   updateSlots(entry?.start);
   applyMemberColors(dialog);
   dialog.showModal();
@@ -1151,26 +1159,8 @@ document
       pendingItem = ownWish()?.ticket || null;
       return openBooking("wish");
     }
-    if (action === "toggle-skip") {
-      const skip = !isDeferred();
-      const day = state.day;
-      if (skip && !(await confirmStandby())) return;
-      busy = true;
-      try {
-        await api("skip", { day, skip });
-        notify(
-          skip
-            ? "入らない/様子見にして、順番の最後へ回りました。"
-            : "通常の順番に戻しました。",
-        );
-        await refresh(true);
-      } catch (error) {
-        notify(error.message);
-      } finally {
-        busy = false;
-      }
-      return;
-    }
+    if (action === "toggle-skip") return toggleStandby();
+
     if (action === "logout") {
       busy = true;
       try {
@@ -1275,6 +1265,11 @@ dialog.addEventListener("change", (event) => {
 dialog.addEventListener("click", async (event) => {
   const action = event.target.closest("[data-action]")?.dataset.action;
   if (action === "close" && !busy) dialog.close();
+  if (action === "wish-standby" && !busy) {
+    const wasDeferred = isDeferred();
+    await toggleStandby();
+    if (wasDeferred && dialog.open) dialog.close();
+  }
   if (action === "cancel-wish" && !busy) {
     busy = true;
     try {
@@ -1309,7 +1304,7 @@ dialog.addEventListener("click", async (event) => {
 });
 dialog.addEventListener("click", (event) => {
   const action = event.target.closest("[data-action]")?.dataset.action;
-  if (["use-item", "apply-stamp"].includes(action))
+  if (["use-item", "apply-stamp", "stamp-week"].includes(action))
     void handleRewardsAction(action, event);
 });
 dialog.addEventListener("change", (event) => {
@@ -1428,6 +1423,28 @@ matchMedia("(display-mode: standalone)").addEventListener?.(
   updateInstallGuide,
 );
 
+async function toggleStandby() {
+  const skip = !isDeferred();
+  const day = state.day;
+  if (skip && !(await confirmStandby())) return;
+  busy = true;
+  try {
+    await api("skip", { day, skip });
+    notify(
+      skip
+        ? day > state.today
+          ? "入らない/様子見を事前に共有しました。"
+          : "入らない/様子見にして、順番の最後へ回りました。"
+        : "通常の順番に戻しました。",
+    );
+    await refresh(true);
+  } catch (error) {
+    notify(error.message);
+  } finally {
+    busy = false;
+  }
+  return;
+}
 function confirmStandby() {
   const warning = state.standbyWarning;
   dialog.dataset.mode = "standby";
@@ -1449,7 +1466,7 @@ function confirmStandby() {
       },
       { once: true },
     );
-    dialog.showModal();
+    if (!dialog.open) dialog.showModal();
   });
 }
 function ticketSelect() {
@@ -1477,8 +1494,22 @@ function renderStampCard(compact = true) {
   const earned = card.days.filter((d) => d.status === "stamp"),
     last = card.days[6].day;
   const shortDate = (value) => value.slice(5).replace("-", "/");
+  const todayDate = new Date(state.today + "T12:00:00Z"),
+    thisWeek = new Date(todayDate.getTime() - todayDate.getUTCDay() * 86400000)
+      .toISOString()
+      .slice(0, 10),
+    previousWeek = new Date(Date.parse(thisWeek + "T12:00:00Z") - 7 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+  const canUseStamp =
+    itemsEnabled() &&
+    [thisWeek, previousWeek].includes(card.week) &&
+    card.days.some((d) => d.day <= state.today && d.status !== "stamp");
+  const stampButton = canUseStamp
+    ? `<button class="stamp-use-button" data-action="stamp-card-use" ${owned("bathStamp") && owned("stampInk") ? "" : 'disabled title="おふろスタンプとインクが必要です"'}><img src="/stamps/bath.svg" alt="" width="26" height="26">おふろスタンプを使う</button>`
+    : "";
   const period = `<span class="stamp-period"><small>${card.week.slice(0, 4)}年</small><span>${shortDate(card.week)} 〜 ${shortDate(last)}</span></span>`;
-  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong class="stamp-mark" aria-label="${d.status === "stamp" ? "成功" : d.status === "failed" ? "失敗" : "未確定"}">${d.status === "stamp" ? '<img class="bath-stamp" src="/stamps/bath.svg" alt="" width="48" height="48">' : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}分${d.reason === "ink" ? "（スタンプのインクを使用）" : d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
+  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong class="stamp-mark" aria-label="${d.status === "stamp" ? "成功" : d.status === "failed" ? "失敗" : "未確定"}">${d.status === "stamp" ? '<img class="bath-stamp" src="/stamps/bath.svg" alt="" width="48" height="48">' : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${stampButton}${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}分${d.reason === "ink" ? "（スタンプのインクを使用）" : d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
 }
 function renderSecondaryPage() {
   const expandedGifts = new Set(
@@ -1526,16 +1557,24 @@ function showItem(kind) {
     owned(kind) > 0 &&
     (!stampItem || (owned("bathStamp") > 0 && owned("stampInk") > 0));
   dialog.dataset.mode = "item";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}${itemUnit(kind)}</p>${stampItem ? `<p class="muted">今週の今日までの「−」または「×」の日を選び、インクを1個使って成功にできます。おふろスタンプ本体はなくなりません。</p>${!owned("bathStamp") ? '<p class="notice">おふろスタンプが必要です。</p>' : !owned("stampInk") ? '<p class="notice">スタンプのインクがありません。</p>' : ""}` : ""}<button class="primary" data-action="use-item" ${usable ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}${itemUnit(kind)}</p>${stampItem ? `<p class="muted">今週・先週の、今日までの「−」または「×」の日を選び、インクを1個使って成功にできます。おふろスタンプ本体はなくなりません。</p>${!owned("bathStamp") ? '<p class="notice">おふろスタンプが必要です。</p>' : !owned("stampInk") ? '<p class="notice">スタンプのインクがありません。</p>' : ""}` : ""}<button class="primary" data-action="use-item" ${usable ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
   dialog.showModal();
 }
-async function openStampPicker() {
-  const rewards = await api("rewards?day=" + encodeURIComponent(state.today));
-  const stampable = rewards.card.days.filter(
+async function openStampPicker(preferredWeek = null) {
+  const current = await api("rewards?day=" + encodeURIComponent(state.today));
+  const previousWeek = new Date(
+    Date.parse(current.card.week + "T12:00:00Z") - 7 * 86400000,
+  )
+    .toISOString()
+    .slice(0, 10);
+  const previous = await api("rewards?week=" + previousWeek);
+  const card = preferredWeek === previousWeek ? previous.card : current.card;
+  const stampable = card.days.filter(
     (d) => d.status !== "stamp" && d.day <= state.today,
   );
   dialog.dataset.mode = "stamp-ink";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">おふろスタンプを押す</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon("bathStamp")}</div><p>今週の今日までの「−」または「×」の日を選んでください。インクを1個使って成功にします。</p><p class="muted">${rewards.card.week}からの7日間 · インク ${rewards.wallet.find((x) => x.kind === "stampInk").quantity}個</p><div class="stamp-repair-days">${stampable.map((d) => `<button class="stamp-repair-day" data-action="apply-stamp" data-stamp-day="${d.day}" data-request-id="${crypto.randomUUID()}"><span>${d.day.slice(5).replace("-", "/")}（${"日月火水木金土"[new Date(d.day + "T12:00:00Z").getUTCDay()]}）</span><strong aria-hidden="true">${d.status === "failed" ? "×" : "−"}</strong><span>スタンプを押す</span></button>`).join("")}</div>${stampable.length ? "" : '<p class="notice">今週はスタンプを押せる日がありません。</p>'}`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">おふろスタンプを押す</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="gift-tabs"><button data-action="stamp-week" data-stamp-week="${previousWeek}" aria-pressed="${card.week === previousWeek}">先週</button><button data-action="stamp-week" data-stamp-week="${current.card.week}" aria-pressed="${card.week === current.card.week}">今週</button></div><p>今日までの「−」または「×」の日を選んでください。インクを1個使って成功にします。</p><p class="muted">${card.week}からの7日間 · インク ${current.wallet.find((x) => x.kind === "stampInk").quantity}個</p><div class="stamp-repair-days">${stampable.map((d) => `<button class="stamp-repair-day" data-action="apply-stamp" data-stamp-day="${d.day}" data-request-id="${crypto.randomUUID()}"><span>${d.day.slice(5).replace("-", "/")}（${"日月火水木金土"[new Date(d.day + "T12:00:00Z").getUTCDay()]}）</span><strong aria-hidden="true">${d.status === "failed" ? "×" : "−"}</strong><span>スタンプを押す</span></button>`).join("")}</div>${stampable.length ? "" : '<p class="notice">この週はスタンプを押せる日がありません。</p>'}`;
+  if (!dialog.open) dialog.showModal();
 }
 async function handleRewardsAction(action, event) {
   if (!action) return false;
@@ -1577,14 +1616,31 @@ async function handleRewardsAction(action, event) {
     return true;
   }
   if (
-    !["receive-gift", "use-item", "complete-bath", "apply-stamp"].includes(
-      action,
-    )
+    ![
+      "receive-gift",
+      "use-item",
+      "complete-bath",
+      "apply-stamp",
+      "stamp-card-use",
+      "stamp-week",
+    ].includes(action)
   )
     return false;
   if (busy) return true;
   busy = true;
   try {
+    if (action === "stamp-card-use" || action === "stamp-week") {
+      if (!itemsEnabled() || !owned("bathStamp") || !owned("stampInk"))
+        throw new Error("おふろスタンプとインクが必要です。");
+      if (action === "stamp-card-use")
+        dialog.dataset.stampReturn = pageView === "home" ? "home" : "stamps";
+      await openStampPicker(
+        action === "stamp-week"
+          ? event.target.closest("[data-stamp-week]").dataset.stampWeek
+          : state.rewards.card.week,
+      );
+      return true;
+    }
     if (action === "receive-gift") {
       const result = await api("gifts/receive", {
         id: event.target.closest("[data-gift]").dataset.gift,
@@ -1605,7 +1661,7 @@ async function handleRewardsAction(action, event) {
       }
       dialog.close();
       pendingItem = null;
-      pageView = "stamps";
+      pageView = dialog.dataset.stampReturn === "home" ? "home" : "stamps";
       stampWeek = button.dataset.stampDay;
       stampWeek = new Date(
         Date.parse(stampWeek + "T12:00:00Z") -
@@ -1613,6 +1669,7 @@ async function handleRewardsAction(action, event) {
       )
         .toISOString()
         .slice(0, 10);
+      if (pageView === "home") stampWeek = null;
       notify("おふろスタンプを押しました。");
     }
     if (action === "complete-bath") {
@@ -1625,6 +1682,7 @@ async function handleRewardsAction(action, event) {
       if (!itemsEnabled())
         throw new Error("アイテム機能が無効に設定されています。");
       if (["bathStamp", "stampInk"].includes(kind)) {
+        dialog.dataset.stampReturn = "stamps";
         await openStampPicker();
         return true;
       }

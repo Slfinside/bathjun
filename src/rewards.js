@@ -568,11 +568,11 @@ export function createRewards({ db, now, scheduleForDay }) {
       const today = new Date(now().getTime() + 9 * 3600000)
         .toISOString()
         .slice(0, 10);
-      if (week !== weekOf(today))
-        bad("インクを使えるのは今週分のスタンプカードだけです。", 409);
+      if (![weekOf(today), addDay(weekOf(today), -7)].includes(week))
+        bad("インクを使えるのは今週と先週のスタンプカードだけです。", 409);
       if (balance(member, "bathStamp") < 1)
         bad("おふろスタンプを持っていません。", 409);
-      const target = card(member, today).days.find((cell) => cell.day === day);
+      const target = card(member, day).days.find((cell) => cell.day === day);
       if (!target || target.status === "stamp" || day > today)
         bad("今日までの未確定または失敗の日を選んでください。", 409);
       spend(member, "stampInk", "stamp:" + day);

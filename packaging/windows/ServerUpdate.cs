@@ -14,10 +14,14 @@ internal static class ServerUpdate {
     internal static string InstallRoot {get{return Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory.TrimEnd(new[]{Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar})).FullName;}}
     internal static string VersionAt(string root){var package=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.Combine(root,"app","package.json")));return Convert.ToString(package["version"]);}
     internal static Version ParseVersion(string value) {
-        var match=Regex.Match(value??"","^(\\d+)\\.(\\d+)\\.(\\d+)(?:-rc(?:\\.?([0-9]+))?)?$");
-        int major,minor,patch,revision=65535;
+        var match=Regex.Match(value??"","^(\\d+)\\.(\\d+)\\.(\\d+)(?:-(rc|beta)(?:\\.?([0-9]+))?)?$");
+        int major,minor,patch,revision=65535,number=1;
         if(!match.Success||!int.TryParse(match.Groups[1].Value,out major)||!int.TryParse(match.Groups[2].Value,out minor)||!int.TryParse(match.Groups[3].Value,out patch)||major>65535||minor>65535||patch>65535)throw new InvalidDataException("バージョンを確認できませんでした。");
-        if(value.Contains("-rc")){revision=1;if(match.Groups[4].Success&&!int.TryParse(match.Groups[4].Value,out revision))throw new InvalidDataException("RC番号を確認できませんでした。");if(revision<1||revision>=65535)throw new InvalidDataException("RC番号を確認できませんでした。");}
+        string phase=match.Groups[4].Value;
+        if(phase.Length>0){
+            if((phase=="beta"&&!match.Groups[5].Success)||(match.Groups[5].Success&&!int.TryParse(match.Groups[5].Value,out number))||number<1||number>(phase=="beta"?32767:32766))throw new InvalidDataException("プレビュー版の番号を確認できませんでした。");
+            revision=phase=="beta"?number:32768+number;
+        }
         return new Version(major,minor,patch,revision);
     }
     internal static string Hash(string path){using(var algorithm=SHA256.Create())using(var stream=File.OpenRead(path))return BitConverter.ToString(algorithm.ComputeHash(stream)).Replace("-","").ToLowerInvariant();}
@@ -46,7 +50,7 @@ internal static class ServerUpdate {
             return Process.Start(new ProcessStartInfo(helper,"--apply-update "+Quote(staged)+" "+Quote(root)+" "+Process.GetCurrentProcess().Id+" "+serverPid+" "+(publicMode?"public":"local")+" "+digest){UseShellExecute=false});
         }catch{try{Directory.Delete(folder,true);}catch{}throw;}
     }
-    static string Quote(string value){return "\""+value.Replace("\"","")+"\"";}
+    static string Quote(string value){return """+value.Replace(""","")+""";}
     static void Wait(int id){try{using(var process=Process.GetProcessById(id)){if(!process.WaitForExit(60000))throw new TimeoutException("サーバーの終了を確認できませんでした。管理画面から停止して、もう一度更新してください。");}}catch(ArgumentException){}}
     internal static void Run(string[] args) {
         if(args.Length!=7)return;

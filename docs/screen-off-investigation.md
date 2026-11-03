@@ -1,6 +1,6 @@
-# 画面消灯後のサーバー停止：確認と修正（v2.0.0-rc）
+# 画面消灯後のサーバー停止：確認と修正（v2.0.0-beta1）
 
-確認日：2026年11月1日。実機から「消灯するとサーバーにも接続できなくなる」との報告を受けて、実装とMicrosoftの電源API資料を確認しました。この修正はv2.0.0-rcのインストーラ版・ZIP版に含まれます。rc3以前には含まれていません。
+確認日：2026年11月1日。実機から「消灯するとサーバーにも接続できなくなる」との報告を受けて、実装とMicrosoftの電源API資料を確認しました。この修正はv2.0.0-beta1のインストーラ版・ZIP版に含まれます。rc3以前には含まれていません。
 
 ## 確認した実装上の問題
 
@@ -33,3 +33,13 @@ CIはモニターを実際には消しません。物理端末の消灯中にiPh
 - [PowerSetRequest](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-powersetrequest)：ExecutionRequiredの対象、電池動作時のModern Standby制限、ユーザーによるスリープで要求が終了すること。
 - [SetThreadExecutionState](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate)：継続的なシステム実行要求。
 - [Modern Standby states](https://learn.microsoft.com/en-us/windows-hardware/design/device-experiences/modern-standby-states)：画面オフから省電力状態へ移行する段階と、実行可能な処理の制限。
+
+## 2026-11-03の追加報告
+
+電源接続時のスリープを「なし」に設定済みの端末でも、自動消灯中にiPhoneで「安全な接続を確立できない」となり、PCのロック解除後は同じ共有URLで再接続できると報告されました。通常のスリープ待機時間だけを原因とは断定できません。Modern Standbyと公開用通信の状態を切り分けるため、`powercfg /a` ではS0低電力アイドル（ネットワーク接続）・休止状態・高速スタートアップが利用可能、S1〜S3とハイブリッドスリープは利用不可との報告でした。Modern Standby対応は確認できましたが、実際の停止箇所は未特定です。beta1では解消済みとせず、実消灯を維持してWindows設定の確認手順を案内します。
+
+公開用Funnelは通常の常駐CLIとして起動しており、WindowsのTailscaleをRun unattendedへ自動変更していません。公式のRun unattendedはログアウト・再起動後の接続維持用で、Modern Standby中の通信継続を保証するものとは確認できていません。消灯中にローカルHTTPと共有HTTPSのどちらが応答しなくなるかで、サーバー全体と公開用通信を切り分けます。
+
+### Windows Hello設定の確認結果
+
+報告者の追加確認で、復帰後にロック画面が出る原因はWindows Helloの「サインインを再度求めるタイミング」だったと判明しました。実消灯方式は変更しません。消灯中のHTTPS接続については、設定変更後の再確認と分けて扱います。

@@ -64,7 +64,7 @@ test('翌日早朝の予約も日本時間で10分前に送り、元の夜の日
  f.setTime('2026-10-29T00:05:00+09:00');await f.flush();assert.equal(f.sent.length,1);assert.match(f.sent[0].payload.body,/翌00:15/);assert.equal(f.sent[0].payload.day,'2026-10-28');
 });
 test('自動確定した事前希望も通知対象とし、未確定の希望は送らない',async t=>{
- const f=await fixture(t);await f.subscribe(2);await f.api('wish',{day:'2026-10-28',start:1200,duration:30},f.cookies[2]);await f.flush();assert.equal(f.app.notificationDueAt(),null);
+ const f=await fixture(t);await f.subscribe(2);await f.api('wish',{day:'2026-10-28',start:1200,duration:30},f.cookies[2]);await f.flush();assert.equal(f.sent.length,0);assert.equal(f.app.notificationDueAt(),at('20:00:00').getTime());
  await f.book();await f.flush();assert.equal(f.app.notificationDueAt(),at('19:50:00').getTime());f.setTime(at('19:50:00'));await f.flush();assert.equal(f.sent.length,1);assert.match(f.sent[0].payload.body,/利用者2.*20:00/);
 });
 test('サーバー再起動後に予約と通知予定を復元し、旧データへの導入でも予約を保持',async t=>{

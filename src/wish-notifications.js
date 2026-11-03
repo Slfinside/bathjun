@@ -82,7 +82,7 @@ export function createWishNotifications({
               .get(job.day, job.member_id, job.revision)
           : db
               .prepare(
-                "SELECT 1 FROM wishes WHERE day=? AND member_id=? AND revision=? AND (displaced=1 OR ?=member_id)",
+                "SELECT 1 FROM wishes WHERE day=? AND member_id=? AND revision=? AND (displaced=1 OR ?=member_id OR EXISTS(SELECT 1 FROM wish_start_attempts a WHERE a.revision=wishes.revision))",
               )
               .get(
                 job.day,

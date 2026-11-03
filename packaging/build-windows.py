@@ -15,11 +15,15 @@ def fetch(url,path,expected=None):
     if expected and sha(path)!=expected:raise RuntimeError(f'Checksum mismatch: {path.name}')
 
 def windows_file_version(version):
-    match=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-rc(?:\.?([0-9]+))?)?',version)
+    match=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-(rc|beta)(?:\.?([0-9]+))?)?',version)
     if not match:raise ValueError('Unsupported release version: '+version)
     parts=[int(match.group(i)) for i in range(1,4)]
-    revision=int(match.group(4) or '1') if '-rc' in version else 65535
-    if any(part>65535 for part in parts) or not 1<=revision<=65535 or ('-rc' in version and revision==65535):raise ValueError('Version is outside Windows resource limits')
+    phase=match.group(4)
+    if phase=='beta' and not match.group(5):raise ValueError('Beta number is required')
+    number=int(match.group(5) or '1')
+    if phase and not 1<=number<=(32767 if phase=='beta' else 32766):raise ValueError('Preview number is outside Windows resource limits')
+    revision=number if phase=='beta' else 32768+number if phase=='rc' else 65535
+    if any(part>65535 for part in parts):raise ValueError('Version is outside Windows resource limits')
     return '.'.join(map(str,[*parts,revision]))
 
 def build(args):

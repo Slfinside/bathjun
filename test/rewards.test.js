@@ -1158,7 +1158,7 @@ test("スタンプ・インク不足、未来日・過去週・不正日付、�
     f.request("items/stamp", { day, requestId: randomUUID() });
   assert.equal((await use("2026-10-25")).status, 409);
   await f.grant(1, ["bathStamp"]);
-  for (const day of ["2026-10-24", "2026-10-27", "2026-10-31"])
+  for (const day of ["2026-10-17", "2026-10-27", "2026-10-31"])
     assert.equal((await use(day)).status, 409);
   for (const day of ["2026-02-30", "bad", null])
     assert.equal((await use(day)).status, 400);
@@ -1538,5 +1538,172 @@ test("自動希望の失敗通知を待つ間に様子見へ変えたら未送�
     f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishUnconfirmed"))
       .length,
     0,
+  );
+});
+
+test("入らない/様子見を翌日・明後日に共有・撤回でき、先行抽選はしない", async (t) => {
+  const f = await fixture(t);
+  for (const day of ["2026-10-26", "2026-10-27"]) {
+    await f.api("skip", { day, skip: true });
+    let s = await f.api("state?day=" + day);
+    assert.equal(s.draw, null);
+    assert.deepEqual(s.skips, [1]);
+    await f.api("skip", { day, skip: false });
+    assert.deepEqual((await f.api("state?day=" + day)).skips, []);
+  }
+  await f.api("skip", { day: "2026-10-26", skip: true });
+  f.time("2026-10-26T08:00:00");
+  const s = await f.state();
+  assert.equal(s.draw.order.at(-1), 1);
+  assert.equal(s.skips.includes(1), true);
+});
+
+test("順番前の希望は開始ちょうどに空き枠ならアクセスなしで確定・通常の通知を送り、再起動で重複しない", async (t) => {
+  const f = await fixture(t);
+  await f.api(
+    "notification-preferences",
+    { reservationTurn: false, bathReminder: false },
+    2,
+  );
+  await f.api(
+    "push/subscribe",
+    { subscription: reportSubscription("wish-start") },
+    2,
+  );
+  await f.api(
+    "wish",
+    { day: "2026-10-25", start: 1200, duration: 30, note: "先に希望" },
+    2,
+  );
+  assert.equal(
+    f.app.notificationDueAt(),
+    Date.parse("2026-10-25T20:00:00+09:00"),
+  );
+  f.time("2026-10-25T19:59:59");
+  await f.app.flushNotifications();
+  assert.equal((await f.state()).bookings.length, 0);
+  f.time("2026-10-25T20:00:00");
+  await f.app.flushNotifications();
+  let s = await f.state();
+  assert.equal(s.bookings.length, 1);
+  const b = s.bookings[0];
+  assert.equal(b.memberId, 2);
+  assert.equal(b.start, 1200);
+  assert.equal(b.autoConfirmed, 1);
+  assert.equal(b.note, "先に希望");
+  assert.deepEqual(s.draw.order, [1, 2, 3]);
+  assert.equal(
+    f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishConfirmed"))
+      .length,
+    1,
+  );
+  await f.restart();
+  await f.app.flushNotifications();
+  s = await f.state();
+  assert.equal(s.bookings[0].revision, b.revision);
+  assert.equal(
+    f.sent.filter((n) => n.payload.tag.startsWith("bath-wish-wishConfirmed"))
+      .length,
+    1,
+  );
+});
+
+test("開始時刻の確定でも予約・希望の重複を許さず、失敗後にタイマーが空回りしない", async (t) => {
+  const f = await fixture(t);
+  await f.book(1, 1200, 30);
+  await f.api("wish", { day: "2026-10-25", start: 1200, duration: 30 }, 3);
+  f.time("2026-10-25T20:00:00");
+  await f.app.flushNotifications();
+  assert.equal(
+    (await f.state()).bookings.some((b) => b.memberId === 3),
+    false,
+  );
+  assert.equal(
+    (await f.state()).wishes.some((w) => w.memberId === 3),
+    true,
+  );
+  assert.equal(
+    f.app.notificationDueAt() > Date.parse("2026-10-25T20:00:00+09:00") ||
+      f.app.notificationDueAt() === null,
+    true,
+  );
+  const other = await fixture(t);
+  for (const id of [2, 3])
+    await other.api(
+      "wish",
+      { day: "2026-10-25", start: 1200, duration: 30 },
+      id,
+    );
+  other.time("2026-10-25T20:00:00");
+  await other.app.flushNotifications();
+  assert.equal((await other.state()).bookings.length, 0);
+});
+
+test("日付の異なる予約とも重複判定し、終了と開始の一致は許可する", async (t) => {
+  for (const duration of [30, 90]) {
+    const f = await fixture(t);
+    await f.api("wish", { day: "2026-10-25", start: 1830, duration }, 2);
+    f.time("2026-10-26T00:00:00");
+    await f.book(1, 420, 30, null, "2026-10-26");
+    f.time("2026-10-26T06:30:00");
+    await f.app.flushNotifications();
+    const s = await f.api("state?day=2026-10-25");
+    assert.equal(
+      s.bookings.some((b) => b.memberId === 2),
+      duration === 30,
+    );
+  }
+});
+
+test("開始時刻で確定してもチケットの使用制限を無視せず、消費しない", async (t) => {
+  const f = await fixture(t);
+  f.app.saveRewardSettings({
+    ...f.app.getRewardsAdmin().settings,
+    extensionBlocked: false,
+  });
+  await f.grant(2, ["extend"]);
+  await f.api(
+    "wish",
+    { day: "2026-10-25", start: 1080, duration: 120, ticket: "extend" },
+    2,
+  );
+  f.time("2026-10-25T18:00:00");
+  await f.app.flushNotifications();
+  const s = await f.state(2);
+  assert.equal(s.bookings.length, 0);
+  assert.equal(s.rewards.wallet.find((x) => x.kind === "extend").quantity, 1);
+});
+
+test("インクは先週にも使え、前週の7日達成報酬を一度だけ発行する", async (t) => {
+  const f = await fixture(t);
+  await f.grant(1, ["bathStamp", "stampInk"]);
+  for (let i = 0; i < 7; i++) {
+    const day = addDay("2026-10-25", i);
+    f.time(day + "T08:00:00");
+    await f.book(1, 1080, 30, null, day);
+    if (i === 2) continue;
+    const b = (await f.state()).bookings.find((b) => b.memberId === 1);
+    f.time(day + "T18:20:00");
+    await f.api("complete", { day, revision: b.revision });
+  }
+  f.time("2026-11-02T08:00:00");
+  const body = { day: "2026-10-27", requestId: randomUUID() };
+  await f.api("items/stamp", body);
+  await f.api("items/stamp", body);
+  const card = (await f.api("rewards?week=2026-10-25")).card;
+  assert.equal(card.achieved, true);
+  assert.equal(
+    (await f.state()).rewards.gifts.filter((g) => g.rewardWeek === "2026-10-25")
+      .length,
+    1,
+  );
+  assert.equal(
+    (
+      await f.request("items/stamp", {
+        day: "2026-10-24",
+        requestId: randomUUID(),
+      })
+    ).status,
+    409,
   );
 });

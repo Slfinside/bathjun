@@ -7,7 +7,8 @@ internal static class ServerUpdateTest {
     static void Main(string[] args){
         string root=(string)typeof(Member).Assembly.GetType("ServerUpdate").GetProperty("InstallRoot",BindingFlags.Static|BindingFlags.NonPublic).GetValue(null,null);if(!Directory.Exists(root))throw new Exception("InstallRoot did not resolve");
         var old=(Version)Call("ParseVersion","1.3.0");var rc=(Version)Call("ParseVersion","2.0.0-rc");var rc2=(Version)Call("ParseVersion","2.0.0-rc2");if(rc2!=(Version)Call("ParseVersion","2.0.0-rc.2"))throw new Exception("RC aliases differ");var stable=(Version)Call("ParseVersion","2.0.0");
-        if(!(old<rc&&rc<rc2&&rc2<stable)||rc.ToString()!="2.0.0.1")throw new Exception("RC/stable update ordering is invalid");
+        if(!(old<rc&&rc<rc2&&rc2<stable)||rc.ToString()!="2.0.0.32769")throw new Exception("RC/stable update ordering is invalid");
+        var beta=(Version)Call("ParseVersion","2.0.0-beta1");if(!(old<beta&&beta<rc)||beta.ToString()!="2.0.0.1")throw new Exception("Beta ordering failed");
         foreach(string invalid in new[]{"2.0.0-rc0","2.0.0-rc65535","2.0.0-rc.0","2.0.0-rc.65535","2.0.0-beta","65536.0.0","2.0.0-rcx"}){try{Call("ParseVersion",invalid);throw new Exception("Invalid release version accepted");}catch(TargetInvocationException e){if(!(e.InnerException is InvalidDataException))throw;}}
         var current=new Version("1.0.0");var version=(Version)Call("ValidateInstaller",args[0],current);if(version<=current)throw new Exception("Upgrade missing");
         if(args.Length>2)Call("ValidateInstaller",args[2],current);

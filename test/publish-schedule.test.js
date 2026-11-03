@@ -38,7 +38,7 @@ test('翌日を表示しても固定順を確定しない。時刻制限は翌�
  const login=await api('register',{memberId:1,password:'test-password'});
  const tomorrow=await api('state?day=2026-10-29',null,login.cookie);
  assert.equal(tomorrow.status,200);assert.equal(tomorrow.body.tomorrow,'2026-10-29');assert.equal(tomorrow.body.settings.orderMode,'fixed');assert.equal(tomorrow.body.draw,null);
- assert.equal((await api('skip',{day:'2026-10-29',skip:true},login.cookie)).status,400);
+ assert.equal((await api('skip',{day:'2026-10-29',skip:true},login.cookie)).status,200);assert.equal((await api('state?day=2026-10-29',null,login.cookie)).body.draw,null);
  assert.equal((await api('state?day=2026-10-30',null,login.cookie)).status,200);
  assert.equal((await api('state?day=2026-10-31',null,login.cookie)).status,400);
  app.saveServerSettings({members:app.getServerSettings().members,schedule:{...DEFAULT_SCHEDULE,lotteryTimeRestricted:true}});

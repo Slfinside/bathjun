@@ -53,9 +53,9 @@ test('希望同士が重なれば両方残し、片方の取り消しで現在�
  await f.api('book',{day:f.day,start:900,duration:30},f.cookies[1]);assert.equal((await f.state()).wishes.length,2);
  await f.api('wish/cancel',{day:f.day},f.cookies[3]);const state=await f.state();assert.equal(state.wishes.length,0);assert.equal(state.bookings.find(b=>b.memberId===2).autoConfirmed,1);
 });
-test('開始時刻を過ぎた希望は確定せず、隣接する希望は重複扱いにしない',async t=>{
+test('終了時刻を過ぎた希望は確定せず、隣接する希望は重複扱いにしない',async t=>{
  const f=await fixture(t);await f.state();await f.api('wish',{day:f.day,start:1080,duration:30},f.cookies[2]);
- f.setTime('2026-10-28T18:01:00+09:00');await f.api('book',{day:f.day,start:1200,duration:30},f.cookies[1]);assert.equal((await f.state()).bookings.length,1);assert.equal((await f.state()).wishes.length,1);
+ f.setTime('2026-10-28T18:31:00+09:00');await f.api('book',{day:f.day,start:1200,duration:30},f.cookies[1]);assert.equal((await f.state()).bookings.length,1);assert.equal((await f.state()).wishes.length,1);
  await f.api('wish',{day:f.day,start:1230,duration:30},f.cookies[2]);assert.equal((await f.state()).bookings.length,2);
 });
 test('利用停止や様子見で順番が進んだ場合も希望を確定する',async t=>{

@@ -25,6 +25,9 @@ internal static class AutomaticUpdateTest {
         object stable=Call("Select",releases,"1.3.0",false);if((Version)stable.GetType().GetField("version").GetValue(stable)!=new Version(2,0,0,65535))throw new Exception("Stable update selection failed");
         object rc=Call("Select",json.Serialize(new[]{Release("2.0.0-rc2",true)}),"2.0.0-rc",false);if(rc==null)throw new Exception("RC updates excluded");
         if(Call("Select",json.Serialize(new[]{Release("2.0.0-rc2",true)}),"1.3.0",false)!=null)throw new Exception("Stable installs opted into preview");
+        if(Call("Select",json.Serialize(new[]{Release("2.0.0-beta2",true)}),"2.0.0-beta1",false)==null)throw new Exception("Beta updates excluded");
+        if(Call("Select",json.Serialize(new[]{Release("2.0.0-rc",true)}),"2.0.0-beta1",false)==null)throw new Exception("Beta to RC updates excluded");
+        if(Call("Select",json.Serialize(new[]{Release("2.0.0-beta1",true)}),"1.3.0",false)!=null)throw new Exception("Stable installs opted into beta");
         if(Call("Select",releases,"2.0.0",false)!=null)throw new Exception("Equal version treated as upgrade");
         if(Call("Select",json.Serialize(new[]{Release("2.0.0",false,true)}),"1.3.0",true)==null)throw new Exception("Portable update selection failed");
         Rejected("Select",releases.Replace("https://github.com/Slfinside/bathjun/releases/download/","https://example.test/"),"1.3.0",false);
@@ -35,6 +38,7 @@ internal static class AutomaticUpdateTest {
             string bytes=Path.Combine(folder,"package.part");File.WriteAllText(bytes,"downloaded");
             string digest;using(var sha=SHA256.Create())digest=BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(bytes))).Replace("-","").ToLowerInvariant();
             Call("VerifyPackage",bytes,new FileInfo(bytes).Length,digest);Rejected("VerifyPackage",bytes,new FileInfo(bytes).Length,new string('0',64));Rejected("VerifyPackage",bytes,new FileInfo(bytes).Length+1,digest);
+            Call("ValidatePortable",Zip(folder,"2.0.0-beta1"),new Version(1,3,0,65535));
             string archive=Zip(folder,"2.0.0");Call("ValidatePortable",archive,new Version(1,3,0,65535));Rejected("ValidatePortable",archive,new Version(2,0,0,65535));
             Rejected("ValidatePortable",Zip(folder,"2.0.0","../outside.txt"),new Version(1,0));Rejected("ValidatePortable",Zip(folder,"2.0.0","app/data/private.sqlite"),new Version(1,0));
             using(var zip=new ZipArchive(File.Open(archive,FileMode.Open),ZipArchiveMode.Update)){using(var writer=new StreamWriter(zip.GetEntry("Bathjun-Portable/app/new.txt").Open()))writer.Write("tampered");}

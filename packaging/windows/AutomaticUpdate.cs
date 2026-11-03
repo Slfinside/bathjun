@@ -17,11 +17,11 @@ internal static class AutomaticUpdate {
     const long MaximumPackage=256L*1024*1024;
     internal static UpdateDownload Select(string json,string current,bool portable){
         var releases=new JavaScriptSerializer{MaxJsonLength=4*1024*1024}.Deserialize<UpdateRelease[]>(json);
-        Version installed=ServerUpdate.ParseVersion(current);bool preview=current.Contains("-rc");UpdateRelease chosen=null;Version version=installed;
+        Version installed=ServerUpdate.ParseVersion(current);bool preview=current.Contains("-rc")||current.Contains("-beta");UpdateRelease chosen=null;Version version=installed;
         foreach(var release in releases??new UpdateRelease[0]){
             if(release==null||release.draft||(!preview&&release.prerelease)||release.tag_name==null||!release.tag_name.StartsWith("v",StringComparison.Ordinal))continue;
             Version candidate;try{candidate=ServerUpdate.ParseVersion(release.tag_name.Substring(1));}catch(InvalidDataException){continue;}
-            if(!preview&&release.tag_name.Contains("-rc"))continue;
+            if(!preview&&(release.tag_name.Contains("-rc")||release.tag_name.Contains("-beta")))continue;
             if(candidate>version){chosen=release;version=candidate;}
         }
         if(chosen==null)return null;

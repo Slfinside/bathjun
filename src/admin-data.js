@@ -105,6 +105,7 @@ export function createAdminData({
         "completion_reminders",
         "nudge_jobs",
         "nudges",
+        "wish_start_attempts",
         "auto_wish_runs",
         "auto_wish_preferences",
         "stamp_repairs",
