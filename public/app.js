@@ -1279,6 +1279,7 @@ root.addEventListener("submit", async (event) => {
     if (!m.registered) guidePending = true;
     await refresh(true);
     if (!m.registered) {
+      window.scrollTo(0, 0);
       guidePending = false;
       void openClientGuide("booking", true);
     }
