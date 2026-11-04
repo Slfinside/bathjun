@@ -1,18 +1,4 @@
-/* Same static typefaces as the native server dashboard. Hosted by this app. */
-@font-face {
-  font-family: "Bathjun Sans";
-  src: url("/fonts/NotoSansJP-Regular.520ea0779f08.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 100 500;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Bathjun Sans";
-  src: url("/fonts/NotoSansJP-Bold.ac652431d4be.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 600 900;
-  font-display: swap;
-}
+/* Web font faces are split by character coverage in /fonts/web.css. */
 :root {
   color-scheme: light;
   --bg: #f6f5f0;
@@ -2731,3 +2717,25 @@ footer .site-credit {
 #booking-dialog[data-reward-mode="both"] .roulette-result .item-art { width: 56px; height: 48px; }
 #booking-dialog[data-reward-mode="both"] .roulette-result h3 { font-size: 16px; margin: 0; }
 #booking-dialog[data-reward-mode="both"] .roulette-result > strong { font-size: 20px; }
+
+/* Guides share the booking sheet's paper, spacing and controls. */
+.guide-heading { display: flex; align-items: center; justify-content: flex-start; gap: 12px; }
+.help-button { width: 36px; height: 36px; flex: 0 0 36px; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--green); font: inherit; font-size: 18px; font-weight: 600; line-height: 1; cursor: pointer; }
+.help-button:focus-visible, .help-topics button:focus-visible { outline: 3px solid var(--orange); outline-offset: 3px; }
+.guide-dialog { width: min(560px, calc(100% - 28px)); max-height: 90dvh; overflow: auto; border: 1px solid var(--line); border-radius: 24px; padding: 24px; color: var(--ink); background: var(--paper); }
+.guide-dialog::backdrop { background: #1c2c1c80; backdrop-filter: blur(4px); }
+.guide-dialog h2 { font-size: 23px; margin: 0; }
+.guide-dialog h3 { font-size: 16px; margin: 0 0 8px; }
+.guide-dialog p { line-height: 1.85; }
+.guide-steps { list-style: none; padding: 0; counter-reset: guide-step; display: grid; gap: 12px; margin: 22px 0; }
+.guide-steps li { counter-increment: guide-step; position: relative; border: 1px solid var(--line); border-radius: 16px; padding: 18px 16px 14px 48px; }
+.guide-steps li::before { content: counter(guide-step, decimal-leading-zero); position: absolute; left: 15px; top: 18px; color: var(--green); font-size: 13px; font-weight: 600; }
+.guide-steps p { margin: 0; font-size: 14px; }
+.guide-details { margin: 20px 0; border-top: 1px solid var(--line); padding-top: 16px; }
+.guide-details summary { cursor: pointer; color: var(--green); padding: 6px 0; }
+.guide-details h3 { margin-top: 20px; }
+.guide-details p { font-size: 14px; }
+.guide-dialog > .primary { width: 100%; }
+.help-topics { display: grid; gap: 12px; margin: 24px 0; }
+.help-topics button { padding: 18px; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); background: var(--paper); font: inherit; text-align: left; cursor: pointer; }
+.help-manual { display: block; width: fit-content; margin: 20px 0; color: var(--green); text-underline-offset: 5px; }

@@ -12,6 +12,10 @@ v1.3.0から、週間スタンプとアイテム、プレゼントボックス�
 
 [日付・予約の区切りとダッシュボードの変更](docs/calendar-days.md)、[消灯処理の修正と実機確認の範囲](docs/screen-off-investigation.md)も収録しています。
 
+## v2.1.0に向けた改善
+
+クライアント内の使い方ガイドと、フォント・画面ファイルの読み込み改善を開発中です。[ガイドの構成と公開手順](docs/client-help.md)を参照してください。公開済みbeta2の配布物にはまだ含まれません。
+
 ## 安定版のダウンロード
 
 **[GitHub Releases](https://github.com/Slfinside/bathjun/releases/latest)** から取得してください。

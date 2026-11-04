@@ -15,6 +15,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
+      - name: Build the static client manual
+        run: python3 packaging/build-help.py --output /tmp/bathjun-help-site
       - name: Compile the shipped UI against .NET Framework reference assemblies
         run: |
           sudo apt-get update

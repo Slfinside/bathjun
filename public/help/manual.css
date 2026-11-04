@@ -1,0 +1,11 @@
+.manual-hero { padding: 42px 0 28px; }
+.manual-hero h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.4; margin: 12px 0; }
+.manual-hero p { color: var(--muted); line-height: 1.9; }
+.manual-nav { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin: 0 0 40px; }
+.manual-nav a { border: 1px solid var(--line); border-radius: 16px; padding: 18px; background: var(--paper); color: var(--green); text-decoration: none; line-height: 1.6; }
+.manual-section { scroll-margin-top: 20px; margin-bottom: 32px; padding: clamp(20px,4vw,36px); border: 1px solid var(--line); border-radius: 24px; background: var(--paper); }
+.manual-section h2 { font-size: 24px; margin: 0 0 16px; }
+.manual-section > p { color: var(--muted); line-height: 1.9; }
+.manual-note { line-height: 1.9; color: var(--muted); }
+.manual-top { display: block; margin-top: 24px; color: var(--green); text-underline-offset: 4px; }
+@media(max-width:380px) { .manual-nav { grid-template-columns: 1fr; } }

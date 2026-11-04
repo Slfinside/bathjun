@@ -23,6 +23,31 @@ let pageView = "home",
   stampWeek = null,
   celebrationWeek = null;
 const celebrating = new Set();
+let guidePending = false;
+async function openClientGuide(topic, onboarding = false) {
+  if (guidePending) return;
+  guidePending = true;
+  try {
+    const { openGuide } = await import("./help.js");
+    await openGuide(topic, { onboarding });
+  } catch (error) {
+    notify(error.message);
+  } finally {
+    guidePending = false;
+    maybeCelebrate();
+  }
+}
+const helpButton = (topic, label) =>
+  `<button type="button" class="help-button" data-guide="${topic}" aria-label="${label}">?</button>`;
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-guide]");
+  if (button) void openClientGuide(button.dataset.guide);
+});
+document.addEventListener("change", (event) => {
+  if (event.target.matches('#auto-standby-form input[name="enabled"]'))
+    void openClientGuide("autoStandby");
+});
+
 const itemName = (kind) =>
   ({
     skip: "順番抜かしチケット",
@@ -135,6 +160,7 @@ function renderHeaderAccount() {
         ["inventory", "持ち物"],
         ["stamps", "スタンプカード"],
         ["settings", "設定"],
+        ["help", "ヘルプ"],
       ]
         .map(
           ([key, label]) =>
@@ -442,7 +468,7 @@ root.addEventListener("submit", async (event) => {
   }
 });
 function autoStandbyForm() {
-  return `<form id="auto-standby-form" class="notification-preferences"><h3>毎日の予約設定</h3><label class="notification-choice"><input type="checkbox" name="enabled" ${state.autoStandby ? "checked" : ""}><span>自動で「入らない/様子見」にする</span></label><p class="muted">次に順番を決める夜から、予約順の末尾へ回ります。予約や希望は取り消しません。順番が決まっている今日分は「入らない/様子見」や「通常の順番に戻す」で変更できます。</p><p class="muted">${state.rewards.settings.standbyFailureDays}日連続で入浴しないと、その連続した日が失敗になります。判定前は「−」で表示します。</p><button type="submit" class="primary">予約設定を保存</button><p class="form-error" role="alert"></p></form>`;
+  return `<form id="auto-standby-form" class="notification-preferences"><h3>毎日の予約設定</h3><label class="notification-choice"><input type="checkbox" name="enabled" ${state.autoStandby ? "checked" : ""}><span>自動で「入らない/様子見」にする</span></label><button type="submit" class="primary">予約設定を保存</button><p class="form-error" role="alert"></p></form>`;
 }
 document
   .querySelector(".app-shell")
@@ -1249,7 +1275,12 @@ root.addEventListener("submit", async (event) => {
     });
     me = result.me;
     previousTurn = null;
+    if (!m.registered) guidePending = true;
     await refresh(true);
+    if (!m.registered) {
+      guidePending = false;
+      void openClientGuide("booking", true);
+    }
     void syncNotifications();
   } catch (error) {
     errorBox.textContent = error.message;
@@ -1509,7 +1540,7 @@ function renderStampCard(compact = true) {
     ? `<button class="stamp-use-button" data-action="stamp-card-use" ${owned("bathStamp") && owned("stampInk") ? "" : 'disabled title="おふろスタンプとインクが必要です"'}><img src="/stamps/bath.svg" alt="" width="26" height="26">おふろスタンプを使う</button>`
     : "";
   const period = `<span class="stamp-period"><small>${card.week.slice(0, 4)}年</small><span>${shortDate(card.week)} 〜 ${shortDate(last)}</span></span>`;
-  return `<section class="stamp-card"><div class="card-title"><h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong class="stamp-mark" aria-label="${d.status === "stamp" ? "成功" : d.status === "failed" ? "失敗" : "未確定"}">${d.status === "stamp" ? '<img class="bath-stamp" src="/stamps/bath.svg" alt="" width="48" height="48">' : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${stampButton}${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}分${d.reason === "ink" ? "（スタンプのインクを使用）" : d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
+  return `<section class="stamp-card"><div class="card-title guide-heading">${helpButton("stamps", "スタンプカードの使い方")}<h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong class="stamp-mark" aria-label="${d.status === "stamp" ? "成功" : d.status === "failed" ? "失敗" : "未確定"}">${d.status === "stamp" ? '<img class="bath-stamp" src="/stamps/bath.svg" alt="" width="48" height="48">' : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${stampButton}${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}分${d.reason === "ink" ? "（スタンプのインクを使用）" : d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
 }
 function renderSecondaryPage() {
   const expandedGifts = new Set(
@@ -1520,10 +1551,12 @@ function renderSecondaryPage() {
   renderHeaderAccount();
   let html = "";
   if (pageView === "stamps") html = renderStampCard(false);
+  if (pageView === "help")
+    html = `<section class="help-page"><h2>ヘルプ</h2><p class="muted">知りたいことから、ひとつずつ。</p><div class="help-topics"><button data-guide="booking">予約と事前希望</button><button data-guide="items">アイテムの使い方</button><button data-guide="stamps">スタンプカード</button><button data-guide="autoStandby">毎日の予約設定</button></div><a class="help-manual" href="https://slfinside.github.io/bathjun/" target="_blank" rel="noopener noreferrer">オンラインの使い方ガイド ↗</a><a class="help-manual muted" href="/help/" target="_blank" rel="noopener noreferrer">このアプリで説明書を読む ↗</a></section>`;
   if (pageView === "settings")
     html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoWishesForm()}${autoStandbyForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
   if (pageView === "inventory")
-    html = `<section class="inventory-page"><h2>持ち物</h2><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}${itemUnit(x.kind)}</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
+    html = `<section class="inventory-page"><div class="guide-heading">${helpButton("items", "アイテムの使い方")}<h2>持ち物</h2></div><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}${itemUnit(x.kind)}</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
   if (["gifts", "history"].includes(pageView)) {
     const history = pageView === "history",
       gifts = state.rewards.gifts.filter((g) => history || !g.receivedAt);
@@ -1734,7 +1767,14 @@ document.querySelector("#header-account").addEventListener(
 );
 
 function maybeCelebrate() {
-  if (!state || !itemsEnabled() || pageView !== "home" || dialog.open) return;
+  if (
+    !state ||
+    !itemsEnabled() ||
+    pageView !== "home" ||
+    dialog.open ||
+    guidePending
+  )
+    return;
   const pending = state.rewards?.celebrations.find(
     (x) => !celebrating.has(x.week),
   );

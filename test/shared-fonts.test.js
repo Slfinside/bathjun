@@ -13,7 +13,7 @@ test('共通フォントの通常・太字とライセンスを同梱し、各�
   assert.equal(createHash('sha256').update(data).digest('hex'),info.sha256);
  }
  const css=readFileSync(new URL('../public/style.css',import.meta.url),'utf8');
- for(const name of Object.keys(manifest.files).filter(n=>n.endsWith('.woff2')))assert.ok(css.includes('/fonts/'+name));
+ assert.ok(readFileSync(new URL("../public/index.html",import.meta.url),"utf8").includes("/fonts/web.css"));
  assert.ok(css.includes('"Bathjun Sans", -apple-system'));
 });
 test('フォントも家族用の長いリンクで保護し、同一端末では繰り返し取得しない',async t=>{
