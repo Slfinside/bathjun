@@ -1,12 +1,32 @@
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
-import { timingSafeEqual } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
+import { brotliCompressSync, gzipSync, constants } from "node:zlib";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { requestUrl } from "./request-url.js";
 const equal = (a, b) =>
   typeof a === "string" &&
   Buffer.byteLength(a) === Buffer.byteLength(b) &&
   timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const webFonts = JSON.parse(
+  readFileSync(new URL("../public/fonts/web.json", import.meta.url)),
+);
 const assets = {
+  ...Object.fromEntries(
+    webFonts.faces.flatMap((face) =>
+      face.files.map((file) => [
+        `/fonts/web/${file.file}`,
+        [`fonts/web/${file.file}`, "font/woff2"],
+      ]),
+    ),
+  ),
+  "/fonts/web.css": ["fonts/web.css", "text/css; charset=utf-8"],
+  "/help.js": ["help.js", "text/javascript; charset=utf-8"],
+  "/help/": ["help/index.html", "text/html; charset=utf-8"],
+  "/help/content.json": [
+    "help/content.json",
+    "application/json; charset=utf-8",
+  ],
+  "/help/manual.css": ["help/manual.css", "text/css; charset=utf-8"],
   ...Object.fromEntries(
     ["boost", "skip", "extend", "guard", "bathStamp", "stampInk"].map(
       (kind) => [`/items/${kind}.svg`, [`items/${kind}.svg`, "image/svg+xml"]],
@@ -38,11 +58,25 @@ const assets = {
     "application/manifest+json",
   ],
 };
+// Content negotiation respects q=0; API responses and gated manifests stay no-store.
+function encodingFor(header = "") {
+  const values = new Map(
+    header.split(",").map((part) => {
+      const [name, ...parameters] = part.trim().toLowerCase().split(";");
+      const q = parameters.find((p) => p.trim().startsWith("q="));
+      return [name, q ? Number(q.trim().slice(2)) : 1];
+    }),
+  );
+  const quality = (name) => values.get(name) ?? values.get("*") ?? 0;
+  const choices = ["br", "gzip"].filter((name) => quality(name) > 0);
+  return choices.sort((a, b) => quality(b) - quality(a))[0] || "identity";
+}
 export function createHttpServer(
   app,
   { privateLink = false, publicOrigin = null } = {},
 ) {
   const config = { publicOrigin };
+  const fileCache = new Map();
   const server = createServer((req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
@@ -106,18 +140,68 @@ export function createHttpServer(
       return res.end("Not found");
     }
     try {
-      let content = readFileSync(
-        new URL(`../public/${asset[0]}`, import.meta.url),
-      );
+      const file = new URL(`../public/${asset[0]}`, import.meta.url);
+      const stat = statSync(file),
+        stamp = `${stat.mtimeMs}:${stat.size}`;
+      let cached = fileCache.get(path);
+      if (!cached || cached.stamp !== stamp) {
+        cached = { stamp, content: readFileSync(file), variants: new Map() };
+        fileCache.set(path, cached);
+      }
       if (privateLink && path === "/manifest.webmanifest") {
-        const manifest = JSON.parse(content.toString());
+        const manifest = JSON.parse(cached.content.toString());
         manifest.start_url = `/family/${app.accessToken()}/`;
         manifest.scope = "/";
-        content = Buffer.from(JSON.stringify(manifest));
+        res.writeHead(200, { "Content-Type": asset[1] });
+        return res.end(
+          req.method === "HEAD" ? undefined : JSON.stringify(manifest),
+        );
       }
-      if (asset[1] === "font/woff2")
-        res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
-      res.writeHead(200, { "Content-Type": asset[1] });
+      const compressible =
+        /^(text\/|application\/(json|manifest\+json)|image\/svg\+xml)/.test(
+          asset[1],
+        );
+      const encoding =
+        compressible && cached.content.length > 256
+          ? encodingFor(req.headers["accept-encoding"])
+          : "identity";
+      if (!cached.variants.has(encoding)) {
+        const content =
+          encoding === "br"
+            ? brotliCompressSync(cached.content, {
+                params: { [constants.BROTLI_PARAM_QUALITY]: 4 },
+              })
+            : encoding === "gzip"
+              ? gzipSync(cached.content)
+              : cached.content;
+        const etag =
+          '"' + createHash("sha256").update(content).digest("hex") + '"';
+        cached.variants.set(encoding, { content, etag });
+      }
+      const { content, etag } = cached.variants.get(encoding);
+      res.setHeader(
+        "Cache-Control",
+        asset[1] === "font/woff2"
+          ? "private, max-age=31536000, immutable"
+          : "private, no-cache",
+      );
+      res.setHeader("ETag", etag);
+      res.setHeader("Vary", "Accept-Encoding");
+      res.setHeader("Content-Type", asset[1]);
+      if (encoding !== "identity") res.setHeader("Content-Encoding", encoding);
+      if (
+        (req.headers["if-none-match"] || "")
+          .split(",")
+          .some(
+            (tag) =>
+              tag.trim() === "*" || tag.trim().replace(/^W\//, "") === etag,
+          )
+      ) {
+        res.writeHead(304);
+        return res.end();
+      }
+      res.setHeader("Content-Length", content.length);
+      res.writeHead(200);
       res.end(req.method === "HEAD" ? undefined : content);
     } catch {
       res.writeHead(500);
