@@ -2,13 +2,13 @@
 
 お風呂の順番と時間を家族で共有するアプリです。Windows PCをサーバーにして、iPhoneなどのブラウザーから予約できます。
 
-## v2.0.0-beta1
+## v2.0.0-beta2
 
-v1.3.0から、週間スタンプとアイテム、プレゼントボックス、サーバーダッシュボード、曜日ごとの自動予約を追加したベータ版です。事前の「入らない/様子見」、希望開始時刻での空き枠の確定、今週・先週へのインク使用にも対応しています。
+v1.3.0から、週間スタンプとアイテム、プレゼントボックス、サーバーダッシュボード、曜日ごとの自動予約を追加したベータ版です。beta2では固定＋ルーレットの併用とWindows画面制御の作り直しを収録しました。事前の「入らない/様子見」、希望開始時刻での空き枠の確定、今週・先週へのインク使用にも対応しています。
 
-**[v2.0.0-beta1のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.0.0-beta1)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.0.0-beta1/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.0.0-beta1/Bathjun-Portable-x64.zip)
+**[v2.0.0-beta2のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.0.0-beta2)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.0.0-beta2/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.0.0-beta2/Bathjun-Portable-x64.zip)
 
-[RC版の使い方](docs/v2-preview-guide.md)と[変更・未搭載の範囲](docs/release-notes.md)をご確認ください。
+[ベータ版の使い方](docs/v2-preview-guide.md)と[変更・未搭載の範囲](docs/release-notes.md)をご確認ください。
 
 [日付・予約の区切りとダッシュボードの変更](docs/calendar-days.md)、[消灯処理の修正と実機確認の範囲](docs/screen-off-investigation.md)も収録しています。
 
@@ -32,7 +32,7 @@ Windows 10/11の64bit版、.NET Framework 4.7.2以降が必要です。Node.js�
 - **[利用者向け：iPhoneでの初回設定・予約・通知](docs/user-guide.md)**
 - **[管理者向け：導入・メンバー設定・外部公開・ダッシュボード・更新](docs/administrator-guide.md)**
 - [開発者向け：ソース・テスト・ビルド](docs/development.md)
-- [v2.0.0向け開発版：週間カード・アイテム・新メニューの使い方](docs/v2-preview-guide.md)（v2.0.0-beta1に収録）
+- [v2.0.0向け開発版：週間カード・アイテム・新メニューの使い方](docs/v2-preview-guide.md)（v2.0.0-beta2に収録）
 - [更新履歴](CHANGELOG.md)
 - [セキュリティ確認結果と運用上の注意](docs/security-review.md)
 

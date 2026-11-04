@@ -138,6 +138,20 @@ export function createRewards({ db, now, scheduleForDay }) {
     db.exec(
       "ALTER TABLE weekly_rewards ADD COLUMN reward_mode TEXT NOT NULL DEFAULT 'roulette'",
     );
+  if (
+    !db
+      .prepare("PRAGMA table_info(weekly_rewards)")
+      .all()
+      .some((c) => c.name === "reward_items_json")
+  )
+    db.exec("ALTER TABLE weekly_rewards ADD COLUMN reward_items_json TEXT");
+  function weeklyReward(row) {
+    if (!row) return null;
+    const { reward_items_json, ...reward } = row;
+    return reward_items_json
+      ? { ...reward, items: JSON.parse(reward_items_json) }
+      : reward;
+  }
   const defaults = () => ({
     itemsEnabled: true,
     standbyFailureDays: 2,
@@ -254,17 +268,14 @@ export function createRewards({ db, now, scheduleForDay }) {
     const fixedKind = value.fixedKind ?? settings().fixedKind;
     const fixedQuantity = value.fixedQuantity ?? settings().fixedQuantity;
     if (
-      !["roulette", "fixed"].includes(rewardMode) ||
+      !["roulette", "fixed", "both"].includes(rewardMode) ||
       !ITEM_KINDS.includes(fixedKind) ||
       !Number.isInteger(fixedQuantity) ||
       fixedQuantity < 1 ||
       fixedQuantity > 99
     )
       bad("達成報酬の方式・種類・枚数を確認してください。");
-    if (
-      rewardMode === "roulette" &&
-      !ITEM_KINDS.some((k) => value.weights[k] > 0)
-    )
+    if (rewardMode !== "fixed" && !ITEM_KINDS.some((k) => value.weights[k] > 0))
       bad("1種類以上の出現率を有効にしてください。");
     const limits = Object.fromEntries(
       [
@@ -751,12 +762,13 @@ export function createRewards({ db, now, scheduleForDay }) {
                   : "pending"),
       };
     });
-    const claimed =
+    const claimed = weeklyReward(
       db
         .prepare(
-          "SELECT kind,quantity,reward_mode AS mode FROM weekly_rewards WHERE week=? AND member_id=?",
+          "SELECT kind,quantity,reward_mode AS mode,reward_items_json FROM weekly_rewards WHERE week=? AND member_id=?",
         )
-        .get(week, member) || null;
+        .get(week, member),
+    );
     return {
       week,
       days: cells,
@@ -766,16 +778,18 @@ export function createRewards({ db, now, scheduleForDay }) {
     };
   }
   function queueWeekly(member, week) {
-    const existing = db
-      .prepare(
-        "SELECT kind,quantity,reward_mode AS mode FROM weekly_rewards WHERE week=? AND member_id=?",
-      )
-      .get(week, member);
+    const existing = weeklyReward(
+      db
+        .prepare(
+          "SELECT kind,quantity,reward_mode AS mode,reward_items_json FROM weekly_rewards WHERE week=? AND member_id=?",
+        )
+        .get(week, member),
+    );
     if (existing) return existing;
     const config = settings();
     if (!config.itemsEnabled) return null;
     let kind = config.fixedKind;
-    if (config.rewardMode === "roulette") {
+    if (config.rewardMode !== "fixed") {
       let number = randomInt(
         ITEM_KINDS.reduce((sum, k) => sum + config.weights[k], 0),
       );
@@ -793,22 +807,47 @@ export function createRewards({ db, now, scheduleForDay }) {
           : config.quantities[kind],
       created = now().toISOString(),
       batch = "weekly:" + week + ":" + member;
+    const items =
+      config.rewardMode === "both"
+        ? [
+            {
+              kind: config.fixedKind,
+              quantity: config.fixedQuantity,
+              mode: "fixed",
+            },
+            { kind, quantity, mode: "roulette" },
+          ]
+        : [{ kind, quantity, mode: config.rewardMode }];
     db.prepare(
-      "INSERT INTO weekly_rewards(week,member_id,kind,quantity,claimed_at,reward_mode) VALUES(?,?,?,?,?,?)",
-    ).run(week, member, kind, quantity, created, config.rewardMode);
-    db.prepare("INSERT INTO item_batches VALUES(?,?)").run(batch, created);
-    db.prepare(
-      "INSERT INTO item_gifts(id,batch_id,member_id,kind,quantity,created_at,reward_week) VALUES(?,?,?,?,?,?,?)",
+      "INSERT INTO weekly_rewards(week,member_id,kind,quantity,claimed_at,reward_mode,reward_items_json) VALUES(?,?,?,?,?,?,?)",
     ).run(
-      randomBytes(16).toString("hex"),
-      batch,
+      week,
       member,
       kind,
       quantity,
       created,
-      week,
+      config.rewardMode,
+      config.rewardMode === "both" ? JSON.stringify(items) : null,
     );
-    return { kind, quantity, mode: config.rewardMode };
+    db.prepare("INSERT INTO item_batches VALUES(?,?)").run(batch, created);
+    for (const item of items)
+      db.prepare(
+        "INSERT INTO item_gifts(id,batch_id,member_id,kind,quantity,created_at,reward_week) VALUES(?,?,?,?,?,?,?)",
+      ).run(
+        randomBytes(16).toString("hex"),
+        batch,
+        member,
+        item.kind,
+        item.quantity,
+        created,
+        week,
+      );
+    return {
+      kind,
+      quantity,
+      mode: config.rewardMode,
+      ...(config.rewardMode === "both" ? { items } : {}),
+    };
   }
   function claim(member, week) {
     if (
@@ -828,9 +867,10 @@ export function createRewards({ db, now, scheduleForDay }) {
     return {
       celebrations: db
         .prepare(
-          "SELECT week,kind,quantity,reward_mode AS mode FROM weekly_rewards WHERE member_id=? AND celebrated_at IS NULL ORDER BY week",
+          "SELECT week,kind,quantity,reward_mode AS mode,reward_items_json FROM weekly_rewards WHERE member_id=? AND celebrated_at IS NULL ORDER BY week",
         )
-        .all(member),
+        .all(member)
+        .map(weeklyReward),
       pendingGifts: db
         .prepare(
           "SELECT COUNT(*) AS n FROM item_gifts WHERE member_id=? AND received_at IS NULL",

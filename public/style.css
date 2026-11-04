@@ -2684,3 +2684,50 @@ footer .site-credit {
 .standby-wish { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--bg); }
 .standby-wish span { display: grid; gap: 4px; }
 .standby-wish small { color: var(--muted); }
+
+.celebration-prize.fixed-bonus {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 12px;
+  text-align: left;
+}
+.fixed-bonus > .item-icon {
+  grid-column: 1;
+  grid-row: 1 / 4;
+  align-self: center;
+}
+.fixed-bonus > :not(.item-icon) {
+  grid-column: 2;
+}
+.fixed-bonus .item-art {
+  width: 56px;
+  height: 48px;
+}
+.fixed-bonus h3 {
+  font-size: 16px;
+  margin: 0;
+}
+.fixed-bonus > strong {
+  font-size: 20px;
+}
+
+#booking-dialog[data-mode="celebration"][data-reward-mode="both"] .roulette-wheel {
+  width: 180px;
+  height: 180px;
+}
+#booking-dialog[data-mode="celebration"][data-reward-mode="both"] .roulette-result {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 12px;
+  text-align: left;
+}
+#booking-dialog[data-reward-mode="both"] .roulette-result > .item-icon {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  align-self: center;
+}
+#booking-dialog[data-reward-mode="both"] .roulette-result .item-art { width: 56px; height: 48px; }
+#booking-dialog[data-reward-mode="both"] .roulette-result h3 { font-size: 16px; margin: 0; }
+#booking-dialog[data-reward-mode="both"] .roulette-result > strong { font-size: 20px; }

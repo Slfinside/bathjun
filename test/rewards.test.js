@@ -1707,3 +1707,83 @@ test("インクは先週にも使え、前週の7日達成報酬を一度だけ�
     409,
   );
 });
+
+test("固定＋ルーレットは両方を一度だけ送り、同じ種類でも個数を保ち再起動・設定変更で再抽選しない", async (t) => {
+  for (const fixedKind of ["guard", "extend"]) {
+    await t.test(fixedKind, async (t) => {
+      const f = await fixture(t),
+        config = f.app.getRewardsAdmin().settings;
+      const weights = Object.fromEntries(
+        Object.keys(config.weights).map((k) => [k, k === "extend" ? 1 : 0]),
+      );
+      f.app.saveRewardSettings({
+        ...config,
+        rewardMode: "both",
+        fixedKind,
+        fixedQuantity: 1,
+        quantities: { ...config.quantities, extend: 3 },
+        weights,
+      });
+      for (let i = 0; i < 7; i++) {
+        const day = addDay("2026-10-25", i);
+        f.time(day + "T08:00:00");
+        await f.book(1, 1080, 30, null, day);
+        const booking = (await f.api("state?day=" + day)).bookings.find(
+          (b) => b.memberId === 1,
+        );
+        f.time(day + "T18:15:00");
+        await f.api("complete", { day, revision: booking.revision });
+      }
+      const expected = {
+        kind: "extend",
+        quantity: 3,
+        mode: "both",
+        items: [
+          { kind: fixedKind, quantity: 1, mode: "fixed" },
+          { kind: "extend", quantity: 3, mode: "roulette" },
+        ],
+      };
+      const reward = (await f.state()).rewards;
+      assert.equal(reward.pendingGifts, 2);
+      assert.deepEqual(reward.card.claimed, expected);
+      assert.deepEqual(reward.celebrations, [
+        { week: "2026-10-25", ...expected },
+      ]);
+      assert.equal((await f.state(2)).rewards.pendingGifts, 0);
+      f.app.saveRewardSettings({
+        ...config,
+        rewardMode: "fixed",
+        fixedKind: "boost",
+        fixedQuantity: 9,
+      });
+      await f.restart();
+      for (let i = 0; i < 2; i++)
+        assert.deepEqual(
+          await f.api("rewards/claim", { week: "2026-10-25" }),
+          expected,
+        );
+      const gifts = (await f.state()).rewards.gifts;
+      assert.equal(gifts.length, 2);
+      for (const gift of gifts) {
+        await f.api("gifts/receive", { id: gift.id });
+        await f.api("gifts/receive", { id: gift.id });
+      }
+      const wallet = (await f.state()).rewards.wallet;
+      assert.equal(
+        wallet.find((x) => x.kind === "extend").quantity,
+        fixedKind === "extend" ? 4 : 3,
+      );
+      if (fixedKind === "guard")
+        assert.equal(wallet.find((x) => x.kind === "guard").quantity, 1);
+      await f.api("rewards/celebrate", { week: "2026-10-25" });
+      assert.equal((await f.state()).rewards.celebrations.length, 0);
+      assert.throws(() =>
+        f.app.saveRewardSettings({
+          ...config,
+          rewardMode: "both",
+          weights: Object.fromEntries(Object.keys(weights).map((k) => [k, 0])),
+        }),
+      );
+    });
+  }
+});

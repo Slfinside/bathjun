@@ -1742,7 +1742,13 @@ function maybeCelebrate() {
   celebrationWeek = pending.week;
   celebrating.add(pending.week);
   dialog.dataset.mode = "celebration";
+  dialog.dataset.rewardMode = pending.mode;
   const roulette = pending.mode !== "fixed";
+  const fixedPrize =
+    pending.mode === "both"
+      ? pending.items.find((item) => item.mode === "fixed")
+      : null;
+
   const rouletteKinds = Object.keys(state.rewards.settings.weights).filter(
     (k) => state.rewards.settings.weights[k] > 0 || k === pending.kind,
   );
@@ -1756,7 +1762,7 @@ function maybeCelebrate() {
     "#dee7eb",
   ];
   const wheelBackground = `conic-gradient(${rouletteKinds.map((k, i) => `${colors[i % colors.length]} ${i * sector}deg ${(i + 1) * sector}deg`).join(",")})`;
-  dialog.innerHTML = `<div class="sheet-heading"><h2 class="celebration-heading" id="booking-title"><span>1週間達成、</span><span>おめでとう！</span></h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p>${roulette ? `<div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel">${rouletteKinds.map((k) => `<span>${itemIcon(k)}</span>`).join("")}</div></div>` : ""}<div class="${roulette ? "roulette-result" : "fixed-result"} celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}${itemUnit(pending.kind)} 獲得！</strong></div><button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 class="celebration-heading" id="booking-title"><span>1週間達成、</span><span>おめでとう！</span></h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p>${roulette ? `<div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel">${rouletteKinds.map((k) => `<span>${itemIcon(k)}</span>`).join("")}</div></div>` : ""}<div class="${roulette ? "roulette-result" : "fixed-result"} celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}${itemUnit(pending.kind)} 獲得！</strong></div>${fixedPrize ? `<div class="fixed-result celebration-prize fixed-bonus"><span class="muted">固定報酬</span><span class="item-icon">${itemIcon(fixedPrize.kind)}</span><h3>${itemName(fixedPrize.kind)}</h3><strong>${fixedPrize.quantity}${itemUnit(fixedPrize.kind)} 獲得！</strong></div>` : ""}<button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
   const wheel = dialog.querySelector(".roulette-wheel");
   if (wheel) {
     wheel.style.background = wheelBackground;
