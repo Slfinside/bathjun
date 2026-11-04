@@ -8,7 +8,7 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
 public sealed class DashboardOverlap { public int memberId,start,end; }
-public sealed class DashboardEntry { public DashboardOverlap[] overlaps; public int memberId,start,duration; public string name,kind,startsAt,endsAt,emoji,color,revision,completedAt,day,ticket; }
+public sealed class DashboardEntry { public DashboardOverlap[] overlaps; public int memberId,start,duration,automatic; public string name,kind,startsAt,endsAt,emoji,color,revision,completedAt,day,ticket; }
 public sealed class DashboardMember { public int id; public string name,status,emoji,color; public bool deferred; }
 public sealed class DashboardData {
     public string day,now,phase,shareUrl; public int bathStart,bathEnd,reportMinutes=1;
@@ -336,7 +336,8 @@ internal sealed class DashboardForm : Form {
             Box(g,bar,wish?Paper:Color.FromArgb(48,62,38),conflict?Orange:Green,4,wish);
             if(conflict)foreach(var overlap in entry.overlaps){float a=ChartY(overlap.start,parts,chartTop,chartHeight),b=ChartY(overlap.end,parts,chartTop,chartHeight);using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Orange,Color.Transparent))g.FillRectangle(brush,bar.X,a,bar.Width,Math.Max(1,b-a));}
             if(conflict&&bar.Height>=26)using(var brush=new SolidBrush(Paper))g.FillRectangle(brush,new RectangleF(bar.X+3,bar.Y+2,Math.Max(1,bar.Width-6),24));
-            if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+entry.name,Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
+            if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+entry.name+(entry.automatic!=0&&bar.Height<44?" · 自動予約":""),Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
+            if(entry.automatic!=0&&bar.Height>=44)Write(g,"自動予約",10,wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+27,Math.Max(1,bar.Width-8),18));
         }
         foreach(var part in parts)if(part.end-part.start>=120&&part.weight==60){float y=ChartY((part.start+part.end)/2,parts,chartTop,chartHeight);Write(g,"〜",16,Muted,new RectangleF(trackX,y-10,trackWidth,24));}
     }

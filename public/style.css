@@ -2652,17 +2652,8 @@ footer .site-credit {
 .gift-description p { margin: 0 0 10px; line-height: 1.8; }
 .gift-description summary:focus-visible { outline: 3px solid #d7a764; outline-offset: 4px; border-radius: 4px; }
 
-.auto-wish-days { display: grid; gap: 16px; margin: 20px 0; }
-.auto-wish-day { min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; }
-.auto-wish-day legend { padding: 0 8px; }
-.auto-wish-day legend label { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 0; }
-.auto-wish-day input[type="checkbox"] { width: 20px; height: 20px; }
 .auto-wish-time { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
-.auto-wish-day input, .auto-wish-day select { min-width: 0; max-width: 100%; }
-.auto-wish-day input:disabled, .auto-wish-day select:disabled { opacity: .5; }
-.auto-wish-time > label, .auto-wish-day > label { display: grid; gap: 8px; }
-.auto-wish-day > label { margin-top: 14px; }
-.auto-wish-day input[type="time"], .auto-wish-day input[type="text"] { width: 100%; min-height: 44px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; }
+.auto-wish-time > label { display: grid; gap: 8px; }
 
 .stamp-use-button { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 48px; margin-top: 16px; padding: 10px; border: 1px solid #cbd5bf; border-radius: 12px; background: #f4f6ed; color: var(--green); }
 .stamp-use-button:disabled { opacity: .45; }
@@ -2739,3 +2730,17 @@ footer .site-credit {
 .help-topics { display: grid; gap: 12px; margin: 24px 0; }
 .help-topics button { padding: 18px; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); background: var(--paper); font: inherit; text-align: left; cursor: pointer; }
 .help-manual { display: block; width: fit-content; margin: 20px 0; color: var(--green); text-underline-offset: 5px; }
+
+.auto-reservation-table { width: 100%; border-collapse: collapse; margin: 18px 0 24px; font-variant-numeric: tabular-nums; }
+.auto-reservation-table th, .auto-reservation-table td { padding: 11px 8px; border-bottom: 1px solid var(--line); text-align: center; }
+.auto-reservation-table thead th { color: var(--muted); font-size: 12px; font-weight: 500; }
+.auto-reservation-table tbody th { width: 24%; font-weight: 500; }
+.auto-standby-cell { color: var(--muted); font-size: 14px; }
+.auto-reservation-settings .guide-heading h3 { margin: 0; }
+.auto-reservation-editor { display: grid; gap: 16px; margin-bottom: 20px; }
+.auto-reservation-fields { display: grid; gap: 16px; }
+.auto-reservation-fields[hidden] { display: none; }
+.automatic-label { font-size: 10px; color: var(--green); padding: 3px 6px; background: var(--pear); border-radius: 6px; white-space: nowrap; }
+
+.auto-reservation-editor > label, .auto-reservation-fields > label { display: grid; gap: 8px; }
+#auto-wishes-form input[type="time"], #auto-wishes-form input[type="text"] { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; }

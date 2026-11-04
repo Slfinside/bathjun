@@ -43,10 +43,6 @@ document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-guide]");
   if (button) void openClientGuide(button.dataset.guide);
 });
-document.addEventListener("change", (event) => {
-  if (event.target.matches('#auto-standby-form input[name="enabled"]'))
-    void openClientGuide("autoStandby");
-});
 
 const itemName = (kind) =>
   ({
@@ -396,43 +392,61 @@ function notificationPreferencesForm() {
       "",
     )}<label class="reminder-minutes">入浴の何分前に通知するか<input type="number" name="reminderMinutes" min="1" max="180" step="1" required value="${Number(settings.reminderMinutes) || 10}"><span>分前</span></label><p class="muted">種類と分数は、自分の端末間で共通です。通知の許可は端末ごとに必要です。</p><button type="submit" class="primary">通知設定を保存</button><p class="form-error" role="alert"></p></form>`;
 }
-function autoWishesForm() {
-  const days = state.autoWishes.days;
-  const durations = Array.from(
-    {
-      length:
-        Math.floor(
-          (state.settings.maxDuration - state.settings.minDuration) /
-            state.settings.step,
-        ) + 1,
-    },
-    (_, i) => state.settings.minDuration + i * state.settings.step,
+let autoEditWeekday = null,
+  autoEditDirty = false;
+const autoMode = (day) =>
+  day.mode ||
+  (day.enabled ? "reservation" : state.autoStandby ? "standby" : "disabled");
+const clockValue = (minute) =>
+  `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+function autoReservationEditor() {
+  const day = state.autoWishes.days.find((d) => d.weekday === autoEditWeekday);
+  const mode = autoMode(day),
+    enabled = mode === "reservation";
+  const durations = [...new Set([...durationValues(), day.duration])].sort(
+    (a, b) => a - b,
   );
-  return `<form id="auto-wishes-form" class="notification-preferences"><h3>曜日ごとの自動予約</h3><p class="muted">自分の予約順が回ってきたら、曜日ごとに設定した時間を自動で送信します。空いていれば確定し、重なりがあれば事前希望として残して結果を通知します。</p><p class="muted">区切りの${time(state.settings.bathStart)}より早い時刻は翌朝です。入力済みの予約・希望・「入らない/様子見」は上書きしません。保存当日も、自分の順番でまだ自動送信していなければ適用します。その日一度送った希望は、取り消しても自動で出し直しません。</p><div class="auto-wish-days">${days
-    .map(
-      (d) =>
-        `<fieldset class="auto-wish-day"><legend><label><input type="checkbox" name="enabled-${d.weekday}" data-auto-wish-weekday="${d.weekday}" ${d.enabled ? "checked" : ""}>${"日月火水木金土"[d.weekday]}曜日</label></legend><div class="auto-wish-time"><label>開始時刻<input type="time" name="start-${d.weekday}" step="${state.settings.step * 60}" value="${String(Math.floor(d.start / 60)).padStart(2, "0")}:${String(d.start % 60).padStart(2, "0")}" ${d.enabled ? "" : "disabled"} required></label><label>長さ<select name="duration-${d.weekday}" ${d.enabled ? "" : "disabled"}>${[
-          ...new Set([...durations, d.duration]),
-        ]
-          .sort((a, b) => a - b)
-          .map(
-            (n) =>
-              `<option value="${n}" ${n === d.duration ? "selected" : ""}>${n}分</option>`,
-          )
-          .join(
-            "",
-          )}</select></label></div><label>備考<input type="text" name="note-${d.weekday}" maxlength="300" value="${escapeHTML(d.note)}" ${d.enabled ? "" : "disabled"}></label></fieldset>`,
-    )
+  return `<label>曜日<select name="weekday" aria-label="曜日">${state.autoWishes.days.map((d) => `<option value="${d.weekday}" ${d.weekday === autoEditWeekday ? "selected" : ""}>${"日月火水木金土"[d.weekday]}曜日</option>`).join("")}</select></label><label>設定内容<select name="mode" aria-label="設定内容"><option value="reservation" ${mode === "reservation" ? "selected" : ""}>予約する</option><option value="standby" ${mode === "standby" ? "selected" : ""}>入らない/様子見</option><option value="disabled" ${mode === "disabled" ? "selected" : ""}>未設定（無効）</option></select></label><div class="auto-reservation-fields" ${enabled ? "" : "hidden"}><div class="auto-wish-time"><label>開始時刻<input type="time" name="start" value="${clockValue(day.start)}" step="${state.settings.step * 60}" required ${enabled ? "" : "disabled"}></label><label>長さ<select name="duration" aria-label="長さ" ${enabled ? "" : "disabled"}>${durations.map((n) => `<option value="${n}" ${n === day.duration ? "selected" : ""}>${n}分</option>`).join("")}</select></label></div><label>備考<input name="note" type="text" maxlength="300" value="${escapeHTML(day.note)}" ${enabled ? "" : "disabled"}></label></div>`;
+}
+function autoWishesForm() {
+  autoEditWeekday ??= new Date(state.today + "T12:00:00Z").getUTCDay();
+  return `<section class="notification-preferences auto-reservation-settings"><div class="guide-heading">${helpButton("automation", "自動予約の使い方")}<h3>自動予約</h3></div><table class="auto-reservation-table" aria-label="現在の自動予約設定"><thead><tr><th scope="col">曜日</th><th scope="col">開始時刻</th><th scope="col">長さ</th></tr></thead><tbody>${state.autoWishes.days
+    .map((d) => {
+      const mode = autoMode(d);
+      return `<tr><th scope="row">${"日月火水木金土"[d.weekday]}</th>${mode === "standby" ? '<td colspan="2" class="auto-standby-cell">入らない/様子見</td>' : mode === "disabled" ? '<td class="muted">−</td><td class="muted">−</td>' : `<td>${clockValue(d.start)}</td><td>${d.duration}分</td>`}</tr>`;
+    })
     .join(
       "",
-    )}</div><button class="primary" type="submit">自動予約設定を保存</button><p class="form-error" role="alert"></p></form>`;
+    )}</tbody></table><form id="auto-wishes-form"><div class="auto-reservation-editor">${autoReservationEditor()}</div><button class="primary" type="submit">設定する</button><p class="form-error" role="alert"></p></form></section>`;
 }
+root.addEventListener("input", (event) => {
+  if (
+    event.target.closest("#auto-wishes-form") &&
+    event.target.name !== "weekday"
+  )
+    autoEditDirty = true;
+});
 root.addEventListener("change", (event) => {
-  if (!event.target.matches("[data-auto-wish-weekday]")) return;
-  const row = event.target.closest("fieldset");
-  row
-    .querySelectorAll('input:not([type="checkbox"]),select')
-    .forEach((input) => (input.disabled = !event.target.checked));
+  const form = event.target.closest("#auto-wishes-form");
+  if (!form) return;
+  if (event.target.name === "weekday") {
+    autoEditWeekday = Number(event.target.value);
+    autoEditDirty = false;
+    form.querySelector(".auto-reservation-editor").innerHTML =
+      autoReservationEditor();
+    form.querySelector(".form-error").textContent = "";
+  } else {
+    autoEditDirty = true;
+    if (event.target.name === "mode") {
+      const enabled = event.target.value === "reservation",
+        fields = form.querySelector(".auto-reservation-fields");
+      fields.hidden = !enabled;
+      fields
+        .querySelectorAll("input,select")
+        .forEach((input) => (input.disabled = !enabled));
+      if (event.target.value === "standby") void openClientGuide("autoStandby");
+    }
+  }
 });
 root.addEventListener("submit", async (event) => {
   if (event.target.id !== "auto-wishes-form") return;
@@ -444,22 +458,24 @@ root.addEventListener("submit", async (event) => {
     data = new FormData(form);
   button.disabled = true;
   try {
-    const days = state.autoWishes.days.map((previous) => {
-      const weekday = previous.weekday,
-        clock = data.get(`start-${weekday}`)?.split(":");
+    const weekday = Number(data.get("weekday")),
+      mode = data.get("mode");
+    const days = state.autoWishes.days.map((day) => {
+      if (day.weekday !== weekday) return { ...day, mode: autoMode(day) };
+      const start = data.get("start")?.split(":");
       return {
-        weekday,
-        enabled: data.has(`enabled-${weekday}`),
-        start: clock
-          ? Number(clock[0]) * 60 + Number(clock[1])
-          : previous.start,
-        duration: Number(data.get(`duration-${weekday}`) ?? previous.duration),
-        note: data.get(`note-${weekday}`) ?? previous.note,
+        ...day,
+        mode,
+        enabled: mode === "reservation",
+        start: start ? Number(start[0]) * 60 + Number(start[1]) : day.start,
+        duration: Number(data.get("duration") ?? day.duration),
+        note: data.get("note") ?? day.note,
       };
     });
     await api("auto-wishes", { days });
+    autoEditDirty = false;
     await refresh(true);
-    notify("曜日ごとの自動予約設定を保存しました。");
+    notify("自動予約の設定を保存しました。");
   } catch (error) {
     form.querySelector(".form-error").textContent = error.message;
   } finally {
@@ -467,36 +483,7 @@ root.addEventListener("submit", async (event) => {
     button.disabled = false;
   }
 });
-function autoStandbyForm() {
-  return `<form id="auto-standby-form" class="notification-preferences"><h3>毎日の予約設定</h3><label class="notification-choice"><input type="checkbox" name="enabled" ${state.autoStandby ? "checked" : ""}><span>自動で「入らない/様子見」にする</span></label><button type="submit" class="primary">予約設定を保存</button><p class="form-error" role="alert"></p></form>`;
-}
-document
-  .querySelector(".app-shell")
-  .addEventListener("submit", async (event) => {
-    if (event.target.id !== "auto-standby-form") return;
-    event.preventDefault();
-    if (busy) return;
-    busy = true;
-    const form = event.target,
-      button = form.querySelector("[type=submit]");
-    button.disabled = true;
-    try {
-      const result = await api("auto-standby", {
-        enabled: new FormData(form).has("enabled"),
-      });
-      await refresh(true);
-      notify(
-        "毎日の予約設定を保存しました。" +
-          dateLabel(result.appliesFrom) +
-          "分から反映します。",
-      );
-    } catch (error) {
-      form.querySelector(".form-error").textContent = error.message;
-    } finally {
-      busy = false;
-      button.disabled = false;
-    }
-  });
+
 document
   .querySelector(".app-shell")
   .addEventListener("submit", async (event) => {
@@ -726,11 +713,11 @@ async function refresh(force = false) {
     me = data.me;
     selectedDay = data.day;
     if (
-      !(guidePending && pageView === "settings") &&
+      !((guidePending || autoEditDirty) && pageView === "settings") &&
       (force || signature !== lastSignature) &&
       (force ||
         !document.activeElement?.closest(
-          "#notification-preference-form, #auto-standby-form, #auto-wishes-form",
+          "#notification-preference-form, #auto-wishes-form",
         ))
     ) {
       renderDashboard();
@@ -822,7 +809,7 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
     content =
       '<span class="banner-symbol">☾</span><div><h3>この日のおふろは終了しました。</h3><p>今日のタブから次のおふろを確認できます。</p></div>';
   else if (booking)
-    content = `${icon("check")}<div><span class="eyebrow">YOUR BATH TIME</span><h3>${time(booking.start)} <span>〜</span> ${time(booking.start + booking.duration)}</h3><p>${booking.autoConfirmed ? "希望から自動確定" : "あなたの予約"} · ${booking.duration}分</p></div>${canEdit ? `<button class="primary" data-action="book" aria-label="自分の予約を変更">${icon("edit")}予約を変更</button>` : ""}`;
+    content = `${icon("check")}<div><span class="eyebrow">YOUR BATH TIME</span><h3>${time(booking.start)} <span>〜</span> ${time(booking.start + booking.duration)}</h3><p>${booking.automatic ? "自動予約" : booking.autoConfirmed ? "希望から自動確定" : "あなたの予約"} · ${booking.duration}分</p></div>${canEdit ? `<button class="primary" data-action="book" aria-label="自分の予約を変更">${icon("edit")}予約を変更</button>` : ""}`;
   else if (yourTurn)
     content = `${icon("bath")}<div><h3>${escapeHTML(me.name)}さん、選ぶ番です。</h3>${isDeferred() ? "<p>末尾の順番が回ってきました。希望するなら予約できます。</p>" : ""}</div>`;
   else if (isDeferred())
@@ -914,7 +901,7 @@ function renderSchedule() {
             slotDate(b.start + b.duration) > serverNow();
           const ended =
             !!b.completedAt || slotDate(b.start + b.duration) <= serverNow();
-          return `<article class="reservation ${wish ? "tentative" : ""} ${overlaps.length ? "has-overlap" : ""} ${ended ? "ended" : ""}" data-tint-member="${b.memberId}"><div class="reservation-top"><span class="reservation-time">${time(b.start)}<span> — </span>${time(b.start + b.duration)}</span><span class="duration">${b.duration}分</span></div><div class="reservation-person">${avatar(b.memberId, true)}<strong>${escapeHTML(memberName(b.memberId))}</strong>${b.memberId === me.id ? '<span class="you">あなた</span>' : ""}${wish ? '<span class="tentative-label">希望・未確定</span>' : b.autoConfirmed ? '<span class="auto-confirmed-label">希望から自動確定</span>' : current ? '<span class="bathing">入浴の時間</span>' : ended ? '<span class="bathing">終了</span>' : ""}</div>${overlaps.length ? `<p class="schedule-conflict"><strong>重なりあり</strong>${overlaps.map((o) => `${escapeHTML(memberName(o.memberId))} · ${time(o.start)}〜${time(o.end)}`).join("<br>")}</p>` : ""}${itemsEnabled() && b.ticket ? `<span class="ticket-label">${escapeHTML(itemName(b.ticket))}</span>` : ""}${b.note ? `<p class="booking-note">${escapeHTML(b.note)}</p>` : ""}${!wish && b.noNegotiation ? '<div class="no-negotiation">時間変更不可</div>' : ""}</article>`;
+          return `<article class="reservation ${wish ? "tentative" : ""} ${overlaps.length ? "has-overlap" : ""} ${ended ? "ended" : ""}" data-tint-member="${b.memberId}"><div class="reservation-top"><span class="reservation-time">${time(b.start)}<span> — </span>${time(b.start + b.duration)}</span><span class="duration">${b.duration}分</span></div><div class="reservation-person">${avatar(b.memberId, true)}<strong>${escapeHTML(memberName(b.memberId))}</strong>${b.memberId === me.id ? '<span class="you">あなた</span>' : ""}${b.automatic ? '<span class="automatic-label">自動予約</span>' : ""}${wish ? '<span class="tentative-label">希望・未確定</span>' : b.autoConfirmed && !b.automatic ? '<span class="auto-confirmed-label">希望から自動確定</span>' : current ? '<span class="bathing">入浴の時間</span>' : ended ? '<span class="bathing">終了</span>' : ""}</div>${overlaps.length ? `<p class="schedule-conflict"><strong>重なりあり</strong>${overlaps.map((o) => `${escapeHTML(memberName(o.memberId))} · ${time(o.start)}〜${time(o.end)}`).join("<br>")}</p>` : ""}${itemsEnabled() && b.ticket ? `<span class="ticket-label">${escapeHTML(itemName(b.ticket))}</span>` : ""}${b.note ? `<p class="booking-note">${escapeHTML(b.note)}</p>` : ""}${!wish && b.noNegotiation ? '<div class="no-negotiation">時間変更不可</div>' : ""}</article>`;
         };
         const entries = segment.entries || [segment];
         const overview =
@@ -1554,9 +1541,9 @@ function renderSecondaryPage() {
   let html = "";
   if (pageView === "stamps") html = renderStampCard(false);
   if (pageView === "help")
-    html = `<section class="help-page"><h2>ヘルプ</h2><p class="muted">知りたいことから、ひとつずつ。</p><div class="help-topics"><button data-guide="booking">予約と事前希望</button><button data-guide="items">アイテムの使い方</button><button data-guide="stamps">スタンプカード</button><button data-guide="autoStandby">毎日の予約設定</button></div><a class="help-manual" href="https://slfinside.github.io/bathjun/" target="_blank" rel="noopener noreferrer">オンラインの使い方ガイド ↗</a><a class="help-manual muted" href="/help/" target="_blank" rel="noopener noreferrer">このアプリで説明書を読む ↗</a></section>`;
+    html = `<section class="help-page"><h2>ヘルプ</h2><p class="muted">知りたいことから、ひとつずつ。</p><div class="help-topics"><button data-guide="booking">予約と事前希望</button><button data-guide="items">アイテムの使い方</button><button data-guide="stamps">スタンプカード</button><button data-guide="automation">自動予約の使い方</button></div><a class="help-manual" href="https://slfinside.github.io/bathjun/" target="_blank" rel="noopener noreferrer">オンラインの使い方ガイド ↗</a><a class="help-manual muted" href="/help/" target="_blank" rel="noopener noreferrer">このアプリで説明書を読む ↗</a></section>`;
   if (pageView === "settings")
-    html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoWishesForm()}${autoStandbyForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
+    html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoWishesForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
   if (pageView === "inventory")
     html = `<section class="inventory-page"><div class="guide-heading">${helpButton("items", "アイテムの使い方")}<h2>持ち物</h2></div><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}${itemUnit(x.kind)}</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
   if (["gifts", "history"].includes(pageView)) {
@@ -1624,6 +1611,7 @@ async function handleRewardsAction(action, event) {
     return true;
   }
   if (action.startsWith("nav-")) {
+    autoEditDirty = false;
     const target = action.slice(4);
     document.querySelector(".account-menu")?.removeAttribute("open");
     if (target === "reserve") {

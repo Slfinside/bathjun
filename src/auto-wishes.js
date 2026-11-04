@@ -19,6 +19,22 @@ export function createAutoWishes({
       "utf8",
     ),
   );
+  for (const table of ["wishes", "bookings"]) {
+    if (
+      !db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .some((c) => c.name === "automatic")
+    ) {
+      db.exec(
+        `ALTER TABLE ${table} ADD COLUMN automatic INTEGER NOT NULL DEFAULT 0 CHECK(automatic IN (0,1))`,
+      );
+      const revision = table === "wishes" ? "revision" : "auto_revision";
+      db.exec(
+        `UPDATE ${table} SET automatic=1 WHERE ${revision} IN (SELECT revision FROM auto_wish_runs WHERE status='submitted')`,
+      );
+    }
+  }
   const defaults = () =>
     Array.from({ length: 7 }, (_, weekday) => ({
       weekday,
@@ -52,6 +68,8 @@ export function createAutoWishes({
           d.weekday < 0 ||
           d.weekday > 6 ||
           typeof d.enabled !== "boolean" ||
+          (d.mode !== undefined &&
+            !["reservation", "standby", "disabled"].includes(d.mode)) ||
           !Number.isInteger(d.start) ||
           d.start < 0 ||
           d.start >= 1440 ||
@@ -65,7 +83,7 @@ export function createAutoWishes({
         const day = shiftDay(today, (d.weekday - weekday(today) + 7) % 7),
           rule = scheduleForDay(day);
         if (
-          d.enabled &&
+          (d.mode ? d.mode === "reservation" : d.enabled) &&
           !validateSlot(relativeStart(d.start, rule), d.duration, rule)
         )
           bad(
@@ -73,7 +91,8 @@ export function createAutoWishes({
           );
         return {
           weekday: d.weekday,
-          enabled: d.enabled,
+          enabled: d.mode ? d.mode === "reservation" : d.enabled,
+          ...(d.mode !== undefined ? { mode: d.mode } : {}),
           start: d.start,
           duration: d.duration,
           note: d.note.trim(),
@@ -153,7 +172,7 @@ export function createAutoWishes({
         if (rejected) onRejected(wish);
         else
           db.prepare(
-            "INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced) VALUES(?,?,?,?,?,?,NULL,0)",
+            "INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced,automatic) VALUES(?,?,?,?,?,?,NULL,0,1)",
           ).run(day, member, start, plan.duration, plan.note, revision);
       }
       db.exec("RELEASE automatic_wishes");
@@ -166,7 +185,8 @@ export function createAutoWishes({
   function hasPlans(day) {
     return enabledMembers().some((row) =>
       JSON.parse(row.days_json).some(
-        (d) => d.weekday === weekday(day) && d.enabled,
+        (d) =>
+          d.weekday === weekday(day) && (d.enabled || d.mode === "standby"),
       ),
     );
   }
@@ -185,7 +205,12 @@ export function createAutoWishes({
       const plans = JSON.parse(row.days_json);
       for (let offset = 1; offset <= 7; offset++) {
         const day = shiftDay(today, offset);
-        if (!plans.some((d) => d.weekday === weekday(day) && d.enabled))
+        if (
+          !plans.some(
+            (d) =>
+              d.weekday === weekday(day) && (d.enabled || d.mode === "standby"),
+          )
+        )
           continue;
         const value = slotDate(day, 0).getTime();
         due = due === null ? value : Math.min(due, value);
@@ -194,5 +219,12 @@ export function createAutoWishes({
     }
     return due;
   }
-  return { get, save, apply, ready, suppress, hasPlans, dueAt };
+  function standbyForDay(day, member) {
+    const plan = get(member).days.find((d) => d.weekday === weekday(day));
+    return plan?.mode !== undefined
+      ? plan.mode === "standby"
+      : !!db.prepare("SELECT auto_standby FROM members WHERE id=?").get(member)
+          ?.auto_standby;
+  }
+  return { get, save, apply, ready, suppress, hasPlans, dueAt, standbyForDay };
 }

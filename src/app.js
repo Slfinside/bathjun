@@ -183,7 +183,7 @@ export function createApp({
       let wish;
       while((wish=candidate())) {
         const applied=rewards.commitTicket(day,wish.member_id,wish.ticket);
-        db.prepare("INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,auto_confirmed,auto_revision,ticket,ticket_extension,revision) VALUES(?,?,?,?,?,0,1,?,?,?,?)").run(day,wish.member_id,wish.start,wish.duration,wish.note,wish.revision,applied.kind,applied.extension,randomBytes(16).toString('hex'));
+        db.prepare("INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,auto_confirmed,auto_revision,ticket,ticket_extension,revision,automatic) VALUES(?,?,?,?,?,0,1,?,?,?,?,?)").run(day,wish.member_id,wish.start,wish.duration,wish.note,wish.revision,applied.kind,applied.extension,randomBytes(16).toString('hex'),wish.automatic);
         wishNotifications.record(wish,"wishConfirmed");
         db.prepare("DELETE FROM wishes WHERE day=? AND member_id=?").run(day,wish.member_id);
       }
@@ -346,7 +346,7 @@ export function createApp({
 
   if (!db.prepare("PRAGMA table_info(bookings)").all().some(column=>column.name==="auto_revision"))db.exec("ALTER TABLE bookings ADD COLUMN auto_revision TEXT");
   const wishNotifications=createWishNotifications({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn});
-  const autoStandby=createAutoStandby(db);
+  const autoStandby=createAutoStandby(db,(day,member)=>autoWishes.standbyForDay(day,member));
   const scheduleForDay = serverSettings.scheduleForDay;
   const rewards=createRewards({db,now,scheduleForDay});
   const completionReminders=createCompletionReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,reportMinutes:()=>rewards.settings().clientReportMinutes});
@@ -767,12 +767,12 @@ export function createApp({
             .map((row) => row.member_id),
           wishes: db
             .prepare(
-              "SELECT member_id AS memberId,start,duration,note,ticket,displaced FROM wishes WHERE day=? ORDER BY start,member_id",
+              "SELECT member_id AS memberId,start,duration,note,ticket,displaced,automatic FROM wishes WHERE day=? ORDER BY start,member_id",
             )
             .all(day),
           bookings: db
             .prepare(
-              "SELECT member_id AS memberId,start,duration,note,no_negotiation AS noNegotiation,auto_confirmed AS autoConfirmed,ticket,ticket_extension AS ticketExtension,revision,(SELECT reported_at FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id) AS completedAt FROM bookings WHERE day=? ORDER BY start",
+              "SELECT member_id AS memberId,start,duration,note,no_negotiation AS noNegotiation,auto_confirmed AS autoConfirmed,automatic,ticket,ticket_extension AS ticketExtension,revision,(SELECT reported_at FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id) AS completedAt FROM bookings WHERE day=? ORDER BY start",
             )
             .all(day),
         });
@@ -893,7 +893,7 @@ export function createApp({
           fail(409, "予約済みです。時間の変更は自分の予約から行ってください。");
         const selectedTicket=rewards.ticket(body.ticket);if(selectedTicket==='skip')fail(400,'順番抜かしは予約を確定するときに使用してください。');
         db.prepare(
-          "INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced) VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,revision=excluded.revision,ticket=excluded.ticket,displaced=0",
+          "INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced) VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,revision=excluded.revision,ticket=excluded.ticket,displaced=0,automatic=0",
         ).run(day, me.id, start, duration, note.trim(),randomBytes(16).toString("hex"),selectedTicket);
         enqueueTurn(day,currentTurn(day));
         const confirmed=db.prepare("SELECT auto_confirmed FROM bookings WHERE day=? AND member_id=?").get(day,me.id);
@@ -945,13 +945,13 @@ export function createApp({
               if(overlaps.some(b=>b.ticket==='guard'))fail(409,'ガード付きの予約とは重ねられません。');
               for(const other of overlaps){
                 const revision=randomBytes(16).toString('hex');
-                db.prepare('INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced) VALUES(?,?,?,?,?,?,NULL,1) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,revision=excluded.revision,ticket=NULL,displaced=1').run(day,other.member_id,other.start,other.duration,other.note,revision);
+                db.prepare('INSERT INTO wishes(day,member_id,start,duration,note,revision,ticket,displaced,automatic) VALUES(?,?,?,?,?,?,NULL,1,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,revision=excluded.revision,ticket=NULL,displaced=1,automatic=excluded.automatic').run(day,other.member_id,other.start,other.duration,other.note,revision,other.automatic);
                 db.prepare('DELETE FROM bookings WHERE day=? AND member_id=?').run(day,other.member_id);
                 wishNotifications.record({day,member_id:other.member_id,start:other.start,duration:other.duration,revision},'wishUnconfirmed');
               }
             }
             const applied=rewards.commitTicket(day,me.id,selectedTicket,existing);
-            db.prepare('INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,ticket,ticket_extension,revision) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,no_negotiation=excluded.no_negotiation,auto_confirmed=0,auto_revision=NULL,ticket=excluded.ticket,ticket_extension=excluded.ticket_extension,revision=excluded.revision').run(day,me.id,start,duration,note.trim(),noNegotiation?1:0,applied.kind,applied.extension,randomBytes(16).toString('hex'));
+            db.prepare('INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,ticket,ticket_extension,revision) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,no_negotiation=excluded.no_negotiation,auto_confirmed=0,auto_revision=NULL,automatic=0,ticket=excluded.ticket,ticket_extension=excluded.ticket_extension,revision=excluded.revision').run(day,me.id,start,duration,note.trim(),noNegotiation?1:0,applied.kind,applied.extension,randomBytes(16).toString('hex'));
             db.prepare('DELETE FROM wishes WHERE day=? AND member_id=?').run(day,me.id);
           });
         }catch(error){if(String(error).includes('booking_overlap'))fail(409,'ほかの人の予約と重なっています。');throw error;}
@@ -1004,8 +1004,8 @@ export function createApp({
         if(db.prepare('SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)').all(candidate).some(b=>slotDate(candidate,b.start)<=now()&&now().getTime()<=slotDate(candidate,b.start+b.duration).getTime()+rewards.settings().dashboardReportMinutes*60000)){day=candidate;break;}
       }
       return {day,now:now().toISOString(),reportMinutes:rewards.settings().dashboardReportMinutes,settings:scheduleForDay(day),members:allMembers(false).map(({id,name,active,emoji,color})=>({id,name,active,emoji,color})),
-        bookings:db.prepare("SELECT member_id AS memberId,start,duration,ticket,revision,(SELECT reported_at FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id) AS completedAt FROM bookings WHERE day=? ORDER BY start").all(day),
-        wishes:db.prepare("SELECT member_id AS memberId,start,duration FROM wishes WHERE day=? ORDER BY start,member_id").all(day),
+        bookings:db.prepare("SELECT member_id AS memberId,start,duration,automatic,ticket,revision,(SELECT reported_at FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id) AS completedAt FROM bookings WHERE day=? ORDER BY start").all(day),
+        wishes:db.prepare("SELECT member_id AS memberId,start,duration,automatic FROM wishes WHERE day=? ORDER BY start,member_id").all(day),
         skips:db.prepare("SELECT member_id FROM bath_skips WHERE day=?").all(day).map(r=>r.member_id)};
     },
     getRewardsAdmin:rewards.admin,

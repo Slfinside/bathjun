@@ -1787,3 +1787,88 @@ test("固定＋ルーレットは両方を一度だけ送り、同じ種類で�
     });
   }
 });
+
+test("自動予約は曜日別に予約・様子見・無効を切り替え、旧毎日設定より曜日の指定を優先する", async (t) => {
+  const f = await fixture(t);
+  await f.api("auto-standby", { enabled: true });
+  const days = weeklyPlan(1).days.map((d) => ({
+    ...d,
+    mode:
+      d.weekday === 1
+        ? "reservation"
+        : d.weekday === 2
+          ? "standby"
+          : "disabled",
+  }));
+  await f.api("auto-wishes", { days });
+  assert.equal((await f.api("auto-wishes")).days[2].enabled, false);
+  f.time("2026-10-26T00:00:00");
+  await f.app.flushNotifications();
+  let state = await f.state();
+  assert.equal(state.bookings[0].automatic, 1);
+  assert.equal(state.bookings[0].start, 1200);
+  assert.deepEqual(state.skips, []);
+  f.time("2026-10-27T00:00:00");
+  await f.app.flushNotifications();
+  state = await f.state();
+  assert.deepEqual(state.skips, [1]);
+  assert.deepEqual(state.draw.order, [2, 3, 1]);
+  assert.equal(state.wishes.length, 0);
+  assert.ok(
+    f.app.notificationDueAt() > Date.parse("2026-10-27T00:00:00+09:00"),
+  );
+  await f.restart();
+  assert.deepEqual((await f.state()).skips, [1]);
+  f.time("2026-10-28T08:00:00");
+  assert.deepEqual((await f.state()).skips, []);
+  assert.equal(
+    (
+      await f.request("auto-wishes", {
+        days: days.map((d) => ({ ...d, mode: "other" })),
+      })
+    ).status,
+    400,
+  );
+});
+
+test("自動予約の由来は希望・確定・再起動で保持し、手入力の自動確定とは区別する", async (t) => {
+  const f = await fixture(t);
+  await f.api("auto-wishes", weeklyPlan(1));
+  await f.api("auto-wishes", weeklyPlan(1), 2);
+  f.time("2026-10-26T08:00:00");
+  await f.app.flushNotifications();
+  let state = await f.state();
+  assert.equal(state.bookings[0].automatic, 1);
+  assert.equal(state.wishes[0].automatic, 1);
+  await f.restart();
+  state = await f.state();
+  assert.equal(state.wishes[0].automatic, 1);
+  assert.equal(f.app.getDashboard().wishes[0].automatic, 1);
+  await f.api("wish", { day: "2026-10-26", start: 1260, duration: 30 }, 2);
+  state = await f.state();
+  const manual = state.bookings.find((b) => b.memberId === 2);
+  assert.equal(manual.autoConfirmed, 1);
+  assert.equal(manual.automatic, 0);
+  await f.book(1, 1080, 30, null, "2026-10-26");
+  assert.equal(
+    (await f.state()).bookings.find((b) => b.memberId === 1).automatic,
+    0,
+  );
+});
+
+test("旧自動予約の実行履歴から由来を移行し、手入力予約には自動予約を付けない", async (t) => {
+  const f = await fixture(t);
+  await f.api("auto-wishes", weeklyPlan(1));
+  await f.api("auto-wishes", weeklyPlan(1), 2);
+  f.time("2026-10-26T08:00:00");
+  await f.app.flushNotifications();
+  const db = new DatabaseSync(f.database);
+  db.exec(
+    "ALTER TABLE wishes DROP COLUMN automatic; ALTER TABLE bookings DROP COLUMN automatic",
+  );
+  db.close();
+  await f.restart();
+  const state = await f.state();
+  assert.equal(state.bookings[0].automatic, 1);
+  assert.equal(state.wishes[0].automatic, 1);
+});

@@ -124,7 +124,7 @@ export function createWishStarts({
           wish.ticket,
         );
         db.prepare(
-          "INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,auto_confirmed,auto_revision,ticket,ticket_extension,revision) VALUES(?,?,?,?,?,0,1,?,?,?,?)",
+          "INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,auto_confirmed,auto_revision,ticket,ticket_extension,revision,automatic) VALUES(?,?,?,?,?,0,1,?,?,?,?,?)",
         ).run(
           wish.day,
           wish.member_id,
@@ -135,6 +135,7 @@ export function createWishStarts({
           ticket.kind,
           ticket.extension,
           randomBytes(16).toString("hex"),
+          wish.automatic,
         );
         notifications.record(wish, "wishConfirmed");
         db.prepare("DELETE FROM wishes WHERE revision=?").run(wish.revision);
