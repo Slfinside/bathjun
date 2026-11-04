@@ -221,6 +221,8 @@ internal sealed class PanelForm : Form {
         addPeriod.Click+=delegate{if(displayPeriods.Rows.Count>=8)return;int index=displayPeriods.Rows.Add("08:00","15:00");displayPeriods.CurrentCell=displayPeriods.Rows[index].Cells[0];displayPeriods.BeginEdit(true);};
         removePeriod.Click+=delegate{if(displayPeriods.CurrentRow!=null)displayPeriods.Rows.Remove(displayPeriods.CurrentRow);};
         box.Controls.Add(TextLabel("HH:mm形式で入力。日をまたぐ時間帯も指定できます。終了時刻に自動点灯します。AC電源で使ってください。操作後は1分間点灯します。",70));box.Controls.Add(displayScheduleStatus);
+        var openPowerLog=ActionButton("画面制御の診断ログを開く");box.Controls.Add(openPowerLog);
+        openPowerLog.Click+=delegate{if(displayService==null||!File.Exists(displayService.LogPath)){MessageBox.Show(this,"診断ログはまだありません。");return;}try{Process.Start(new ProcessStartInfo(displayService.LogPath){UseShellExecute=true});}catch{MessageBox.Show(this,"診断ログを開けませんでした。保存先："+displayService.LogPath);}};
         var feedback=TextLabel("",34);var button=ActionButton("表示設定を保存");box.Controls.Add(button);box.Controls.Add(feedback);
         button.Click+=delegate{
             try{var schedule=ReadDisplayScheduleInput();var preference=new DashboardPreferences{fixedDetails=dashboardFixed.Checked,returnMinutes=(int)dashboardMinutes.Value};preference.Save();schedule.Save();displaySchedule=schedule;if(dashboard!=null)dashboard.ApplyPreferences(preference);feedback.Text="表示設定を保存しました。";}

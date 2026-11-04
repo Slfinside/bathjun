@@ -177,7 +177,7 @@ internal static class DashboardTest {
                 using(var bold=new Font(form.Font.FontFamily,18,FontStyle.Bold))if(bold.Height<=0)throw new Exception("Shared bold font cannot be measured");
                 try {
                     form.WindowState=FormWindowState.Normal;form.ClientSize=size;
-                    type.GetMethod("UpdateData").Invoke(form,new object[]{data});Set(form,"held",true);Countdown(form,type,data);
+                    type.GetMethod("UpdateData").Invoke(form,new object[]{data});Countdown(form,type,data);
                     var reader=type.GetField("presence",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(form);
                     Set(reader,"absent",true);Set(reader,"present",false);
                     var detailed=type.GetProperty("Detailed",BindingFlags.Instance|BindingFlags.NonPublic);

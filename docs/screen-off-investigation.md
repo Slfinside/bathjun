@@ -45,3 +45,13 @@ CIはモニターを実際には消しません。物理端末の消灯中にiPh
 報告者の追加確認で、復帰後にロック画面が出る原因はWindows Helloの「サインインを再度求めるタイミング」だったと判明しました。実消灯方式は変更しません。消灯中のHTTPS接続については、設定変更後の再確認と分けて扱います。
 
 追加画像では、サーバーPCが消灯中に別端末から開くとERR_TIMED_OUTになることが確認されました。証明書エラーとは区別し、localhostと公開HTTPSの応答記録で停止箇所を切り分けます。
+
+## 2026-11-04：制御方式の作り直し（開発中）
+
+Run unattendedを有効にしたことで接続問題が改善した可能性が報告されました。一方、設定時刻での点灯はできていないとの報告です。現行実装には、PostMessageの送信成功を切替完了として扱い、実画面状態を購読しない問題がありました。点灯要求も単発で、管理画面のWinFormsタイマーへ依存していました。これらはコード上の問題として確認できました。実機での直接原因とは切り分けます。
+
+新方式は専用スレッドでSystem／Execution／継続的SystemRequiredを保持し、必要な間だけDisplayRequiredを切り替えます。GUID_CONSOLE_DISPLAY_STATEを購読し、実際の0（消灯）／1（点灯）を確認します。消灯要求の前にSetWaitableTimerの絶対時刻タイマーを登録し、タイマー発火後に継続的な画面要求・アイドルリセットとSC_MONITORPOWERの点灯要求を行います。画面へのコマンドは自分の専用ウィンドウへ時間制限付きで送り、ブロードキャストを使いません。管理画面・ダッシュボードの独立したDisplayRequired要求は撤去します。
+
+APIが成功しても実状態の通知が来ない場合をテストし、再試行を3回に制限します。スリープ・復帰や電源状態変更時は画面通知を再購読し、以前の確認結果を使い回しません。CIでは実際のモニターを消さず、注入した電源操作で境界・失敗・確認待ち・タイマー登録の順番を検証します。Windows上では専用スレッドと通知登録・電源要求の開始／終了も確認します。物理端末の自動点灯成功はまだ未確認です。
+
+参考：[画面状態の通知](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerpowersettingnotification)・[SetWaitableTimer](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-setwaitabletimer)・[SetThreadExecutionState](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate)・[SC_MONITORPOWER](https://learn.microsoft.com/en-us/windows/win32/menurc/wm-syscommand)。OSのポリシーによるロックやユーザーの明示的なスリープを回避する処理は追加しません。

@@ -14,7 +14,7 @@ public sealed class DisplayPowerPolicy {
     bool manual,wasScheduled;uint? inputAtOff;DateTime? armAt;
     DateTime holdUntil=DateTime.MinValue;
     public bool Manual {get{return manual||armAt.HasValue;}}
-    public void RequestOff(DateTime utc){armAt=utc.AddSeconds(1);}
+    public void RequestOff(DateTime utc){holdUntil=DateTime.MinValue;armAt=utc.AddSeconds(1);}
     public void RequestOn(DateTime utc){manual=false;armAt=null;holdUntil=utc.AddSeconds(60);}
     public DisplayPlan Evaluate(DisplaySchedulePreferences preference,DateTime utc,bool eligible,bool dashboard,uint idle,uint? input){
         bool scheduled=eligible&&preference.IsOffTime(utc);
@@ -71,13 +71,14 @@ internal sealed class WindowsDisplayService : IDisposable {
     Control dispatcher;ApplicationContext context;DisplayWindow window;System.Windows.Forms.Timer tick;
     DisplaySchedulePreferences preference=new DisplaySchedulePreferences();bool ready,dashboard,stopping;
     readonly DisplayPowerPolicy policy=new DisplayPowerPolicy();readonly DisplayTransition transition=new DisplayTransition();
-    NativeDisplayDriver driver;DisplayPowerSnapshot snapshot=new DisplayPowerSnapshot();int epoch;
+    NativeDisplayDriver driver;DisplayPowerSnapshot snapshot=new DisplayPowerSnapshot();int epoch;bool faulted;
     readonly string logPath;string lastLog="";
     public WindowsDisplayService(){
         string directory=Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BathjunData");
         logPath=Path.Combine(directory,"display-power.log");
         thread=new Thread(Run){IsBackground=true,Name="Bathjun display power"};thread.SetApartmentState(ApartmentState.STA);thread.Start();
     }
+    public string LogPath {get{return logPath;}}
     public DisplayPowerSnapshot Snapshot {get{lock(gate)return snapshot;}}
     void Post(Action work){lock(gate){if(stopping)return;}try{if(!initialized.WaitOne(0))return;dispatcher.BeginInvoke((MethodInvoker)delegate{try{work();Step();}catch(Exception error){Fail(error);}});}catch(InvalidOperationException){}}
     public void Update(DisplaySchedulePreferences value,bool canOperate,bool dashboardVisible){
@@ -86,13 +87,13 @@ internal sealed class WindowsDisplayService : IDisposable {
     public void RequestOff(){Post(()=>policy.RequestOff(DateTime.UtcNow));}
     public void RequestOn(){Post(()=>policy.RequestOn(DateTime.UtcNow));}
     public void Renew(){Post(RenewCore);}
-    void RenewCore(){try{driver.Renew();transition.Refresh();epoch++;Log("power renewed");if(tick!=null)tick.Start();}catch(Exception error){Fail(error);}}
+    void RenewCore(){try{driver.Renew();transition.Refresh();window.RefreshSubscription();faulted=false;epoch++;Log("power renewed");if(tick!=null)tick.Start();}catch(Exception error){Fail(error);}}
     void Run(){
         try{
             dispatcher=new Control();if(dispatcher.Handle==IntPtr.Zero)throw new InvalidOperationException("Display dispatcher unavailable");
             context=new ApplicationContext();
             window=new DisplayWindow(value=>{transition.Observe(value);Log("observed="+value);Step();},()=>{if(driver!=null){RenewCore();Step();}},value=>Log(value));
-            driver=new NativeDisplayDriver(window.Handle,()=>Post(()=>{if(driver.WakeAt.HasValue&&driver.WakeAt.Value<=DateTime.UtcNow){Log("wake timer fired");policy.RequestOn(DateTime.UtcNow);}}));
+            driver=new NativeDisplayDriver(window.Handle,Log,()=>Post(()=>{if(driver.WakeAt.HasValue&&driver.WakeAt.Value<=DateTime.UtcNow){Log("wake timer fired");policy.RequestOn(DateTime.UtcNow);}}));
             initialized.Set();tick=new System.Windows.Forms.Timer{Interval=500};tick.Tick+=delegate{Step();};tick.Start();Step();Application.Run(context);
         }catch(Exception error){lock(gate)snapshot=new DisplayPowerSnapshot{Failed=true,Error="画面制御を開始できませんでした："+error.GetType().Name};Log("service error="+error.GetType().Name);initialized.Set();}
         finally{
@@ -102,13 +103,14 @@ internal sealed class WindowsDisplayService : IDisposable {
         }
     }
     void Fail(Exception error){
+        if(faulted)return;faulted=true;policy.RequestOn(DateTime.UtcNow);transition.Refresh();
         if(tick!=null)tick.Stop();Log("control error="+error.GetType().Name);
         try{if(driver!=null){driver.SetWakeTimer(null);driver.SetDisplayLease(true);driver.Command(true);}}catch{}
         lock(gate)snapshot=new DisplayPowerSnapshot{Failed=true,Error="画面制御でエラーが発生しました。診断ログを確認してください。",PowerEpoch=epoch};
     }
     void Step(){try{StepCore();}catch(Exception error){Fail(error);}}
     void StepCore(){
-        if(driver==null)return;
+        if(driver==null||faulted)return;
         DisplaySchedulePreferences settings;bool eligible,visible;
         lock(gate){settings=preference;eligible=ready;visible=dashboard;}
         bool protectedState=driver.Protected;
@@ -138,6 +140,7 @@ internal sealed class WindowsDisplayService : IDisposable {
         [DllImport("wtsapi32.dll",SetLastError=true)]static extern bool WTSRegisterSessionNotification(IntPtr hwnd,uint flags);
         [DllImport("wtsapi32.dll")]static extern bool WTSUnRegisterSessionNotification(IntPtr hwnd);
         public DisplayWindow(Action<int> observed,Action resumed,Action<string> diagnostic){this.observed=observed;this.resumed=resumed;this.diagnostic=diagnostic;CreateHandle(new CreateParams{Caption="Bathjun display notifications"});var setting=DisplayGuid;registration=RegisterPowerSettingNotification(Handle,ref setting,0);sessionRegistered=WTSRegisterSessionNotification(Handle,0);}
+        public void RefreshSubscription(){if(registration!=IntPtr.Zero)UnregisterPowerSettingNotification(registration);var setting=DisplayGuid;registration=RegisterPowerSettingNotification(Handle,ref setting,0);}
         protected override void WndProc(ref Message message){
             if(message.Msg==0x218){int kind=message.WParam.ToInt32();
                 if(kind==0x8013&&message.LParam!=IntPtr.Zero){var setting=(Guid)Marshal.PtrToStructure(message.LParam,typeof(Guid));if(setting==DisplayGuid&&Marshal.ReadInt32(message.LParam,16)==4)observed(Marshal.ReadInt32(message.LParam,20));}
@@ -149,7 +152,7 @@ internal sealed class WindowsDisplayService : IDisposable {
         public void Dispose(){if(registration!=IntPtr.Zero)UnregisterPowerSettingNotification(registration);registration=IntPtr.Zero;if(sessionRegistered)WTSUnRegisterSessionNotification(Handle);DestroyHandle();}
     }
     sealed class NativeDisplayDriver : IDisplayPowerDriver,IDisposable {
-        readonly IntPtr hwnd;readonly Action wake;readonly PowerLease lease=new PowerLease();
+        readonly IntPtr hwnd;readonly Action wake;readonly Action<string> log;readonly PowerLease lease=new PowerLease();
         WaitHandle timer;RegisteredWaitHandle waiter;DateTime? due;int generation;
         sealed class TimerHandle:WaitHandle {public TimerHandle(IntPtr handle){SafeWaitHandle=new SafeWaitHandle(handle,true);}}
         public bool Protected {get;private set;}
@@ -159,12 +162,13 @@ internal sealed class WindowsDisplayService : IDisposable {
         [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern IntPtr CreateWaitableTimer(IntPtr attributes,bool manualReset,string name);
         [DllImport("kernel32.dll",SetLastError=true)]static extern bool SetWaitableTimer(IntPtr timer,ref long due,int period,IntPtr routine,IntPtr argument,bool resume);
         [DllImport("kernel32.dll")]static extern bool CancelWaitableTimer(IntPtr timer);
-        public NativeDisplayDriver(IntPtr hwnd,Action wake){this.hwnd=hwnd;this.wake=wake;Renew();}
-        public void Renew(){Protected=lease.Acquire();}
+        public NativeDisplayDriver(IntPtr hwnd,Action<string> log,Action wake){this.hwnd=hwnd;this.log=log;this.wake=wake;Renew();}
+        public void Renew(){Protected=lease.Acquire();log("process protection="+Protected);}
         public bool SetDisplayLease(bool on){return lease.SetDisplay(on);}
         public bool Command(bool on){
-            if(on&&!lease.PulseDisplay())return false;
-            UIntPtr result;return SendMessageTimeout(hwnd,0x0112,new UIntPtr(0xf170),new IntPtr(on?-1:2),0x0002,1000,out result)!=IntPtr.Zero;
+            if(on&&!lease.PulseDisplay()){log("wake pulse failed");return false;}
+            UIntPtr result;bool accepted=SendMessageTimeout(hwnd,0x0112,new UIntPtr(0xf170),new IntPtr(on?-1:2),0x0002,1000,out result)!=IntPtr.Zero;
+            log("command="+(on?"on":"off")+" accepted="+accepted+" error="+(accepted?0:Marshal.GetLastWin32Error()));return accepted;
         }
         public bool SetWakeTimer(DateTime? utc){
             if(due==utc)return true;
@@ -175,7 +179,7 @@ internal sealed class WindowsDisplayService : IDisposable {
             timer=new TimerHandle(handle);
             long fileTime=utc.Value.ToUniversalTime().ToFileTimeUtc();
             if(!SetWaitableTimer(handle,ref fileTime,0,IntPtr.Zero,IntPtr.Zero,true)){timer.Dispose();timer=null;return false;}
-            due=utc;waiter=ThreadPool.RegisterWaitForSingleObject(timer,delegate{if(Volatile.Read(ref generation)==version)wake();},null,Timeout.Infinite,true);return true;
+            due=utc;log("native wake timer="+utc.Value.ToString("o"));waiter=ThreadPool.RegisterWaitForSingleObject(timer,delegate{if(Volatile.Read(ref generation)==version)wake();},null,Timeout.Infinite,true);return true;
         }
         public void Dispose(){SetWakeTimer(null);lease.Dispose();}
     }

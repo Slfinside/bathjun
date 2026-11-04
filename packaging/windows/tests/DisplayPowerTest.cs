@@ -26,6 +26,7 @@ internal static class DisplayPowerTest {
         Check(policy.Evaluate(preference,Japan("2026-11-04 10:00:00"),true,true,20,10).On,"Recent input was ignored");
         Check(policy.Evaluate(preference,Japan("2026-11-04 10:00:00"),true,true,100,null).On,"Input tracking failure allowed off");
         Check(policy.Evaluate(preference,Japan("2026-11-04 10:00:00"),false,true,100,10).On,"Loss of eligibility did not request on");
+        Check(!policy.Evaluate(preference,Japan("2026-11-04 10:00:00"),false,true,100,10).Managed,"Ineligible server retained dashboard display control");
     }
     static void Manual(){
         var policy=new DisplayPowerPolicy();var preference=new DisplaySchedulePreferences();var now=Japan("2026-11-04 10:00:00");
@@ -34,7 +35,7 @@ internal static class DisplayPowerTest {
         Check(!policy.Evaluate(preference,now.AddSeconds(10),true,true,10,10).On,"Dashboard power request undid manual off");
         Check(policy.Evaluate(preference,now.AddSeconds(11),true,true,0,11).On,"New touch did not restore display");
         Check(policy.Evaluate(preference,now.AddSeconds(12),true,false,1,11).Managed,"Wake had no retained display lease");
-        policy.RequestOff(now.AddSeconds(20));policy.Evaluate(preference,now.AddSeconds(21),true,false,0,11);
+        policy.RequestOff(now.AddSeconds(20));Check(!policy.Evaluate(preference,now.AddSeconds(21),true,false,0,11).On,"Explicit off was blocked by the touch wake grace");
         policy.RequestOn(now.AddSeconds(22));Check(policy.Evaluate(preference,now.AddSeconds(22),true,false,0,11).On,"Explicit wake did not override manual off");
         var scheduled=new DisplaySchedulePreferences{enabled=true};policy.RequestOff(now);policy.Evaluate(scheduled,now.AddSeconds(1),true,true,0,12);
         Check(policy.Evaluate(scheduled,Japan("2026-11-04 15:00:00"),true,true,18000,12).On&&!policy.Manual,"Automatic on did not cancel manual off");
