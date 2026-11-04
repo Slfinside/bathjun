@@ -143,27 +143,6 @@ internal static class DashboardTest {
             if(schedule.IsOffTime(JapanTime("2026-10-31 "+test[0]))!=(test[1]=="off"))throw new Exception("Display schedule boundary: "+test[0]);
         var overnight=new DisplaySchedulePreferences{enabled=true,periods=new[]{new DisplayOffPeriod{start=23*60,end=6*60},new DisplayOffPeriod{start=5*60,end=8*60}}};
         if(!overnight.IsOffTime(JapanTime("2026-10-31 23:00:00"))||!overnight.IsOffTime(JapanTime("2026-11-01 07:59:59"))||overnight.IsOffTime(JapanTime("2026-11-01 08:00:00")))throw new Exception("Overnight schedule or overlap failed");
-        int off=0,on=0;bool visible=true;var events=new List<string>();
-        var control=new DisplayScheduleController(value=>{visible=value;events.Add(value?"visible":"suppress");},()=>{if(visible)throw new Exception("Display lease not released before screen off");events.Add("off");off++;return true;},()=>{if(!visible)throw new Exception("Display lease not restored before screen on");events.Add("on");on++;return true;});
-        var start=JapanTime("2026-10-31 08:00:00");
-        control.Tick(schedule,start,true,60);control.Tick(schedule,start.AddSeconds(1),true,61);
-        if(off!=1||!control.IsOffRequested||on!=0)throw new Exception("Screen off repeated during the same interval");
-        control.Tick(schedule,start.AddSeconds(2),true,0);
-        if(on!=1||control.IsOffRequested)throw new Exception("User activity did not wake display");
-        control.Tick(schedule,start.AddSeconds(61),true,59);if(off!=1)throw new Exception("Temporary wake shorter than one minute");
-        control.Tick(schedule,start.AddSeconds(62),true,60);if(off!=2)throw new Exception("Did not reapply scheduled off after idle");
-        control.Tick(schedule,JapanTime("2026-10-31 15:00:00"),true,10000);if(on!=2||control.IsOffRequested)throw new Exception("Scheduled wake did not run at end");
-        control.Tick(schedule,start,true,60);control.Tick(schedule,start.AddSeconds(1),false,60);
-        if(control.IsOffRequested||on!=3)throw new Exception("Loss of eligibility did not wake owned screen");
-        control.Tick(schedule,start,true,60);schedule.enabled=false;control.Tick(schedule,start.AddSeconds(1),true,60);
-        if(control.IsOffRequested||on!=4)throw new Exception("Disabling schedule did not wake owned screen");
-        schedule.enabled=true;int attempts=0;var retry=new DisplayScheduleController(value=>{},()=>{attempts++;return false;},()=>true);
-        retry.Tick(schedule,start,true,60);retry.Tick(schedule,start.AddSeconds(29),true,90);if(attempts!=1||!retry.Failed)throw new Exception("Failed display command retries too quickly");
-        retry.Tick(schedule,start.AddSeconds(30),true,90);if(attempts!=2)throw new Exception("Display command was not retried");
-        retry.Tick(schedule,JapanTime("2026-10-31 15:00:00"),true,10000);if(retry.Failed)throw new Exception("Stale failure survived schedule transition");
-        int wakeAttempts=0;var wakeRetry=new DisplayScheduleController(value=>{},()=>true,()=>++wakeAttempts>=2);
-        wakeRetry.Tick(schedule,start,true,60);var end=JapanTime("2026-10-31 15:00:00");wakeRetry.Tick(schedule,end,true,10000);wakeRetry.Tick(schedule,end.AddSeconds(29),true,10000);wakeRetry.Tick(schedule,end.AddSeconds(30),true,10000);
-        if(wakeAttempts!=2||wakeRetry.IsOffRequested||wakeRetry.Failed)throw new Exception("Wake failures were not retried");
         bool rejected=false;try{new DisplaySchedulePreferences{enabled=true,periods=new DisplayOffPeriod[0]}.Validate();}catch(ArgumentException){rejected=true;}if(!rejected)throw new Exception("Enabled empty schedule accepted");
         rejected=false;try{new DisplaySchedulePreferences{periods=new[]{new DisplayOffPeriod{start=120,end=120}}}.Validate();}catch(ArgumentException){rejected=true;}if(!rejected)throw new Exception("Equal schedule endpoints accepted");
         string previous=Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR"),folder=Path.Combine(Path.GetTempPath(),"bathjun-display-schedule-"+Guid.NewGuid().ToString("N"));Environment.SetEnvironmentVariable("BATHJUN_DATA_DIR",folder);
@@ -171,21 +150,6 @@ internal static class DashboardTest {
         finally{Environment.SetEnvironmentVariable("BATHJUN_DATA_DIR",previous);if(Directory.Exists(folder))Directory.Delete(folder,true);}
     }
 
-    static void ManualDisplays(){
-        int off=0,on=0;bool visible=true;
-        var control=new DisplayScheduleController(value=>visible=value,()=>{if(visible)throw new Exception("Manual off retained display lease");off++;return true;},()=>{if(!visible)throw new Exception("Manual wake did not restore display lease");on++;return true;});
-        var preference=new DisplaySchedulePreferences();var now=JapanTime("2026-10-31 10:00:00");
-        control.RequestManualOff(100);control.Tick(preference,now,true,0,100);control.Tick(preference,now.AddSeconds(1),true,1,100);
-        if(off!=1||!control.ManualOffRequested||!control.IsOffRequested||visible)throw new Exception("Manual off did not persist with schedule disabled");
-        control.Tick(preference,now.AddSeconds(2),true,0,101);if(on!=1||control.IsOffRequested||control.ManualOffRequested||!visible)throw new Exception("New input did not cancel manual off");
-        preference.enabled=true;control.RequestManualOff(200);control.Tick(preference,now,true,0,200);control.Tick(preference,now.AddSeconds(1),true,1,200);
-        if(off!=2||visible)throw new Exception("Scheduled display lease woke manual off");
-        control.RefreshPowerState();control.Tick(preference,now.AddSeconds(2),true,2,200);if(off!=3)throw new Exception("Resume did not reissue off request");
-        control.Tick(preference,JapanTime("2026-10-31 15:00:00"),true,10000,200);if(on!=2||control.IsOffRequested||control.ManualOffRequested)throw new Exception("Scheduled wake did not override manual off at the interval end");
-        preference.enabled=false;control.RequestManualOff(300);control.Tick(preference,now,true,0,300);control.Tick(preference,now.AddSeconds(1),false,0,300);
-        if(control.IsOffRequested||control.ManualOffRequested||on!=3)throw new Exception("Loss of server power safety did not restore the display");
-        control.RequestManualOff(null);control.Tick(preference,now,true,0,null);control.CancelManualOff();control.Tick(preference,now.AddSeconds(1),true,0,null);if(control.IsOffRequested)throw new Exception("Explicit cancel did not wake screen when input tracking is unavailable");
-    }
     [STAThread] static void Main(string[] args) {
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
         string installRoot=(string)typeof(Member).Assembly.GetType("ServerUpdate").GetProperty("InstallRoot",BindingFlags.Static|BindingFlags.NonPublic).GetValue(null,null);if(!Directory.Exists(installRoot))throw new Exception("Install root cannot resolve on .NET Framework");
@@ -196,7 +160,7 @@ internal static class DashboardTest {
             scroll.Invoke(null,new object[]{button,100000});if(-panel.AutoScrollPosition.Y<=150)throw new Exception("Long drag did not move scroll position");
             scroll.Invoke(null,new object[]{button,-100000});if(panel.AutoScrollPosition.Y!=0)throw new Exception("Drag exceeded upper bound");button.PerformClick();if(clicks!=1)throw new Exception("Scrolling disabled button taps");host.Close();}
         }
-        DisplaySchedules();ManualDisplays();Preferences(args[1]);BeforeFontChange(args[1]);
+        DisplaySchedules();Preferences(args[1]);BeforeFontChange(args[1]);
         var type=typeof(DashboardData).Assembly.GetType("DashboardForm");
         var data=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));
         foreach(var size in new[]{new Size(1280,720),new Size(1280,800),new Size(1440,960),new Size(1920,1080),new Size(1920,1280)}) {

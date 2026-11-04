@@ -3,7 +3,7 @@
 import argparse,hashlib,json,pathlib,subprocess,urllib.request,zipfile
 ROOT=pathlib.Path(__file__).resolve().parent.parent
 REFERENCES=['mscorlib','System','System.Core','System.Windows.Forms','System.Drawing','System.Web.Extensions','System.IO.Compression']
-SOURCES=['ServerPanel.cs','Dashboard.cs','HumanPresenceReader.cs','ServerUpdate.cs','AutomaticUpdate.cs','TouchScroll.cs']
+SOURCES=['DisplayPower.cs','ServerPanel.cs','Dashboard.cs','HumanPresenceReader.cs','ServerUpdate.cs','AutomaticUpdate.cs','TouchScroll.cs']
 def compile_native(csc,output,assets,resource=None):
     assets=pathlib.Path(assets);assets.mkdir(parents=True,exist_ok=True)
     lock=json.loads((ROOT/'packaging/windows/framework-lock.json').read_text())

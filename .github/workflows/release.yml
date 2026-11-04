@@ -44,7 +44,11 @@ jobs:
           Copy-Item -Recurse public/fonts native-test/app/public/fonts
           Copy-Item -Recurse public/emoji native-test/app/public/emoji
           $compiler = "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
-          & $compiler /nologo /target:winexe /platform:x64 /warnaserror+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /out:.\native-test\bin\Bathjun-Server.exe .\packaging\windows\ServerPanel.cs .\packaging\windows\Dashboard.cs .\packaging\windows\HumanPresenceReader.cs .\packaging\windows\ServerUpdate.cs .\packaging\windows\AutomaticUpdate.cs .\packaging\windows\TouchScroll.cs
+          & $compiler /nologo /target:winexe /platform:x64 /warnaserror+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /out:.\native-test\bin\Bathjun-Server.exe .\packaging\windows\DisplayPower.cs .\packaging\windows\ServerPanel.cs .\packaging\windows\Dashboard.cs .\packaging\windows\HumanPresenceReader.cs .\packaging\windows\ServerUpdate.cs .\packaging\windows\AutomaticUpdate.cs .\packaging\windows\TouchScroll.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $compiler /nologo /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:.\native-test\bin\Bathjun-Server.exe /out:.\native-test\bin\DisplayPowerTest.exe .\packaging\windows\tests\DisplayPowerTest.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\native-test\bin\DisplayPowerTest.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $compiler /nologo /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:.\native-test\bin\Bathjun-Server.exe /out:.\native-test\bin\DashboardTest.exe .\packaging\windows\tests\DashboardTest.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

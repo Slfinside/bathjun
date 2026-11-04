@@ -18,33 +18,37 @@ using System.Runtime.Versioning;
 
 internal sealed class PowerLease : IDisposable {
     enum RequestType {Display=0,System=1,Execution=3}
-    [StructLayout(LayoutKind.Sequential)] struct Reason { public uint Version; public uint Flags; public IntPtr SimpleReason; }
+    [StructLayout(LayoutKind.Sequential)] struct Reason { public uint Version; public uint Flags; public IntPtr SimpleReason; public uint ReservedA,ReservedB;public IntPtr ReservedC; }
     [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr PowerCreateRequest(ref Reason context);
     [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool PowerSetRequest(IntPtr handle, RequestType type);
     [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool PowerClearRequest(IntPtr handle, RequestType type);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-    [DllImport("user32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool PostMessage(IntPtr hwnd,uint message,UIntPtr wParam,IntPtr lParam);
     [DllImport("kernel32.dll")] static extern uint SetThreadExecutionState(uint state);
     [StructLayout(LayoutKind.Sequential)] struct LastInput {public uint size,time;}
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] static extern bool GetLastInputInfo(ref LastInput info);
     public static uint? LastInputTick(){var info=new LastInput{size=(uint)Marshal.SizeOf(typeof(LastInput))};return GetLastInputInfo(ref info)?info.time:(uint?)null;}
     public static uint IdleSeconds(){var info=new LastInput{size=(uint)Marshal.SizeOf(typeof(LastInput))};return GetLastInputInfo(ref info)?unchecked((uint)Environment.TickCount-info.time)/1000:0;}
-    IntPtr handle=IntPtr.Zero; bool system,execution,display;
+    IntPtr handle=IntPtr.Zero; bool system,execution,display,thread;uint previousState;
     public bool Acquire(bool keepDisplay=false) {
         Dispose();
         IntPtr reason=Marshal.StringToHGlobalUni("ふろきゅ～の予約サーバーと通知送信を、画面消灯中も継続しています。");
-        try {var context=new Reason{Version=0,Flags=1,SimpleReason=reason};handle=PowerCreateRequest(ref context);}
+        try {var context=new Reason{Version=0,Flags=1,SimpleReason=reason,ReservedA=0,ReservedB=0,ReservedC=IntPtr.Zero};handle=PowerCreateRequest(ref context);}
         finally {Marshal.FreeHGlobal(reason);}
         if(handle==IntPtr.Zero || handle==new IntPtr(-1)){handle=IntPtr.Zero;return false;}
         system=PowerSetRequest(handle,RequestType.System); // PowerRequestSystemRequired
         execution=PowerSetRequest(handle,RequestType.Execution); // PowerRequestExecutionRequired (Modern Standby)
-        display=keepDisplay&&PowerSetRequest(handle,RequestType.Display); // DisplayRequired only while a visible display is requested
-        if(system&&execution&&(!keepDisplay||display))return true;
+        previousState=SetThreadExecutionState(0x80000001);thread=previousState!=0;
+        if(system&&execution&&thread&&(!keepDisplay||SetDisplay(true)))return true;
         Dispose();return false;
     }
-    public static bool ScreenOff(){return PostMessage(new IntPtr(0xffff),0x0112,new UIntPtr(0xf170),new IntPtr(2));}
-    public static bool ScreenOn(){bool timer=SetThreadExecutionState(0x00000002)!=0;bool message=PostMessage(new IntPtr(0xffff),0x0112,new UIntPtr(0xf170),new IntPtr(-1));return timer||message;}
-    public void Dispose() {if(handle!=IntPtr.Zero){if(display)PowerClearRequest(handle,RequestType.Display);if(execution)PowerClearRequest(handle,RequestType.Execution);if(system)PowerClearRequest(handle,RequestType.System);CloseHandle(handle);handle=IntPtr.Zero;system=execution=display=false;}}
+    public bool SetDisplay(bool on){
+        if(handle==IntPtr.Zero||!system||!execution||!thread)return false;
+        if(display!=on){bool changed=on?PowerSetRequest(handle,RequestType.Display):PowerClearRequest(handle,RequestType.Display);if(!changed)return false;display=on;}
+        return SetThreadExecutionState(0x80000001u|(on?0x00000002u:0u))!=0;
+    }
+    public bool PulseDisplay(){return SetThreadExecutionState(0x00000003)!=0;}
+    public void Dispose() {if(handle!=IntPtr.Zero){if(display)PowerClearRequest(handle,RequestType.Display);if(execution)PowerClearRequest(handle,RequestType.Execution);if(system)PowerClearRequest(handle,RequestType.System);CloseHandle(handle);}if(thread)SetThreadExecutionState(previousState|0x80000000);handle=IntPtr.Zero;system=execution=display=thread=false;}
+
 }
 // A bounded, single writer queue keeps pipe writes and JSON work off the UI thread.
 public sealed class PanelOutbox : IDisposable {
@@ -76,7 +80,7 @@ internal sealed class PanelForm : Form {
     readonly string pipeName,token;
     TouchScroll touchScroll;CancellationTokenSource automaticUpdate;
     readonly Button releases=ActionButton("最新版を確認");
-    readonly PowerLease power=new PowerLease();
+    WindowsDisplayService displayService;int displayPowerEpoch;
     readonly Label status=new Label(),detail=new Label(),powerState=new Label(),saveState=new Label();
     readonly TextBox link=new TextBox();readonly Button screen=new Button(),copy=new Button(),open=new Button(),save=new Button();
     readonly DataGridView members=new DataGridView();
@@ -102,9 +106,8 @@ internal sealed class PanelForm : Form {
     readonly CheckBox automaticDisplay=new CheckBox{Text="時間帯で自動消灯・点灯する",AutoSize=true};
     readonly DataGridView displayPeriods=new DataGridView();
     readonly Label displayScheduleStatus=new Label{Width=550,Height=48};
-    readonly PowerLease scheduledDisplay=new PowerLease();bool scheduledDisplayHeld;
-    readonly System.Windows.Forms.Timer displayScheduleTimer=new System.Windows.Forms.Timer{Interval=1000},manualScreenOffTimer=new System.Windows.Forms.Timer{Interval=1000};
-    DisplaySchedulePreferences displaySchedule=DisplaySchedulePreferences.Read();DisplayScheduleController displayController;
+    readonly System.Windows.Forms.Timer displayScheduleTimer=new System.Windows.Forms.Timer{Interval=1000};
+    DisplaySchedulePreferences displaySchedule=DisplaySchedulePreferences.Read();
     readonly CheckBox dashboardFixed=new CheckBox();
     readonly NumericUpDown dashboardMinutes=new NumericUpDown{Minimum=1,Maximum=60,Value=1,Width=85};
     readonly DateTimePicker bookingCutoff=Clock(),drawStart=Clock(),drawEnd=Clock();
@@ -151,13 +154,11 @@ internal sealed class PanelForm : Form {
         layout.Controls.Add(TextLabel("×は通知領域にしまいます。スリープ防止はサーバー稼働中だけ有効で、終了すると解除します。AC電源につないで使ってください。",68));
         BuildSettings(config);var displayTab=new TabPage("ダッシュボード"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(displayTab);BuildDashboardSettings(displayTab);var itemsTab=new TabPage("アイテム・特典"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(itemsTab);BuildItems(itemsTab);var security=new TabPage("パスワード・リセット"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(security);BuildSecurity(security);
         var menu=new ContextMenuStrip();menu.Items.Add("操作画面を開く",null,delegate{ShowPanel();});menu.Items.Add("画面だけ消す",null,delegate{TurnScreenOff();});menu.Items.Add("サーバーを停止",null,delegate{StopServer();});tray.Icon=Icon;tray.Text="ふろきゅ～ サーバー";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowPanel();};tray.Visible=true;
-        displayController=new DisplayScheduleController(ApplyScheduledVisibility,PowerLease.ScreenOff,PowerLease.ScreenOn);
         displayScheduleTimer.Tick+=delegate{TickDisplaySchedule();};
-        manualScreenOffTimer.Tick+=delegate{manualScreenOffTimer.Stop();if(!DisplayScheduleEligible())return;displayController.RequestManualOff(PowerLease.LastInputTick());TickDisplaySchedule();if(displayController.Failed)MessageBox.Show(this,"画面を消せませんでした。Windowsの表示設定を確認してください。");};
-        Load+=delegate{powerHeld=power.Acquire();ShowPowerState();BeginRead();displayScheduleTimer.Start();};
+        Load+=delegate{displayService=new WindowsDisplayService();ShowPowerState();BeginRead();displayScheduleTimer.Start();};
         Shown+=delegate{if(minimized){WindowState=FormWindowState.Minimized;Hide();}};
         FormClosing+=delegate(object sender,FormClosingEventArgs e){if(!canClose && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();tray.ShowBalloonTip(2500,"ふろきゅ～","サーバーは継続しています。通知領域のアイコンから操作画面に戻れます。",ToolTipIcon.Info);}};
-        FormClosed+=delegate{closing=true;if(automaticUpdate!=null)automaticUpdate.Cancel();if(touchScroll!=null)touchScroll.Dispose();manualScreenOffTimer.Stop();manualScreenOffTimer.Dispose();displayScheduleTimer.Stop();if(displayController!=null)displayController.Tick(new DisplaySchedulePreferences(),DateTime.UtcNow,false,0);displayScheduleTimer.Dispose();scheduledDisplay.Dispose();if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();power.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
+        FormClosed+=delegate{closing=true;if(automaticUpdate!=null)automaticUpdate.Cancel();if(touchScroll!=null)touchScroll.Dispose();displayScheduleTimer.Stop();if(displayService!=null)displayService.Dispose();displayScheduleTimer.Dispose();if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
         ResumeLayout(true);touchScroll=new TouchScroll(this);
     }
     void BuildItems(TabPage page) {
@@ -237,15 +238,14 @@ internal sealed class PanelForm : Form {
     }
     bool SleepProtectionReady {get{return powerHeld&&serverPowerHeld;}}
     bool DisplayScheduleEligible(){return !closing&&connected&&currentPhase=="ready"&&SleepProtectionReady&&OnAC();}
-    void ApplyScheduledVisibility(bool visible){
-        bool keep=visible&&displaySchedule.enabled&&DisplayScheduleEligible();
-        if(!keep){scheduledDisplay.Dispose();scheduledDisplayHeld=false;}else if(!scheduledDisplayHeld)scheduledDisplayHeld=scheduledDisplay.Acquire(true);
-        if(dashboard!=null)dashboard.SetDisplaySuppressed(!visible);
-    }
     void TickDisplaySchedule(){
-        if(displayController==null)return;
-        bool eligible=DisplayScheduleEligible();displayController.Tick(displaySchedule,DateTime.UtcNow,eligible,eligible?PowerLease.IdleSeconds():0,PowerLease.LastInputTick());
-        displayScheduleStatus.Text=!displaySchedule.enabled?"自動消灯・点灯：無効":!eligible?"自動消灯・点灯：待機中（サーバー稼働・AC接続が必要）":displayController.Failed?"画面の切替を要求できませんでした。30秒後に再試行します。":displayController.IsOffRequested?"自動消灯・点灯：消灯中":"自動消灯・点灯：点灯中";
+        if(displayService==null)return;
+        var state=displayService.Snapshot;powerHeld=state.Protected;
+        if(state.PowerEpoch!=displayPowerEpoch){displayPowerEpoch=state.PowerEpoch;serverPowerHeld=false;Send("power/renew",null);}
+        displayService.Update(displaySchedule,!closing&&connected&&currentPhase=="ready"&&serverPowerHeld&&OnAC(),dashboard!=null&&dashboard.Visible);
+        if(dashboard!=null)dashboard.SetDisplaySuppressed(state.Managed&&!state.On);
+        displayScheduleStatus.Text=state.Failed?(state.Error??"画面の切替を確認できません。診断ログを確認してください。"):state.Managed?state.Confirmed?(state.On?"画面制御：点灯を確認":"画面制御：消灯を確認"):(state.On?"画面制御：点灯を要求中":"画面制御：消灯を要求中"):displaySchedule.enabled?"画面制御：待機中":"自動消灯・点灯：無効";
+        ShowPowerState();screen.Enabled=DisplayScheduleEligible();
     }
     static string PresencePreferencePath(){return Path.Combine(Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BathjunData"),"dashboard-presence.txt");}
     static bool ReadPresencePreference(){try{return File.ReadAllText(PresencePreferencePath()).Trim()=="enabled";}catch{return false;}}
@@ -294,14 +294,13 @@ internal sealed class PanelForm : Form {
         }catch(Exception error){MessageBox.Show(this,error.Message,"更新できませんでした");}
         finally{updatePreparing=false;UseWaitCursor=false;}
     }
-    void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}try{dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);dashboard.ApplyPreferences(DashboardPreferences.Read());dashboard.SetDisplaySuppressed(displayController!=null&&displayController.IsOffRequested);dashboard.Report=entry=>Send("bath/complete",new{memberId=entry.memberId,day=entry.day,revision=entry.revision});}catch{MessageBox.Show(this,"ダッシュボードのフォントを読み込めませんでした。アプリを上書きインストールするか、ZIPをすべて展開し直してください。");return;}presenceEnabled.Enabled=false;screen.Enabled=SleepProtectionReady&&OnAC()&&connected&&currentPhase=="ready";dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
+    void OpenDashboard(){if(dashboard!=null){dashboard.Activate();return;}try{dashboard=new DashboardForm(()=>Send("dashboard/get",null),presenceEnabled.Checked);dashboard.ApplyPreferences(DashboardPreferences.Read());dashboard.SetDisplaySuppressed(displayService!=null&&displayService.Snapshot.Managed&&!displayService.Snapshot.On);dashboard.Report=entry=>Send("bath/complete",new{memberId=entry.memberId,day=entry.day,revision=entry.revision});}catch{MessageBox.Show(this,"ダッシュボードのフォントを読み込めませんでした。アプリを上書きインストールするか、ZIPをすべて展開し直してください。");return;}presenceEnabled.Enabled=false;screen.Enabled=SleepProtectionReady&&OnAC()&&connected&&currentPhase=="ready";dashboard.FormClosed+=delegate{dashboard=null;presenceEnabled.Enabled=true;RenewPower();};dashboard.Show(this);}
     void ShowPowerState(){powerState.Text=SleepProtectionReady?"自動スリープ防止：有効（サーバー終了時に解除）\nAC電源で使ってください。電源ボタン・カバー閉じの手動スリープは防ぎません。":currentPhase!="ready"?"自動スリープ防止：サーバーの起動を待っています。":"自動スリープ防止を有効にできませんでした。\nアプリを更新し直すか、Windowsの電源設定を確認してください。消灯は無効です。";powerState.ForeColor=SleepProtectionReady||currentPhase!="ready"?Color.DarkGreen:Color.Firebrick;}
 
-    void ShowPanel(){displayController.CancelManualOff();TickDisplaySchedule();Show();WindowState=FormWindowState.Normal;Activate();}
+    void ShowPanel(){if(displayService!=null)displayService.RequestOn();TickDisplaySchedule();Show();WindowState=FormWindowState.Normal;Activate();}
     bool OnAC(){return SystemInformation.PowerStatus.PowerLineStatus==PowerLineStatus.Online;}
-    void RenewPower(){power.Dispose();powerHeld=power.Acquire();ShowPowerState();screen.Enabled=SleepProtectionReady&&OnAC()&&connected&&currentPhase=="ready";}
-    protected override void WndProc(ref Message message){base.WndProc(ref message);if(message.Msg==0x218 && (message.WParam.ToInt32()==7 || message.WParam.ToInt32()==18 || message.WParam.ToInt32()==10)){if(IsHandleCreated&&!closing){serverPowerHeld=false;Send("power/renew",null);RenewPower();scheduledDisplay.Dispose();scheduledDisplayHeld=false;if(dashboard!=null)dashboard.ResetDisplayPower();displayController.RefreshPowerState();TickDisplaySchedule();}}}
-    void TurnScreenOff(){if(!OnAC()){ShowPanel();MessageBox.Show(this,"画面を消してサーバーを継続するには、AC電源につないでください。");return;}RenewPower();if(!SleepProtectionReady || !connected || currentPhase!="ready"){ShowPanel();return;}manualScreenOffTimer.Stop();manualScreenOffTimer.Start();}
+    void RenewPower(){if(displayService!=null)displayService.Renew();ShowPowerState();screen.Enabled=DisplayScheduleEligible();}
+    void TurnScreenOff(){if(!OnAC()){ShowPanel();MessageBox.Show(this,"画面を消してサーバーを継続するには、AC電源につないでください。");return;}if(!DisplayScheduleEligible()||displayService==null){ShowPanel();return;}displayService.RequestOff();}
 
     void StopServer(){if(!connected)return;if(MessageBox.Show(this,"サーバーを停止しますか？家族からのアクセスと通知送信が止まります。","ふろきゅ～",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)==DialogResult.OK){screen.Enabled=false;Send("stop",null);}}
     void BuildSettings(TabPage page) {

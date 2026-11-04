@@ -37,36 +37,15 @@ public sealed class DisplaySchedulePreferences {
         foreach(var period in periods)if(period.start<period.end?minute>=period.start&&minute<period.end:minute>=period.start||minute<period.end)return true;
         return false;
     }
+    public DateTime? NextOn(DateTime utc){
+        if(!IsOffTime(utc))return null;
+        var minute=new DateTime(utc.ToUniversalTime().Ticks/TimeSpan.TicksPerMinute*TimeSpan.TicksPerMinute,DateTimeKind.Utc);
+        for(int i=1;i<=1440;i++){var candidate=minute.AddMinutes(i);if(!IsOffTime(candidate))return candidate;}
+        return null;
+    }
     public static DisplaySchedulePreferences Read(){try{var value=new JavaScriptSerializer().Deserialize<DisplaySchedulePreferences>(File.ReadAllText(FilePath));if(value!=null){value.Validate();return value;}}catch{}return new DisplaySchedulePreferences();}
     public void Save(){Validate();string path=FilePath;Directory.CreateDirectory(Path.GetDirectoryName(path));string temp=path+".tmp";File.WriteAllText(temp,new JavaScriptSerializer().Serialize(this));if(File.Exists(path))File.Replace(temp,path,null);else File.Move(temp,path);}
 }
-// Hardware calls are injected so boundaries, failures and retries can be tested without switching a screen.
-public sealed class DisplayScheduleController {
-    readonly Action<bool> visible;readonly Func<bool> off,on;
-    public bool IsOffRequested {get;private set;}
-    public bool Failed {get;private set;}
-    public bool ManualOffRequested {get;private set;}
-    uint? manualInput;bool wasScheduledOff,refreshOff;
-    bool? lastTarget;DateTime retryAt=DateTime.MinValue;
-    public DisplayScheduleController(Action<bool> visible,Func<bool> off,Func<bool> on){this.visible=visible;this.off=off;this.on=on;}
-    public void RequestManualOff(uint? input){ManualOffRequested=true;manualInput=input;RefreshPowerState();}
-    public void CancelManualOff(){ManualOffRequested=false;manualInput=null;}
-    public void RefreshPowerState(){refreshOff=true;retryAt=DateTime.MinValue;}
-    public void Tick(DisplaySchedulePreferences preference,DateTime utc,bool eligible,uint idleSeconds,uint? input=null){
-        bool scheduledOff=eligible&&preference.IsOffTime(utc);
-        if(!eligible||(ManualOffRequested&&manualInput.HasValue&&input.HasValue&&manualInput.Value!=input.Value)||(wasScheduledOff&&!scheduledOff))CancelManualOff();
-        wasScheduledOff=scheduledOff;
-        bool target=eligible&&(ManualOffRequested||(scheduledOff&&idleSeconds>=60));
-        // All display keep-awake requests must follow the same target, including
-        // manual commands. The server's system/execution lease is separate.
-        visible(!target);
-        if(lastTarget!=target){retryAt=DateTime.MinValue;Failed=false;lastTarget=target;}
-        if((target==IsOffRequested&&!(target&&refreshOff))||utc<retryAt)return;
-        bool result=target?off():on();Failed=!result;
-        if(result){IsOffRequested=target;refreshOff=false;}else retryAt=utc.AddSeconds(30);
-    }
-}
-
 // Single native surface: no embedded browser or camera stream. All drawn content,
 // including the QR quiet zone, moves periodically inside a safe margin.
 internal sealed class DashboardForm : Form {
@@ -75,7 +54,6 @@ internal sealed class DashboardForm : Form {
     float paintScale,paintDx,paintDy;bool reportBusy;
     readonly Action request;
     readonly bool usePresence;
-    readonly PowerLease display=new PowerLease();
     readonly System.Windows.Forms.Timer clock=new System.Windows.Forms.Timer{Interval=1000};
     readonly System.Windows.Forms.Timer animation=new System.Windows.Forms.Timer{Interval=16};
     readonly Stopwatch elapsed=Stopwatch.StartNew();
@@ -97,9 +75,8 @@ internal sealed class DashboardForm : Form {
     static RectangleF MixRect(RectangleF compact,RectangleF detailed,float t){return new RectangleF(compact.X+(detailed.X-compact.X)*t,compact.Y+(detailed.Y-compact.Y)*t,compact.Width+(detailed.Width-compact.Width)*t,compact.Height+(detailed.Height-compact.Height)*t);}
     void Reveal(Graphics g,RectangleF rect,Action draw){if(transition<=0)return;var state=g.Save();g.SetClip(new RectangleF(rect.X,rect.Y,rect.Width,rect.Height*(float)transition));draw();g.Restore(state);}
     bool displaySuppressed;
-    public void ResetDisplayPower(){display.Dispose();held=false;}
-    public void SetDisplaySuppressed(bool value){if(displaySuppressed==value)return;displaySuppressed=value;if(value){display.Dispose();held=false;}else if(!held&&IsHandleCreated&&Visible)held=display.Acquire(true);}
-    bool held,waiting; double requestedAt; string problem="";
+    public void SetDisplaySuppressed(bool value){displaySuppressed=value;if(value)animation.Stop();else Invalidate();}
+    bool waiting; double requestedAt; string problem="";
     public DashboardForm(Action request,bool usePresence):this(request,usePresence,Typeface()) {}
     public DashboardForm(Action request,bool usePresence,FontFamily typeface) {
         this.request=request;this.usePresence=usePresence;dashboardTypeface=typeface;
@@ -111,17 +88,16 @@ internal sealed class DashboardForm : Form {
         KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Escape||e.KeyCode==Keys.F11)Close();};
         // First tap always opens details; the return target only closes from details.
         MouseDown+=delegate(object sender,MouseEventArgs e){foreach(var area in reportAreas)if(area.Key.Contains(e.Location)){if(!reportBusy&&Report!=null){reportBusy=true;Report(area.Value);Invalidate();}return;}if(Detailed&&returnArea.Contains(e.Location))Close();else ShowDetails();};
-        Shown+=delegate{if(!displaySuppressed)held=display.Acquire(true);if(usePresence)presence.Start();Poll();clock.Start();};
+        Shown+=delegate{if(usePresence)presence.Start();Poll();clock.Start();};
         clock.Tick+=delegate{
-            if(!held&&!displaySuppressed)held=display.Acquire(true);
             if(!waiting&&elapsed.Elapsed.TotalSeconds-requestedAt>=5)Poll();
             if(waiting&&elapsed.Elapsed.TotalSeconds-requestedAt>15){waiting=false;problem="更新が途絶えています";}
-            MoveTo(Detailed?1:0);Invalidate();
+            if(!displaySuppressed){MoveTo(Detailed?1:0);Invalidate();}
         };
 
     }
     protected override void Dispose(bool disposing) {
-        if(disposing&&!disposed){disposed=true;clock.Stop();clock.Dispose();animation.Stop();animation.Dispose();presence.Dispose();display.Dispose();foreach(var font in textFonts.Values)font.Dispose();textFonts.Clear();foreach(var icon in emojiImages.Values)if(icon!=null)icon.Dispose();emojiImages.Clear();}
+        if(disposing&&!disposed){disposed=true;clock.Stop();clock.Dispose();animation.Stop();animation.Dispose();presence.Dispose();foreach(var font in textFonts.Values)font.Dispose();textFonts.Clear();foreach(var icon in emojiImages.Values)if(icon!=null)icon.Dispose();emojiImages.Clear();}
         base.Dispose(disposing);
     }
     Font TextFont(float size,bool bold) {
@@ -259,7 +235,6 @@ internal sealed class DashboardForm : Form {
         using(var brush=new SolidBrush(age>20&&data!=null?Orange:Green))g.FillEllipse(brush,1,height-24,6,6);
         Write(g,health+"  ·  最終更新 "+(data==null?"—":serverTime.AddHours(9).ToString("HH:mm:ss")),11,Muted,new RectangleF(14,height-32,width*.59f,24));
         Write(g,usePresence?presence.Status:"",10,Muted,new RectangleF(width*.6f,height-32,width*.4f,24));
-        if(!held&&!displaySuppressed)Write(g,"自動消灯を抑止できませんでした。Windowsの電源設定を確認してください。",12,Orange,new RectangleF(0,height-5,width,26));
     }
     DateTime ServerNow {get{return data==null?DateTime.UtcNow:serverTime.AddSeconds(elapsed.Elapsed.TotalSeconds-receivedAt);}}
     static int MinutesUntil(DateTime target,DateTime now){return (int)Math.Max(0,Math.Ceiling((target-now).TotalMinutes));}
