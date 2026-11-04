@@ -726,6 +726,7 @@ async function refresh(force = false) {
     me = data.me;
     selectedDay = data.day;
     if (
+      !(guidePending && pageView === "settings") &&
       (force || signature !== lastSignature) &&
       (force ||
         !document.activeElement?.closest(
