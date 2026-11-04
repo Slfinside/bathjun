@@ -29,7 +29,7 @@ async function openClientGuide(topic, onboarding = false) {
   guidePending = true;
   try {
     const { openGuide } = await import("./help.js");
-    await openGuide(topic, { onboarding });
+    await openGuide(topic, { onboarding, rules: state?.rewards?.settings });
   } catch (error) {
     notify(error.message);
   } finally {

@@ -7,7 +7,7 @@ const button = (label, className = "") => {
   node.className = className;
   return node;
 };
-export async function openGuide(topic, { onboarding = false } = {}) {
+export async function openGuide(topic, { onboarding = false, rules = {} } = {}) {
   contentPromise ||= fetch("/help/content.json")
     .then((response) => {
       if (!response.ok)
@@ -53,7 +53,12 @@ export async function openGuide(topic, { onboarding = false } = {}) {
   const summary = document.createElement("summary");
   summary.textContent = "詳細を見る";
   details.append(summary);
-  for (const item of entry.details) {
+  const extra = [];
+  if (topic === "autoStandby" && Number.isInteger(rules.standbyFailureDays))
+    extra.push({ title: "現在の設定", text: `${rules.standbyFailureDays}日連続で入浴しないと、その連続した日が失敗になります。入力した時点では判定しません。` });
+  if (topic === "stamps" && Number.isInteger(rules.clientReportMinutes) && Number.isInteger(rules.dashboardReportMinutes))
+    extra.push({ title: "現在の報告期限", text: `予約終了後、本人の画面では${rules.clientReportMinutes}分以内、サーバーのダッシュボードでは${rules.dashboardReportMinutes}分以内に報告してください。予約終了前でも、上がった時点で報告できます。` });
+  for (const item of [...extra, ...entry.details]) {
     const h = document.createElement("h3"),
       p = document.createElement("p");
     h.textContent = item.title;
