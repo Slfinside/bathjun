@@ -2720,7 +2720,7 @@ footer .site-credit {
 
 /* Guides share the booking sheet's paper, spacing and controls. */
 .guide-heading { display: flex; align-items: center; justify-content: flex-start; gap: 12px; }
-.help-button { width: 36px; height: 36px; flex: 0 0 36px; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--green); font: inherit; font-size: 18px; font-weight: 600; line-height: 1; cursor: pointer; }
+.help-button { width: 44px; height: 44px; flex: 0 0 44px; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--green); font: inherit; font-size: 18px; font-weight: 600; line-height: 1; cursor: pointer; }
 .help-button:focus-visible, .help-topics button:focus-visible { outline: 3px solid var(--orange); outline-offset: 3px; }
 .guide-dialog { width: min(560px, calc(100% - 28px)); max-height: 90dvh; overflow: auto; border: 1px solid var(--line); border-radius: 24px; padding: 24px; color: var(--ink); background: var(--paper); }
 .guide-dialog::backdrop { background: #1c2c1c80; backdrop-filter: blur(4px); }
@@ -2732,7 +2732,7 @@ footer .site-credit {
 .guide-steps li::before { content: counter(guide-step, decimal-leading-zero); position: absolute; left: 15px; top: 18px; color: var(--green); font-size: 13px; font-weight: 600; }
 .guide-steps p { margin: 0; font-size: 14px; }
 .guide-details { margin: 20px 0; border-top: 1px solid var(--line); padding-top: 16px; }
-.guide-details summary { cursor: pointer; color: var(--green); padding: 6px 0; }
+.guide-details summary { cursor: pointer; color: var(--green); min-height: 44px; padding: 10px 0; }
 .guide-details h3 { margin-top: 20px; }
 .guide-details p { font-size: 14px; }
 .guide-dialog > .primary { width: 100%; }
