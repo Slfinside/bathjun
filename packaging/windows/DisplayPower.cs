@@ -87,7 +87,7 @@ internal sealed class WindowsDisplayService : IDisposable {
     public void RequestOff(){Post(()=>policy.RequestOff(DateTime.UtcNow));}
     public void RequestOn(){Post(()=>policy.RequestOn(DateTime.UtcNow));}
     public void Renew(){Post(RenewCore);}
-    void RenewCore(){try{driver.Renew();transition.Refresh();window.RefreshSubscription();faulted=false;epoch++;Log("power renewed");if(tick!=null)tick.Start();}catch(Exception error){Fail(error);}}
+    void RenewCore(){try{policy.RequestOn(DateTime.UtcNow);driver.Renew();transition.Refresh();window.RefreshSubscription();faulted=false;epoch++;Log("power renewed");if(tick!=null)tick.Start();}catch(Exception error){Fail(error);}}
     void Run(){
         try{
             dispatcher=new Control();if(dispatcher.Handle==IntPtr.Zero)throw new InvalidOperationException("Display dispatcher unavailable");
@@ -114,7 +114,8 @@ internal sealed class WindowsDisplayService : IDisposable {
         DisplaySchedulePreferences settings;bool eligible,visible;
         lock(gate){settings=preference;eligible=ready;visible=dashboard;}
         bool protectedState=driver.Protected;
-        var plan=policy.Evaluate(settings,DateTime.UtcNow,eligible&&protectedState&&window.Registered,visible,PowerLease.IdleSeconds(),PowerLease.LastInputTick());
+        eligible=eligible&&protectedState&&window.Registered;
+        var plan=policy.Evaluate(settings,DateTime.UtcNow,eligible,visible,PowerLease.IdleSeconds(),PowerLease.LastInputTick());
         // Losing the server or AC must request restoration, even if no automatic
         // period is enabled and the main window is minimized.
         if(!eligible&&transition.Desired==false){policy.RequestOn(DateTime.UtcNow);plan=policy.Evaluate(settings,DateTime.UtcNow,false,visible,0,PowerLease.LastInputTick());}
