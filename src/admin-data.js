@@ -104,6 +104,10 @@ export function createAdminData({
       for (const table of [
         "time_selection_jobs",
         "time_selection_receipts",
+
+        "announcement_receipts",
+        "announcement_pages",
+        "announcements",
         "rebooking_prompts",
         "rebooking_history",
         "completion_notice_receipts",

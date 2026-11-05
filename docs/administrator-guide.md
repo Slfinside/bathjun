@@ -1,10 +1,10 @@
 # 管理者向け：導入・設定・運用
 
-この文書はv2.0.0-beta2の手順です。[日付・予約の区切り](calendar-days.md)と曜日ごとの自動予約にも対応しています。
+この文書はv2.0.1の手順です。[日付・予約の区切り](calendar-days.md)と曜日ごとの自動予約にも対応しています。
 
 サーバーを管理する人向けの手順です。予約する人は[利用者向けガイド](user-guide.md)、ソースから動かす場合は[開発者向けガイド](development.md)を参照してください。
 
-配布物は[ベータ版のGitHub Release](https://github.com/Slfinside/bathjun/releases/tag/v2.0.0-beta2)から取得します。インストーラーは `Bathjun-Setup-x64.exe`、このPC内で試す版は `Bathjun-Portable-x64.zip` です。「Source code」は開発用で、起動環境は同梱していません。
+配布物は[GitHub Release](https://github.com/Slfinside/bathjun/releases/tag/v2.0.1)から取得します。インストーラーは `Bathjun-Setup-x64.exe`、このPC内で試す版は `Bathjun-Portable-x64.zip` です。「Source code」は開発用で、起動環境は同梱していません。
 
 ## 接続の仕組み
 
@@ -360,3 +360,7 @@ Windowsのロック解除、サインイン条件、電源プランやカバー�
 ## 夜の締め切り（v2.1.0向け・開発中）
 
 「設定」の「夜の締め切り（翌日）」は、開始時刻を決めるお願いを通知するための目安です。初期は翌2:00。予約・スタンプの区切りとは別で、予約できる時刻を制限しません。[計算方法と設定の説明](duration-only-wishes.md)を参照してください。
+
+## v2.0.1：お知らせと更新
+
+[サーバーの自動更新・お知らせ配信・インク返却の使い方](updates-and-announcements.md)をご確認ください。

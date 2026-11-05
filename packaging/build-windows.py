@@ -38,7 +38,7 @@ def build(args):
     if not (fonts/'OFL.txt').is_file():raise RuntimeError('Shared font license missing')
     with tempfile.TemporaryDirectory(prefix='bathjun-win-build-') as temporary:
         payload=pathlib.Path(temporary)/'payload';app=payload/'app';app.mkdir(parents=True)
-        for directory in ['src','public','migrations','docs']:shutil.copytree(ROOT/directory,app/directory)
+        for directory in ['src','public','migrations','docs','release-announcements']:shutil.copytree(ROOT/directory,app/directory)
         for file in ['package.json','package-lock.json','README.md']:shutil.copy2(ROOT/file,app/file)
         subprocess.run(['npm','ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund'],cwd=app,check=True,env={**os.environ,'npm_config_cache':str(assets/'npm-cache')})
         if list((app/'node_modules').rglob('*.node')):raise RuntimeError('Native npm modules need Windows-specific builds')
@@ -64,8 +64,9 @@ def build(args):
         png=(app/'public/icon-192.png').read_bytes()
         (app/'public/icon.ico').write_bytes(struct.pack('<HHH',0,1,1)+struct.pack('<BBBBHHII',192,192,0,0,1,32,len(png),22)+png)
         for name,mode in [('start-public.cmd','public'),('start-local.cmd','local'),('family-password.cmd','password')]:
-            text='\r\n'.join(['@echo off','chcp 65001 >nul','setlocal','cd /d "%~dp0app"','set "BATHJUN_DATA_DIR=%LOCALAPPDATA%\\BathjunData"','set "UV_THREADPOOL_SIZE=2"','set "GOMEMLIMIT=64MiB"',f'"%~dp0bin\\node.exe" --max-old-space-size=96 src\\windows-launcher.js {mode}','set "bathjun_exit=%ERRORLEVEL%"','if not "%BATHJUN_AUTOSTART%"=="1" if not "%bathjun_exit%"=="0" pause','exit /b %bathjun_exit%',''])
+            text='\r\n'.join(['@echo off','chcp 65001 >nul','setlocal','cd /d "%~dp0app"','set "BATHJUN_DATA_DIR=%LOCALAPPDATA%\\BathjunData"','set "UV_THREADPOOL_SIZE=2"','set "GOMEMLIMIT=64MiB"',f'"%~dp0bin\\node.exe" --max-old-space-size=96 src\\windows-launcher.js {mode} %*','set "bathjun_exit=%ERRORLEVEL%"','if not "%BATHJUN_AUTOSTART%"=="1" if not "%bathjun_exit%"=="0" pause','exit /b %bathjun_exit%',''])
             (payload/name).write_bytes(text.encode('utf-8'))
+        (payload/'start-after-install.cmd').write_bytes(('\r\n'.join(['@echo off','chcp 65001 >nul','setlocal','cd /d "%~dp0app"','set "BATHJUN_DATA_DIR=%LOCALAPPDATA%\\BathjunData"','set "BATHJUN_NO_BROWSER=1"','"%~dp0bin\\node.exe" --max-old-space-size=96 src\\windows-launcher.js installed',''])).encode('utf-8'))
         (payload/'start-autostart.cmd').write_bytes(('\r\n'.join(['@echo off','set "BATHJUN_AUTOSTART=1"','set "BATHJUN_NO_BROWSER=1"','call "%~dp0start-local.cmd"',''])).encode('ascii'))
         shutil.copy2(ROOT/'packaging/windows/Windowsの使い方.txt',payload/'Windowsの使い方.txt')
         shutil.copy2(ROOT/'packaging/windows/install-tailscale.ps1',payload/'install-tailscale.ps1')
@@ -75,7 +76,7 @@ def build(args):
         if args.portable_output:
             portable=pathlib.Path(temporary)/'portable';shutil.copytree(payload,portable)
             # Local testing does not install services, request elevation or change Run keys.
-            for name in ['install-tailscale.ps1','start-public.cmd','start-autostart.cmd']:(portable/name).unlink(missing_ok=True)
+            for name in ['install-tailscale.ps1','start-public.cmd','start-autostart.cmd','start-after-install.cmd']:(portable/name).unlink(missing_ok=True)
             for name in ['start-local.cmd','family-password.cmd']:
                 raw=(portable/name).read_bytes().replace(b'BathjunData',b'BathjunTestData')
                 (portable/name).write_bytes(raw)

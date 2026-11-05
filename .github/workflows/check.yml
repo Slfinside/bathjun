@@ -142,3 +142,27 @@ jobs:
           name: windows-distributions-check
           path: dist/*
           retention-days: 7
+
+  installer-upgrade:
+    needs: distributions
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-distributions-check
+          path: installer-test
+      - name: Install over an older version and activate bundled announcements
+        shell: pwsh
+        run: |
+          $testRoot = Join-Path $env:RUNNER_TEMP 'Bathjun installer test'
+          $testData = Join-Path $env:RUNNER_TEMP 'Bathjun synthetic install data'
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Bathjun'
+          New-Item -Path $key -Force | Out-Null
+          Set-ItemProperty -Path $key -Name DisplayVersion -Value '2.0.0'
+          $setup = (Resolve-Path installer-test/Bathjun-Setup-x64.exe).Path
+          $process = Start-Process -FilePath $setup -ArgumentList ('/S /BATHJUN_NO_LAUNCH /D=' + $testRoot) -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Installer failed' }
+          & "$testRoot\bin\node.exe" packaging/windows/tests/check-installed-announcements.mjs $testRoot $testData
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

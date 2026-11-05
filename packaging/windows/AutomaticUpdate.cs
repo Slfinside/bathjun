@@ -105,3 +105,8 @@ internal static class AutomaticUpdate {
         }finally{if(recovered)try{Directory.Delete(work,true);}catch{}}
     }
 }
+
+public sealed class AutomaticUpdatePreferences {
+    public bool enabled=true;public int minute=240;public string checkedDay;
+    internal bool Due(DateTime japanNow){return enabled&&minute>=0&&minute<1440&&japanNow.Hour*60+japanNow.Minute>=minute&&checkedDay!=japanNow.ToString("yyyy-MM-dd");}
+}

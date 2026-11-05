@@ -19,6 +19,7 @@ export function createPanelController({
   path,
   token,
   onGetDashboard,
+  onGetAnnouncements,onSaveAnnouncement,onArchiveAnnouncement,onUpdateStatus,
   onGetRewards,
   onSaveRewardSettings,
   onDistributeItems,
@@ -55,7 +56,7 @@ export function createPanelController({
     socket.on("error", () => {});
     socket.on("data", (data) => {
       buffer += data.toString("utf8");
-      if (Buffer.byteLength(buffer) > 32768) {
+      if (Buffer.byteLength(buffer) > 262144) {
         socket.destroy();
         return;
       }
@@ -92,6 +93,10 @@ export function createPanelController({
               phase: state.phase,
             },
           });
+        else if(message.command==='announcements/get')send(socket,{id:message.id,ok:true,announcements:await onGetAnnouncements()});
+        else if(message.command==='announcements/save')send(socket,{id:message.id,ok:true,announcements:await onSaveAnnouncement(message.payload)});
+        else if(message.command==='announcements/archive')send(socket,{id:message.id,ok:true,announcements:await onArchiveAnnouncement(message.payload)});
+        else if(message.command==='update/status')send(socket,{id:message.id,ok:true,readiness:await onUpdateStatus()});
         else if (message.command === "items/get")
           send(socket, {
             id: message.id,

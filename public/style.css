@@ -2750,3 +2750,13 @@ footer .site-credit {
 .untimed-plans strong { color: var(--ink); }
 
 #start[hidden], .end-summary[hidden], #booking-form > .negotiation-choice[hidden] { display: none; }
+
+.announcement-dialog { width: min(540px, calc(100vw - 28px)); max-height: min(90dvh, 850px); padding: 32px 26px 20px; border: 1px solid var(--line); border-radius: 26px; background: var(--paper); color: var(--ink); box-shadow: 0 24px 100px #17221b33; }
+.announcement-dialog::backdrop { background: #18271b66; backdrop-filter: blur(6px); }
+.announcement-counter { display: block; text-align: right; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.announcement-dialog h2 { margin: 0 0 22px; font-size: clamp(22px,5vw,28px); line-height: 1.5; outline: none; overflow-wrap: anywhere; }
+.announcement-image { display: block; width: 100%; max-height: 340px; object-fit: contain; background: var(--cream); border-radius: 18px; margin: 0 0 22px; }
+.announcement-image[hidden] { display: none; }
+.announcement-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.9; margin: 0 0 28px; }
+.announcement-dialog .primary { width: 100%; }
+.announcement-skip { display: block; margin: 12px auto 0; padding: 10px 16px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }

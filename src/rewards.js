@@ -558,6 +558,15 @@ export function createRewards({ db, now, scheduleForDay }) {
       return { ok: true };
     });
   }
+  for(const column of ['refundable','refunded_at'])if(!db.prepare('PRAGMA table_info(stamp_repairs)').all().some(c=>c.name===column))db.exec('ALTER TABLE stamp_repairs ADD COLUMN '+column+(column==='refundable'?' INTEGER NOT NULL DEFAULT 0':' TEXT'));
+  function refundInk(member,day){
+    const repair=db.prepare('SELECT * FROM stamp_repairs WHERE day=? AND member_id=? AND refundable=1 AND refunded_at IS NULL').get(day,member);
+    if(!repair)return;
+    const batch='ink-return:'+day+':'+member,stamp=now().toISOString();
+    db.prepare('INSERT OR IGNORE INTO item_batches VALUES(?,?)').run(batch,stamp);
+    db.prepare("INSERT INTO item_gifts(id,batch_id,member_id,kind,quantity,created_at) VALUES(?,?,?,'stampInk',1,?)").run(randomBytes(16).toString('hex'),batch,member,stamp);
+    db.prepare('UPDATE stamp_repairs SET refunded_at=? WHERE day=? AND member_id=?').run(stamp,day,member);
+  }
   function useStamp(member, payload) {
     requireItems();
     const { day, requestId } = payload || {};
@@ -588,11 +597,12 @@ export function createRewards({ db, now, scheduleForDay }) {
       if (!target || target.status === "stamp" || day > today)
         bad("今日までの未確定または失敗の日を選んでください。", 409);
       spend(member, "stampInk", "stamp:" + day);
-      db.prepare("INSERT INTO stamp_repairs VALUES(?,?,?,?)").run(
+      db.prepare("INSERT INTO stamp_repairs(day,member_id,used_at,request_id,refundable) VALUES(?,?,?,?,?)").run(
         day,
         member,
         now().toISOString(),
         requestId,
+        day===today&&target.status==='pending'?1:0,
       );
       settle(member);
       return { ok: true };
@@ -665,6 +675,7 @@ export function createRewards({ db, now, scheduleForDay }) {
         now().toISOString(),
         source,
       );
+      refundInk(member,day);
       settle(member);
       return { ok: true };
     });

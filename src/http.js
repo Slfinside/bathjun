@@ -20,6 +20,7 @@ const assets = {
     ),
   ),
   "/fonts/web.css": ["fonts/web.css", "text/css; charset=utf-8"],
+  "/announcements.js": ["announcements.js", "text/javascript; charset=utf-8"],
   "/help.js": ["help.js", "text/javascript; charset=utf-8"],
   "/help/": ["help/index.html", "text/html; charset=utf-8"],
   "/help/content.json": [

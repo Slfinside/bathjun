@@ -33,6 +33,9 @@ internal static class AutomaticUpdateTest {
         Rejected("Select",releases.Replace("https://github.com/Slfinside/bathjun/releases/download/","https://example.test/"),"1.3.0",false);
         Rejected("Select","[{\"tag_name\":\"v2.0.0\",\"assets\":[]}]","1.3.0",false);
         foreach(string address in new[]{"http://github.com/a","https://github.com.evil.test/a","https://user@github.com/a","https://github.com:8443/a","file:///tmp/a"})if((bool)Call("Allowed",new Uri(address)))throw new Exception("Untrusted redirect allowed");
+        var schedule=new AutomaticUpdatePreferences();var due=typeof(AutomaticUpdatePreferences).GetMethod("Due",BindingFlags.Instance|BindingFlags.NonPublic);var morning=new DateTime(2026,11,5,4,0,0);
+        if((bool)due.Invoke(schedule,new object[]{morning.AddMinutes(-1)})||!(bool)due.Invoke(schedule,new object[]{morning}))throw new Exception("Automatic update time is wrong");
+        schedule.checkedDay="2026-11-05";if((bool)due.Invoke(schedule,new object[]{morning}))throw new Exception("Checked twice on the same day");schedule.checkedDay=null;schedule.enabled=false;if((bool)due.Invoke(schedule,new object[]{morning}))throw new Exception("Disabled scheduler ran");
         string folder=Path.Combine(Path.GetTempPath(),"bathjun-update-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
         try{
             string bytes=Path.Combine(folder,"package.part");File.WriteAllText(bytes,"downloaded");

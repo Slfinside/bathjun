@@ -1,5 +1,7 @@
 import {migrateDurationOnlyWishes} from './duration-only-wishes.js';
 import {createTimeSelectionNotifications} from './time-selection-notifications.js';
+
+import {createAnnouncements} from './announcements.js';
 import { createRebooking } from "./rebooking.js";
 import { notificationReportMinutes, clientReportsAllowed, lastReportMinutes } from "./completion-policy.js";
 import { createCompletionReminders } from './completion-reminders.js';
@@ -302,6 +304,8 @@ export function createApp({
       await completionReminders.flush();
       if(closed)return;
       await timeSelection.flush();
+
+      announcements.publishDue();
     } finally {
       flushing = false;
     }
@@ -367,6 +371,8 @@ export function createApp({
   const autoWishes=createAutoWishes({db,now,scheduleForDay,currentTurn,onRejected:wish=>wishNotifications.record(wish,"wishUnconfirmed")});
   migrateDurationOnlyWishes(db);
   const timeSelection=createTimeSelectionNotifications({db,now,scheduleForDay,nightDeadline:serverSettings.nightDeadline,deliverPush,familyConfig,isClosed:()=>closed});
+
+  const announcements=createAnnouncements({db,now,onChanged:onNotificationQueued});
   const rebooking=createRebooking({db,now,scheduleForDay,rewardSettings:rewards.settings});
   const wishStarts=createWishStarts({db,now,scheduleForDay,rewards,notifications:wishNotifications,currentTurn,prepareDay:day=>ensureFixedDraw(day),onSettled:(day,previous)=>enqueueTurn(day,previous)});
   function processAutoWishes() {
@@ -742,6 +748,13 @@ export function createApp({
         onNotificationQueued();
         return send(200, { ok: true });
       }
+      if(req.method==='GET'&&url.pathname.startsWith('/api/announcements/image/')){
+        const picture=announcements.picture(url.pathname.slice('/api/announcements/image/'.length));
+        if(!picture?.image)fail(404,'画像が見つかりません。');
+        res.writeHead(200,{'Content-Type':picture.image_type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(picture.image);
+      }
+      if(req.method==='GET'&&url.pathname==='/api/announcements')return send(200,announcements.get(url.searchParams.get('id'),me.id));
+      if(req.method==='POST'&&url.pathname==='/api/announcements/seen')return send(200,announcements.seen(me.id,body));
       if (req.method === "GET" && url.pathname === "/api/state") {
         const time = currentTime();
         const day = validDay(url.searchParams.get("day") || time.activeDay, true);
@@ -755,6 +768,7 @@ export function createApp({
           notificationPreferences:getNotificationPreferences(db,me.id),
           autoStandby:autoStandby.enabled(me.id),
           autoWishes:autoWishes.get(me.id),
+          announcements:announcements.pending(me.id),
           nudge:nudges.status(day,me.id),
           ignoreLowerPriorityWishes:serverSettings.ignoreLowerPriorityWishes(),
           nightPlanning:timeSelection.status(day),
@@ -1038,6 +1052,11 @@ export function createApp({
         wishes:db.prepare("SELECT member_id AS memberId,start,duration,automatic FROM wishes WHERE day=? ORDER BY start,member_id").all(day),
         skips:db.prepare("SELECT member_id FROM bath_skips WHERE day=?").all(day).map(r=>r.member_id)};
     },
+    getAnnouncementsAdmin:announcements.admin,
+    saveAnnouncement:announcements.save,
+    archiveAnnouncement:announcements.archive,
+    activateUpdateAnnouncements:announcements.activate,
+    getUpdateStatus:()=>({busy:db.prepare("SELECT day,start,duration FROM bookings WHERE NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id)").all().some(b=>slotDate(b.day,b.start).getTime()<=now().getTime()+10*60000&&slotDate(b.day,b.start+b.duration)>now())}),
     getRewardsAdmin:rewards.admin,
     distributeItems:rewards.distribute,
     saveRewardSettings:value=>{const result=rewards.saveSettings(value);completionReminders.restore();return result;},
@@ -1058,7 +1077,7 @@ export function createApp({
     },
     flushNotifications,
     notificationDueAt: () => {
-      const values=[autoWishes.dueAt(),wishStarts.dueAt(),timeSelection.dueAt(),db.prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM wish_notification_jobs WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM nudge_jobs UNION ALL SELECT MIN(next_attempt) AS due FROM completion_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM time_selection_jobs)").get().due].filter(value=>value!==null);
+      const values=[announcements.dueAt(),autoWishes.dueAt(),wishStarts.dueAt(),timeSelection.dueAt(),db.prepare("SELECT MIN(due) AS due FROM (SELECT MIN(next_attempt) AS due FROM notification_queue UNION ALL SELECT MIN(next_attempt) AS due FROM booking_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM wish_notification_jobs WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM nudge_jobs UNION ALL SELECT MIN(next_attempt) AS due FROM completion_reminders WHERE sent=0 UNION ALL SELECT MIN(next_attempt) AS due FROM time_selection_jobs)").get().due].filter(value=>value!==null);
       return values.length?Math.min(...values):null;
     },
     setFamilyPassword,
