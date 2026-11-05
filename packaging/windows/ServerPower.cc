@@ -40,7 +40,7 @@ static napi_value Acquire(napi_env env, napi_callback_info info) {
   REASON_CONTEXT context = {};
   context.Version = POWER_REQUEST_CONTEXT_VERSION;
   context.Flags = POWER_REQUEST_CONTEXT_SIMPLE_STRING;
-  context.Reason.SimpleReasonString = const_cast<LPWSTR>(L"ふろきゅ～の予約と通知を、画面消灯中も継続しています。");
+  context.Reason.SimpleReasonString = const_cast<LPWSTR>(L"ふろじゅんの予約と通知を、画面消灯中も継続しています。");
   request = PowerCreateRequest(&context);
   if (!request || request == INVALID_HANDLE_VALUE) lastError = GetLastError();
   else {

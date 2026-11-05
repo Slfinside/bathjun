@@ -29,7 +29,7 @@ export async function openGuide(topic, { onboarding = false, rules = {} } = {}) 
   heading.className = "sheet-heading";
   const title = document.createElement("h2");
   title.id = "guide-title";
-  title.textContent = onboarding ? "はじめてのふろきゅ～" : entry.title;
+  title.textContent = onboarding ? "はじめてのふろじゅん" : entry.title;
   const close = button("×", "icon-button");
   close.setAttribute("aria-label", "ガイドを閉じる");
   close.onclick = () => guide.close();

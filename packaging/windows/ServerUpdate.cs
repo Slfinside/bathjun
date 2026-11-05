@@ -27,9 +27,9 @@ internal static class ServerUpdate {
     internal static string Hash(string path){using(var algorithm=SHA256.Create())using(var stream=File.OpenRead(path))return BitConverter.ToString(algorithm.ComputeHash(stream)).Replace("-","").ToLowerInvariant();}
     internal static Version ValidateInstaller(string path,Version current) {
         var info=FileVersionInfo.GetVersionInfo(path);Version candidate;
-        bool recognized=(info.ProductName=="ふろきゅ～"&&info.FileDescription=="ふろきゅ～ Windows x64 インストーラー") ||
-            (info.ProductName=="ふろじゅん"&&info.FileDescription=="ふろじゅん Windows x64 インストーラー");
-        if(!recognized || !Version.TryParse(info.FileVersion,out candidate))throw new InvalidDataException("ふろきゅ～のWindowsインストーラーを選んでください。");
+        bool recognized=(info.ProductName=="ふろじゅん"&&info.FileDescription=="ふろじゅん Windows x64 インストーラー") ||
+            (info.ProductName=="ふろきゅ～"&&info.FileDescription=="ふろきゅ～ Windows x64 インストーラー");
+        if(!recognized || !Version.TryParse(info.FileVersion,out candidate))throw new InvalidDataException("ふろじゅんのWindowsインストーラーを選んでください。");
         if(candidate<=current)throw new InvalidDataException("現在より新しいバージョンのインストーラーを選んでください。");
         string checksum=path+".sha256";
         if(File.Exists(checksum)) {
@@ -55,7 +55,7 @@ internal static class ServerUpdate {
     internal static void Run(string[] args) {
         if(args.Length!=7)return;
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-        using(var form=new Form{Text="ふろきゅ～ — 更新",ClientSize=new Size(490,170),StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false}) {
+        using(var form=new Form{Text="ふろじゅん — 更新",ClientSize=new Size(490,170),StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false}) {
             form.AutoScaleDimensions=new SizeF(96,96);form.AutoScaleMode=AutoScaleMode.Dpi;
             var label=new Label{Text="サーバーの終了を待っています…",Dock=DockStyle.Fill,Padding=new Padding(20),Font=new Font("Yu Gothic UI",11)};form.Controls.Add(label);bool busy=true;
             form.FormClosing+=delegate(object sender,FormClosingEventArgs e){if(busy)e.Cancel=true;};

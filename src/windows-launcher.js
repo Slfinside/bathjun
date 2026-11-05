@@ -26,7 +26,7 @@ try {
     if (mode === "password" || !app.familyConfigured()) {
       if (process.env.BATHJUN_AUTOSTART === "1")
         throw new Error(
-          "最初にデスクトップのふろきゅ～を開き、家族の合い言葉を設定してください。",
+          "最初にデスクトップのふろじゅんを開き、家族の合い言葉を設定してください。",
         );
       await configureFamily(app);
     }

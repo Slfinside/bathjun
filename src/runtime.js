@@ -56,7 +56,7 @@ export async function startRuntime({
   return { app, server, setPublicOrigin, close, port: server.address().port };
 }
 export function logLocalAddresses(port) {
-  console.log(`ふろきゅ～: http://localhost:${port}`);
+  console.log(`ふろじゅん: http://localhost:${port}`);
   if (["127.0.0.1", "::1", "localhost"].includes(process.env.HOST)) {
     console.log("このPC内からだけ接続できます。");
     return;

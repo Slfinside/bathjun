@@ -4,21 +4,21 @@ Unicode true
 !include "x64.nsh"
 !include "WinVer.nsh"
 !include "Sections.nsh"
-Name "ふろきゅ～"
+Name "ふろじゅん"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Bathjun"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 SetCompressorDictSize 16
-BrandingText "ふろきゅ～ — 家族のおふろ予約"
+BrandingText "ふろじゅん — 家族のおふろ予約"
 VIProductVersion "${FILE_VERSION}"
-VIAddVersionKey "ProductName" "ふろきゅ～"
-VIAddVersionKey "FileDescription" "ふろきゅ～ Windows x64 インストーラー"
+VIAddVersionKey "ProductName" "ふろじゅん"
+VIAddVersionKey "FileDescription" "ふろじゅん Windows x64 インストーラー"
 VIAddVersionKey "FileVersion" "${FILE_VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "LegalCopyright" ""
 !define MUI_ABORTWARNING
-!define MUI_WELCOMEPAGE_TITLE "ふろきゅ～をセットアップ"
+!define MUI_WELCOMEPAGE_TITLE "ふろじゅんをセットアップ"
 !define MUI_WELCOMEPAGE_TEXT "Windows 10・11（64bit）用。本体は管理者権限なしで導入し、このPC内だけで試せます。外部公開ツールは任意です（導入には管理者の許可が必要）。$\r$\n$\r$\n予約データはアプリ本体と別の場所に保存し、更新・アンインストールでも残します。"
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION Launch
@@ -38,7 +38,7 @@ Function ${Prefix}EnsureStopped
 retry:
   System::Call 'kernel32::CreateFileW(w "$INSTDIR\bin\node.exe", i 0x40000000, i 0, p 0, i 3, i 0, p 0) p .r0'
   ${If} $0 == -1
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "ふろきゅ～が起動しているか、ファイルが使用中です。起動画面で Ctrl+C を押して終了し、再試行してください。" IDRETRY retry
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "ふろじゅんが起動しているか、ファイルが使用中です。起動画面で Ctrl+C を押して終了し、再試行してください。" IDRETRY retry
     Abort
   ${Else}
     System::Call 'kernel32::CloseHandle(p r0)'
@@ -66,7 +66,7 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
-Section "ふろきゅ～本体（必須）" SEC_MAIN
+Section "ふろじゅん本体（必須）" SEC_MAIN
   SectionIn RO
   Call EnsureStopped
   SetOutPath "$INSTDIR"
@@ -92,15 +92,23 @@ Section "ふろきゅ～本体（必須）" SEC_MAIN
   Delete "$SMPROGRAMS\ふろじゅん\データフォルダ.lnk"
   Delete "$SMPROGRAMS\ふろじゅん\アンインストール.lnk"
   RMDir "$SMPROGRAMS\ふろじゅん"
-  CreateDirectory "$SMPROGRAMS\ふろきゅ～"
-  CreateShortcut "$DESKTOP\ふろきゅ～.lnk" "$INSTDIR\start-local.cmd" "" "$INSTDIR\app\public\icon.ico"
-  CreateShortcut "$SMPROGRAMS\ふろきゅ～\ふろきゅ～を起動.lnk" "$INSTDIR\start-local.cmd" "" "$INSTDIR\app\public\icon.ico"
-  CreateShortcut "$SMPROGRAMS\ふろきゅ～\固定URLで外部公開.lnk" "$INSTDIR\start-public.cmd" "" "$INSTDIR\app\public\icon.ico"
-  CreateShortcut "$SMPROGRAMS\ふろきゅ～\家族の合い言葉を変更.lnk" "$INSTDIR\family-password.cmd"
-  CreateShortcut "$SMPROGRAMS\ふろきゅ～\使い方.lnk" "$INSTDIR\Windowsの使い方.txt"
-  CreateShortcut "$SMPROGRAMS\ふろきゅ～\データフォルダ.lnk" "$LOCALAPPDATA\BathjunData"
-  CreateShortcut "$SMPROGRAMS\ふろきゅ～\アンインストール.lnk" "$INSTDIR\Uninstall.exe"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Bathjun" "DisplayName" "ふろきゅ～"
+  Delete "$DESKTOP\ふろきゅ～.lnk"
+  Delete "$SMPROGRAMS\ふろきゅ～\ふろきゅ～を起動.lnk"
+  Delete "$SMPROGRAMS\ふろきゅ～\固定URLで外部公開.lnk"
+  Delete "$SMPROGRAMS\ふろきゅ～\家族の合い言葉を変更.lnk"
+  Delete "$SMPROGRAMS\ふろきゅ～\使い方.lnk"
+  Delete "$SMPROGRAMS\ふろきゅ～\データフォルダ.lnk"
+  Delete "$SMPROGRAMS\ふろきゅ～\アンインストール.lnk"
+  RMDir "$SMPROGRAMS\ふろきゅ～"
+  CreateDirectory "$SMPROGRAMS\ふろじゅん"
+  CreateShortcut "$DESKTOP\ふろじゅん.lnk" "$INSTDIR\start-local.cmd" "" "$INSTDIR\app\public\icon.ico"
+  CreateShortcut "$SMPROGRAMS\ふろじゅん\ふろじゅんを起動.lnk" "$INSTDIR\start-local.cmd" "" "$INSTDIR\app\public\icon.ico"
+  CreateShortcut "$SMPROGRAMS\ふろじゅん\固定URLで外部公開.lnk" "$INSTDIR\start-public.cmd" "" "$INSTDIR\app\public\icon.ico"
+  CreateShortcut "$SMPROGRAMS\ふろじゅん\家族の合い言葉を変更.lnk" "$INSTDIR\family-password.cmd"
+  CreateShortcut "$SMPROGRAMS\ふろじゅん\使い方.lnk" "$INSTDIR\Windowsの使い方.txt"
+  CreateShortcut "$SMPROGRAMS\ふろじゅん\データフォルダ.lnk" "$LOCALAPPDATA\BathjunData"
+  CreateShortcut "$SMPROGRAMS\ふろじゅん\アンインストール.lnk" "$INSTDIR\Uninstall.exe"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Bathjun" "DisplayName" "ふろじゅん"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Bathjun" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Bathjun" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Bathjun" "InstallLocation" "$INSTDIR"
@@ -121,7 +129,7 @@ Section /o "このPC内モードをサインイン時に自動起動" SEC_AUTO
 SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
 !insertmacro MUI_DESCRIPTION_TEXT ${SEC_MAIN} "Node.js・SQLiteと必要なアプリを同梱。予約データと秘密鍵は配布物に含めません。"
-!insertmacro MUI_DESCRIPTION_TEXT ${SEC_TAILSCALE} "公式Windowsパッケージを取得し、署名を検証して導入します。初回はインターネットとWindowsの管理者の許可が必要です。Tailscaleは他のアプリでも使えるため、ふろきゅ～の削除時には残します。"
+!insertmacro MUI_DESCRIPTION_TEXT ${SEC_TAILSCALE} "公式Windowsパッケージを取得し、署名を検証して導入します。初回はインターネットとWindowsの管理者の許可が必要です。Tailscaleは他のアプリでも使えるため、ふろじゅんの削除時には残します。"
 !insertmacro MUI_DESCRIPTION_TEXT ${SEC_AUTO} "このWindowsユーザーがサインインしたときだけ、最小化した画面で起動します。ブラウザーは自動では開きません。"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 Function Launch
@@ -133,8 +141,8 @@ Section "Uninstall"
   Call un.EnsureStopped
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Bathjun"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Bathjun"
-  Delete "$DESKTOP\ふろきゅ～.lnk"
-  RMDir /r "$SMPROGRAMS\ふろきゅ～"
+  Delete "$DESKTOP\ふろじゅん.lnk"
+  RMDir /r "$SMPROGRAMS\ふろじゅん"
   ; Delete only known program directories. Never remove BathjunData or unknown user files.
   RMDir /r "$INSTDIR\app"
   RMDir /r "$INSTDIR\bin"
