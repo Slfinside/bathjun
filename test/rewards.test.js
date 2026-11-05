@@ -1898,3 +1898,33 @@ test('時間設定の変更後でも、古い他曜日の設定を保持した�
  assert.equal(updated[1].duration,60);assert.deepEqual(updated[2],original[2]);assert.equal(updated[2].duration,90);
  assert.equal((await f.request('auto-wishes',{day:{...original[2],duration:90}})).status,400);
 });
+
+test('固定順では翌日分の手入力の希望も、アクセスなしで日付が変わったら順番に確定する',async t=>{
+ const f=await fixture(t);await enableReportPush(f,reportSubscription('manual-fixed-opening'));await f.api('wish',{day:'2026-10-26',start:1080,duration:30,note:'前日に入力した希望'});
+ assert.equal(f.app.notificationDueAt(),Date.parse('2026-10-26T00:00:00+09:00'));
+ f.time('2026-10-26T00:00:00');await f.app.flushNotifications();
+ const db=new DatabaseSync(f.database);
+ try{
+  const booking=db.prepare('SELECT start,note,auto_confirmed,automatic FROM bookings WHERE day=? AND member_id=1').get('2026-10-26');
+  assert.deepEqual({...booking},{start:1080,note:'前日に入力した希望',auto_confirmed:1,automatic:0});
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM wishes WHERE day=?').get('2026-10-26').n,0);
+ }finally{db.close()}
+ assert.equal(f.sent.filter(x=>x.payload.tag.startsWith('bath-wish-wishConfirmed')).length,1);await f.app.flushNotifications();assert.equal(f.sent.filter(x=>x.payload.tag.startsWith('bath-wish-wishConfirmed')).length,1);
+ assert.ok(f.app.notificationDueAt()===null||f.app.notificationDueAt()>Date.parse('2026-10-26T00:00:00+09:00'));
+});
+
+test('固定順の日付が変わっても下位の希望は待機し、前の人の予約後に確定する',async t=>{
+ const f=await fixture(t);await f.api('wish',{day:'2026-10-26',start:1080,duration:30},2);
+ f.time('2026-10-26T00:00:00');await f.app.flushNotifications();
+ const db=new DatabaseSync(f.database);
+ try{assert.ok(db.prepare('SELECT day FROM draws WHERE day=?').get('2026-10-26'));assert.equal(db.prepare('SELECT COUNT(*) n FROM wishes WHERE day=?').get('2026-10-26').n,1)}finally{db.close()}
+ await f.book(1,900,30,null,'2026-10-26');assert.equal((await f.state()).bookings.find(b=>b.memberId===2).start,1080);
+});
+
+test('翌日の希望があっても抽選モードの順番は自動で決めない',async t=>{
+ const f=await fixture(t,{random:true});await f.api('wish',{day:'2026-10-26',start:1080,duration:30});
+ assert.equal(f.app.notificationDueAt(),null);
+ f.time('2026-10-26T00:00:00');await f.app.flushNotifications();
+ const db=new DatabaseSync(f.database);
+ try{assert.equal(db.prepare('SELECT day FROM draws WHERE day=?').get('2026-10-26'),undefined);assert.equal(db.prepare('SELECT COUNT(*) n FROM wishes WHERE day=?').get('2026-10-26').n,1)}finally{db.close()}
+});

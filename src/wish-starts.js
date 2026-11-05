@@ -46,7 +46,8 @@ export function createWishStarts({
           scheduleForDay(wish.day).orderMode !== "fixed")
       )
         continue;
-      const value = slotDate(wish.day, wish.start).getTime();
+      const unopenedFixedDay = scheduleForDay(wish.day).orderMode === "fixed" && !db.prepare("SELECT 1 FROM draws WHERE day=?").get(wish.day);
+      const value = slotDate(wish.day, unopenedFixedDay ? 0 : wish.start).getTime();
       due = due === null ? value : Math.min(due, value);
     }
     return due;
@@ -75,13 +76,11 @@ export function createWishStarts({
   function process() {
     const changed = new Map();
     for (const scheduled of pending()) {
-      if (
-        !eligible(scheduled) ||
-        slotDate(scheduled.day, scheduled.start) > now()
-      )
-        continue;
+      if (!eligible(scheduled)) continue;
+      // Fixed order opens at midnight even when nobody opens the client.
+      // prepareDay may confirm a future wish through the ordinary turn path.
       prepareDay(scheduled.day);
-      if (!hasDraw(scheduled)) continue;
+      if (slotDate(scheduled.day, scheduled.start) > now() || !hasDraw(scheduled)) continue;
       // prepareDay may already have consumed the wish through the ordinary turn path.
       const wish = db
         .prepare("SELECT * FROM wishes WHERE revision=?")
