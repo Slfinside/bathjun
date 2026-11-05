@@ -1875,3 +1875,26 @@ test("旧自動予約の実行履歴から由来を移行し、手入力予約�
   assert.equal(state.bookings[0].automatic, 1);
   assert.equal(state.wishes[0].automatic, 1);
 });
+
+test('曜日を個別に保存しても、別端末から保存した他の曜日や他人の設定を上書きしない',async t=>{
+ const f=await fixture(t),original=(await f.api('auto-wishes')).days;
+ const monday={...original[1],mode:'reservation',enabled:true,start:1080,duration:45,note:'月曜日'};
+ const tuesday={...original[2],mode:'reservation',enabled:true,start:1140,duration:30,note:'別端末の火曜日'};
+ await f.api('auto-wishes',{day:tuesday});await f.api('auto-wishes',{day:monday,memberId:2});await f.restart();
+ const days=(await f.api('auto-wishes')).days;assert.deepEqual(days[1],monday);assert.deepEqual(days[2],tuesday);
+ assert.deepEqual((await f.api('auto-wishes',undefined,2)).days,original);
+ for(const value of [{day:null},{day:[]},{day:{...monday,weekday:7}},{day:{...monday,start:1081}},{day:monday,days:original}])assert.equal((await f.request('auto-wishes',value)).status,400);
+ assert.deepEqual((await f.api('auto-wishes')).days,days);
+});
+
+test('時間設定の変更後でも、古い他曜日の設定を保持したまま一曜日ずつ修正できる',async t=>{
+ const f=await fixture(t);
+ await f.api('auto-wishes',{days:weeklyPlan(1,1200,90).days.map(d=>({...d,enabled:true,mode:'reservation'}))});
+ const settings=f.app.getServerSettings();f.app.saveServerSettings({members:settings.members,schedule:{...settings.upcoming,maxDuration:60}});
+ f.time('2026-10-26T08:00:00');
+ const original=(await f.api('auto-wishes')).days;
+ await f.api('auto-wishes',{day:{...original[1],duration:60}});
+ const updated=(await f.api('auto-wishes')).days;
+ assert.equal(updated[1].duration,60);assert.deepEqual(updated[2],original[2]);assert.equal(updated[2].duration,90);
+ assert.equal((await f.request('auto-wishes',{day:{...original[2],duration:90}})).status,400);
+});

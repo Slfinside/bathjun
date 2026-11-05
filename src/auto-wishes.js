@@ -52,7 +52,11 @@ export function createAutoWishes({
   const relativeStart = (clockStart, rule) =>
     clockStart < rule.bathStart ? clockStart + 1440 : clockStart;
   function save(member, value) {
-    const days = value?.days,
+    const singleDay = value && Object.hasOwn(value, "day");
+    const updated = value?.day;
+    if (singleDay && (Object.hasOwn(value, "days") || !updated || !Number.isInteger(updated.weekday) || updated.weekday < 0 || updated.weekday > 6))
+      bad("設定する曜日を確認してください。");
+    const days = singleDay ? get(member).days.map(day => day.weekday === updated.weekday ? updated : day) : value?.days,
       today = bathCalendar(now()).today;
     if (
       !Array.isArray(days) ||
@@ -62,6 +66,9 @@ export function createAutoWishes({
       bad("曜日ごとの自動予約設定を確認してください。");
     const normalized = days
       .map((d) => {
+        // An independent weekday edit must preserve the latest values of other days,
+        // including plans made before an administrator changed the slot rules.
+        if (singleDay && d.weekday !== updated.weekday) return d;
         if (
           !d ||
           !Number.isInteger(d.weekday) ||

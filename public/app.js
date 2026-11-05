@@ -214,30 +214,38 @@ function notify(message) {
   notify.timer = setTimeout(() => toast.classList.remove("show"), 4500);
 }
 async function api(path, data) {
-  let response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  const timeoutError = () => new Error("サーバーの応答に時間がかかっています。接続を確認し、もう一度お試しください。");
   try {
-    response = await fetch(
-      `/api/${path}`,
-      data === undefined
-        ? { cache: "no-store" }
-        : {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data),
-          },
-    );
-  } catch {
-    throw new Error("サーバーに接続できません。接続を確認してください。");
-  }
-  if (response.status === 401 && !["login", "register", "family/login", "passkey/auth/verify"].includes(path)) {
-    me = null; state = null; resetNavigation(); selectedMember = null; void init();
-  }
-  let result;
-  try { result = await response.json(); }
-  catch { throw Object.assign(new Error("サーバーの応答を読み込めませんでした。接続を確認して、もう一度お試しください。"), { status: response.status }); }
-  if (!response.ok) throw Object.assign(new Error(typeof result?.error === "string" ? result.error : "読み込みに失敗しました。"), { status: response.status });
-  return result;
+    let response;
+    try {
+      response = await fetch(`/api/${path}`, {
+        signal: controller.signal,
+        ...(data === undefined ? { cache: "no-store" } : {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }),
+      });
+    } catch {
+      if (controller.signal.aborted) throw timeoutError();
+      throw new Error("サーバーに接続できません。接続を確認してください。");
+    }
+    if (response.status === 401 && !["login", "register", "family/login", "passkey/auth/verify"].includes(path)) {
+      me = null; state = null; resetNavigation(); selectedMember = null; void init();
+    }
+    let result;
+    try { result = await response.json(); }
+    catch {
+      if (controller.signal.aborted) throw timeoutError();
+      throw Object.assign(new Error("サーバーの応答を読み込めませんでした。接続を確認して、もう一度お試しください。"), { status: response.status });
+    }
+    if (!response.ok) throw Object.assign(new Error(typeof result?.error === "string" ? result.error : "読み込みに失敗しました。"), { status: response.status });
+    return result;
+  } finally { clearTimeout(timer); }
 }
+
 function renderFamily(configured = true) {
   renderHeaderAccount();
   root.removeAttribute("aria-busy");
@@ -449,19 +457,17 @@ root.addEventListener("submit", async (event) => {
   try {
     const weekday = Number(data.get("weekday")),
       mode = data.get("mode");
-    const days = state.autoWishes.days.map((day) => {
-      if (day.weekday !== weekday) return { ...day, mode: autoMode(day) };
-      const start = data.get("start")?.split(":");
-      return {
-        ...day,
-        mode,
-        enabled: mode === "reservation",
-        start: start ? Number(start[0]) * 60 + Number(start[1]) : day.start,
-        duration: Number(data.get("duration") ?? day.duration),
-        note: data.get("note") ?? day.note,
-      };
-    });
-    await api("auto-wishes", { days });
+    const current = state.autoWishes.days.find(day => day.weekday === weekday);
+    const start = data.get("start")?.split(":");
+    const day = {
+      ...current,
+      mode,
+      enabled: mode === "reservation",
+      start: start ? Number(start[0]) * 60 + Number(start[1]) : current.start,
+      duration: Number(data.get("duration") ?? current.duration),
+      note: data.get("note") ?? current.note,
+    };
+    await api("auto-wishes", { day });
     autoEditDirty = false;
     await refresh(true);
     notify("自動予約の設定を保存しました。");
@@ -1592,6 +1598,7 @@ function showItem(kind) {
     owned(kind) > 0 &&
     (!stampItem || (owned("bathStamp") > 0 && owned("stampInk") > 0));
   dialog.dataset.mode = "item";
+  dialog.dataset.boostRequestId = kind === "boost" ? crypto.randomUUID() : "";
   dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">${itemName(kind)}</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="item-detail-icon">${itemIcon(kind)}</div><p>${description}</p>${ticketLimits(kind)}<p>所持数：${owned(kind)}${itemUnit(kind)}</p>${stampItem ? `<p class="muted">今週・先週の、今日までの「−」または「×」の日を選び、インクを1個使って成功にできます。おふろスタンプ本体はなくなりません。</p>${!owned("bathStamp") ? '<p class="notice">おふろスタンプが必要です。</p>' : !owned("stampInk") ? '<p class="notice">スタンプのインクがありません。</p>' : ""}` : ""}<button class="primary" data-action="use-item" ${usable ? "" : "disabled"}>${kind === "boost" ? "効果を有効にする" : "使う"}</button>`;
   dialog.showModal();
 }
@@ -1731,7 +1738,7 @@ async function handleRewardsAction(action, event) {
         return true;
       }
       if (kind === "boost") {
-        await api("items/boost", { requestId: crypto.randomUUID() });
+        await api("items/boost", { requestId: dialog.dataset.boostRequestId });
         dialog.close();
         notify("抽選確率UPを有効にしました。");
         pendingItem = null;
@@ -1870,7 +1877,7 @@ function maybeOfferRebooking() {
   if (!offer || offer.prompted) return false;
   rebookingQuestion = offer;
   dialog.dataset.mode = "rebooking-question";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">予約を取り直しますか？</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p>${dateLabel(offer.day)}分の ${time(offer.start)}〜${time(offer.start + offer.duration)} の予約に、完了報告がありません。</p><p class="muted">まだ入っていない場合は、空いている時間で予約し直せます。新しい予約を確定するまで、元の予約は残ります。</p><p class="form-error" data-rebooking-error role="alert"></p><button class="primary" data-rebooking-decision="rebook">予約を取り直す</button><button class="cancel-booking" data-rebooking-decision="later">今はしない</button>`;
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">予約を取り直しますか？</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p>${dateLabel(offer.day)} ${time(offer.start)}〜${time(offer.start + offer.duration)}の予約に、完了報告がありません。</p><p class="muted">まだ入っていない場合は、空いている時間で予約し直せます。新しい予約を確定するまで、元の予約は残ります。</p><p class="form-error" data-rebooking-error role="alert"></p><button class="primary" data-rebooking-decision="rebook">予約を取り直す</button><button class="cancel-booking" data-rebooking-decision="later">今はしない</button>`;
   dialog.showModal(); return true;
 }
 async function startRebooking(offer) {

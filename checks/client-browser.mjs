@@ -136,6 +136,56 @@ try {
   assert.deepEqual(await modal.locator('#start option').evaluateAll(options=>options.map(o=>Number(o.value))),[1845]);
   await screenshot('previous-night');
  });
+ await scenario('auto-settings-other-device',async({page,url,api,state,navigate})=>{
+  const original=(await state()).autoWishes.days;
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','#auto-wishes-form');
+  const form=page.locator('#auto-wishes-form');
+  await form.locator('[name="weekday"]').selectOption('1');await form.locator('[name="mode"]').selectOption('reservation');
+  await form.locator('[name="start"]').fill('18:15');await form.locator('[name="duration"]').selectOption('45');
+  await form.locator('[name="note"]').fill('月曜の設定');
+  // Another logged-in device saves Tuesday while this device is editing Monday.
+  await api('auto-wishes',{days:original.map(d=>d.weekday===2?{...d,enabled:true,mode:'reservation',start:1140,duration:30,note:'別端末から保存'}:d)});
+  await form.getByRole('button',{name:'設定する',exact:true}).click();await page.getByText('自動予約の設定を保存しました。',{exact:true}).waitFor();
+  const days=(await state()).autoWishes.days;
+  assert.deepEqual([days[1].mode,days[1].start,days[1].duration,days[1].note],['reservation',1095,45,'月曜の設定']);
+  assert.deepEqual([days[2].mode,days[2].start,days[2].note],['reservation',1140,'別端末から保存']);
+ });
+ await scenario('boost-response-lost',async({app,page,url,api,state,navigate})=>{
+  app.distributeItems({recipients:[1],kinds:['boost'],quantity:2,requestId:'browser-boost-lost-response'});
+  await api('gifts/receive',{id:(await state()).rewards.gifts[0].id});
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('持ち物','.inventory-page');
+  await page.locator('[data-action="item-detail"][data-kind="boost"]').click();
+  const modal=page.locator('#booking-dialog');let first=true;
+  await page.route('**/api/items/boost',async route=>{
+   if(first){first=false;await route.fetch();await route.fulfill({status:502,contentType:'text/html',body:'<html>Bad gateway</html>'});}
+   else await route.continue();
+  });
+  await modal.getByRole('button',{name:'効果を有効にする',exact:true}).click();
+  await page.getByText('サーバーの応答を読み込めませんでした。接続を確認して、もう一度お試しください。',{exact:true}).waitFor();
+  await modal.getByRole('button',{name:'効果を有効にする',exact:true}).click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});
+  let result=(await state()).rewards;assert.equal(result.wallet.find(x=>x.kind==='boost').quantity,1);assert.equal(result.boostRemaining,3);
+  // A separate intentional activation still consumes a separate item.
+  await page.locator('[data-action="item-detail"][data-kind="boost"]').click();
+  await modal.getByRole('button',{name:'効果を有効にする',exact:true}).click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});
+  result=(await state()).rewards;assert.equal(result.wallet.find(x=>x.kind==='boost').quantity,0);assert.equal(result.boostRemaining,6);
+ });
+ await scenario('unresponsive-server',async({page,url})=>{
+  await page.addInitScript(()=>{
+   const originalFetch=window.fetch;
+   let hang=true;
+   window.fetch=(url,options)=>{
+    if(hang&&url==='/api/family'){
+     hang=false;
+     return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true}));
+    }
+    return originalFetch(url,options);
+   };
+  });
+  await page.goto(url,{waitUntil:'commit'});
+  await page.getByRole('heading',{name:'接続できませんでした。',exact:true}).waitFor({timeout:20000});
+  await page.getByText('サーバーの応答に時間がかかっています。接続を確認し、もう一度お試しください。',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'もう一度読み込む',exact:true}).click();await page.locator('.date-bar').waitFor();
+ });
  await scenario('gateway-response',async({page,url})=>{
   let first=true;await page.route('**/api/family',async route=>{
    if(first){first=false;await route.fulfill({status:502,contentType:'text/html',body:'<html>Bad gateway</html>'});}

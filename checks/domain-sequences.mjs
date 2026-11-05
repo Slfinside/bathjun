@@ -62,8 +62,18 @@ for(const seed of seeds){
    }
    else if(operation===7){const gift=state.rewards?.gifts?.[random(state.rewards?.gifts?.length||1)];path='gifts/receive';body={id:gift?.id||'missing'};}
    else if(operation===8){path='notification-preferences';body={bathReminder:!!random(2),completionReminder:!!random(2),reminderMinutes:random(180)+1};}
-   else if(operation===9){path='auto-wishes';body={days:Array.from({length:7},(_,weekday)=>({weekday,enabled:false,mode:['disabled','standby','reservation'][random(3)],start:random(96)*15,duration:30,note:'自動入力試験'}))};}
-   else if(operation===10){app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:!!random(2),clientReportMinutes:random(10)+1,dashboardReportMinutes:random(10)+1});path='settings';}
+   else if(operation===9){
+    path='auto-wishes';const days=Array.from({length:7},(_,weekday)=>({weekday,enabled:false,mode:['disabled','standby','reservation'][random(3)],start:random(96)*15,duration:30,note:'自動入力試験'}));
+    body=random(2)?{days}:{day:days[random(7)]};
+   }
+   else if(operation===10){
+    app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:!!random(2),clientReportMinutes:random(10)+1,dashboardReportMinutes:random(10)+1});
+    if(random(4)===0){
+     const settings=app.getServerSettings(),step=random(2)?15:30;
+     app.saveServerSettings({members:settings.members,schedule:{...settings.upcoming,step,minDuration:step,maxDuration:[90,120,180][random(3)],bookingCutoff:[0,360,420,480][random(4)]}});
+    }
+    path='settings';
+   }
    else if(operation===11){const offer=state.unreportedBooking;path='book';body={day:offer?.day||day,start,duration,rebookRevision:offer?.revision||'stale'};}
    else {path='items/boost';body={requestId:`sequence-${seed}-${i}`};}
    history.push({i,clock:clock.toISOString(),id,path,body});if(history.length>12)history.shift();
