@@ -7,14 +7,18 @@ import {mkdirSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
-const [root,data]=process.argv.slice(2);
+const [root,profile]=process.argv.slice(2);
+const portable=JSON.parse(readFileSync(join(root,'build-manifest.json'),'utf8')).distribution==='portable-local';
+const data=join(profile,portable?'BathjunTestData':'BathjunData');
 assert.equal(process.platform,'win32');
 mkdirSync(data,{recursive:true});process.env.BATHJUN_DATA_DIR=data;
 const {openApplication}=await import(pathToFileURL(join(root,'app/src/runtime.js')));
 const app=openApplication();await app.setFamilyPassword('synthetic-startup-only');app.close();
 // Reproduce an interrupted update: optional activation metadata must not abort boot.
 writeFileSync(join(root,'installed-update.json'),JSON.stringify({version:'0.0.0',previousVersion:'0.0.0'}));
-const child=spawn(join(root,'bin/node.exe'),['--max-old-space-size=96',join(root,'app/src/windows-launcher.js'),'local'],{cwd:join(root,'app'),env:{...process.env,BATHJUN_DATA_DIR:data,BATHJUN_NO_BROWSER:'1',PORT:'0'},stdio:['ignore','pipe','pipe']});
+writeFileSync(join(data,'server-mode.json'),JSON.stringify({mode:'local'}));
+const entry=join(root,portable?'start-local.cmd':'start-after-install.cmd');
+const child=spawn(process.env.ComSpec||'cmd.exe',['/d','/s','/c',`""${entry}""`],{cwd:root,windowsVerbatimArguments:true,env:{...process.env,LOCALAPPDATA:profile,BATHJUN_NO_BROWSER:'1',PORT:'0'},stdio:['ignore','pipe','pipe']});
 let output='',exit;child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);child.on('exit',(code,signal)=>exit={code,signal});
 async function command(name){
  const locator=JSON.parse(readFileSync(join(data,'panel.json'),'utf8'));

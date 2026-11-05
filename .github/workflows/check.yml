@@ -166,10 +166,15 @@ jobs:
           if ($process.ExitCode -ne 0) { throw 'Installer failed' }
           & "$testRoot\bin\node.exe" packaging/windows/tests/check-installed-announcements.mjs $testRoot $testData
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Start the shipped Windows server and management UI
+      - name: Start both shipped Windows servers and management UIs
         shell: pwsh
         run: |
           $testRoot = Join-Path $env:RUNNER_TEMP 'Bathjun installer test'
           $testData = Join-Path $env:RUNNER_TEMP 'Bathjun startup test data'
           & "$testRoot\bin\node.exe" packaging/windows/tests/check-windows-startup.mjs $testRoot $testData
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $portableRoot = Join-Path $env:RUNNER_TEMP 'Bathjun portable startup'
+          Expand-Archive installer-test/Bathjun-Portable-x64.zip $portableRoot
+          $portable = Join-Path $portableRoot 'Bathjun-Portable'
+          & "$portable\bin\node.exe" packaging/windows/tests/check-windows-startup.mjs $portable (Join-Path $env:RUNNER_TEMP 'Bathjun portable profile')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
