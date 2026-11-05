@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {spawn,execFileSync} from 'node:child_process';
 import {connect} from 'node:net';
-import {mkdirSync,readFileSync,existsSync} from 'node:fs';
+import {mkdirSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -12,6 +12,8 @@ assert.equal(process.platform,'win32');
 mkdirSync(data,{recursive:true});process.env.BATHJUN_DATA_DIR=data;
 const {openApplication}=await import(pathToFileURL(join(root,'app/src/runtime.js')));
 const app=openApplication();await app.setFamilyPassword('synthetic-startup-only');app.close();
+// Reproduce an interrupted update: optional activation metadata must not abort boot.
+writeFileSync(join(root,'installed-update.json'),JSON.stringify({version:'0.0.0',previousVersion:'0.0.0'}));
 const child=spawn(join(root,'bin/node.exe'),['--max-old-space-size=96',join(root,'app/src/windows-launcher.js'),'local'],{cwd:join(root,'app'),env:{...process.env,BATHJUN_DATA_DIR:data,BATHJUN_NO_BROWSER:'1',PORT:'0'},stdio:['ignore','pipe','pipe']});
 let output='',exit;child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);child.on('exit',(code,signal)=>exit={code,signal});
 async function command(name){
@@ -33,6 +35,7 @@ try{
  // UI existence is checked in PowerShell against the real child process/window.
  const window=execFileSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',`$p = Get-Process -Name Bathjun-Server | Where-Object { $_.Path -eq $env:BATHJUN_EXPECTED_UI -and $_.MainWindowHandle -ne 0 }; if (-not $p) { throw 'Shipped management window is missing' }; $p | ForEach-Object { $_.MainWindowTitle }`],{encoding:'utf8',env:{...process.env,BATHJUN_EXPECTED_UI:join(root,'bin/Bathjun-Server.exe')}});
  assert.ok(window.trim(),'Management window is missing');
+ assert.match(output,/更新のお知らせを読み込めませんでした/);
  assert.match(output,new RegExp('ふろじゅん v'+JSON.parse(readFileSync(join(root,'app/package.json'),'utf8')).version.replaceAll('.','\\.')));
  console.log(output);
  await command('stop');
