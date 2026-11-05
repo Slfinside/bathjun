@@ -90,7 +90,9 @@ async function fixture(
       cookie,
     );
     assert.equal(r.status, 200);
-    return [cookie, r.cookie].filter(Boolean).join("; ");
+    const authenticated = [cookie, r.cookie].filter(Boolean).join("; ");
+    await api("notification-preferences", {reservationTurn:true,wishConfirmed:true,bookingDisplaced:true}, authenticated);
+    return authenticated;
   }
   return {
     app,

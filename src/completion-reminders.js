@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { slotDate } from "./domain.js";
 import { getNotificationPreferences } from "./notification-preferences.js";
 
@@ -11,6 +11,7 @@ export function createCompletionReminders({
   onQueued,
   isClosed,
   reportMinutes,
+  clientReportsAllowed = () => true,
 }) {
   db.exec(
     readFileSync(
@@ -18,6 +19,13 @@ export function createCompletionReminders({
       "utf8",
     ),
   );
+  db.exec(readFileSync(new URL("../migrations/0020_completion_notice_receipts.sql", import.meta.url), "utf8"));
+  const endpointHash = endpoint => createHash("sha256").update(endpoint).digest("hex");
+  const delivered = job => !!db.prepare("SELECT 1 FROM completion_notice_receipts WHERE endpoint_hash=? AND day=? AND member_id=? AND revision=?")
+    .get(endpointHash(job.endpoint),job.day,job.member_id,job.revision);
+  const recordDelivery = job => db.prepare("INSERT OR IGNORE INTO completion_notice_receipts VALUES(?,?,?,?,?)")
+    .run(endpointHash(job.endpoint),job.day,job.member_id,job.revision,now().toISOString());
+  for (const job of db.prepare("SELECT endpoint,day,member_id,revision FROM completion_reminders WHERE sent=1").all()) recordDelivery(job);
   const bookingFor = (day, member) =>
     db
       .prepare(
@@ -37,7 +45,7 @@ export function createCompletionReminders({
       if (
         db
           .prepare(
-            "DELETE FROM completion_reminders WHERE day=? AND member_id=?",
+            "DELETE FROM completion_reminders WHERE day=? AND member_id=? AND sent=0",
           )
           .run(day, member).changes
       )
@@ -55,7 +63,7 @@ export function createCompletionReminders({
           "SELECT p.endpoint FROM push_subscriptions p JOIN sessions s ON s.token_hash=p.session_hash WHERE p.member_id=? AND s.member_id=p.member_id AND s.expires>?",
         )
         .all(member, now().getTime()))
-        changed += db
+        if (!delivered({endpoint:sub.endpoint,day,member_id:member,revision:booking.revision})) changed += db
           .prepare(
             "INSERT OR IGNORE INTO completion_reminders(id,endpoint,day,member_id,revision,next_attempt) VALUES(?,?,?,?,?,?)",
           )
@@ -123,13 +131,17 @@ export function createCompletionReminders({
         ).run(endsAt(booking), job.id);
         continue;
       }
+      if (delivered(job)) {
+        db.prepare("UPDATE completion_reminders SET sent=1 WHERE id=?").run(job.id);
+        continue;
+      }
       const keys = familyConfig();
       try {
         await deliverPush(
           JSON.parse(job.subscription_json),
           {
             title: "入浴完了を報告しましょう",
-            body: "おふろの予約時間が終了しました。上がったら入浴完了を報告してください。",
+            body: clientReportsAllowed() ? "おふろの予約時間が終了しました。上がったら入浴完了を報告してください。" : "おふろの予約時間が終了しました。上がったらサーバーのダッシュボードで入浴完了を報告してください。",
             tag: `bath-completion-${job.day}-${job.member_id}`,
             day: job.day,
             url: "/",
@@ -138,9 +150,10 @@ export function createCompletionReminders({
           { ttl: Math.max(1, Math.floor((deadline - now().getTime()) / 1000)) },
         );
         if (isClosed()) return;
-        db.prepare("UPDATE completion_reminders SET sent=1 WHERE id=?").run(
-          job.id,
-        );
+        recordDelivery(job);
+        // A settings change may have recreated the job while delivery was in flight.
+        db.prepare("UPDATE completion_reminders SET sent=1 WHERE endpoint=? AND day=? AND member_id=? AND revision=?")
+          .run(job.endpoint,job.day,job.member_id,job.revision);
       } catch (error) {
         if (isClosed()) return;
         if (error.statusCode === 404 || error.statusCode === 410)

@@ -12,6 +12,7 @@ import { DEFAULT_SCHEDULE } from "../src/server-settings.js";
 async function fixture(t) {
   let clock = new Date("2026-10-31T12:00:00+09:00");
   const app = createApp({ requireFamily: false, now: () => clock });
+  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});
   app.saveServerSettings({
     members: [
       { name: "利用者A", active: true },

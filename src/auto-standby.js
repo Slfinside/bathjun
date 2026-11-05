@@ -69,6 +69,8 @@ export function createAutoStandby(db, enabledForDay = null) {
   function set(memberId, value) {
     if (typeof value !== "boolean")
       throw new Error("自動で様子見にする設定は有効・無効で選んでください。");
+    db.exec("SAVEPOINT update_legacy_standby");
+    try {
     const preferences = db
       .prepare("SELECT days_json FROM auto_wish_preferences WHERE member_id=?")
       .get(memberId);
@@ -84,6 +86,11 @@ export function createAutoStandby(db, enabledForDay = null) {
       value ? 1 : 0,
       memberId,
     );
+      db.exec("RELEASE update_legacy_standby");
+    } catch (error) {
+      db.exec("ROLLBACK TO update_legacy_standby; RELEASE update_legacy_standby");
+      throw error;
+    }
     return value;
   }
   return { apply, enabled, set };

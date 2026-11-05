@@ -27,6 +27,8 @@ async function fixture(t, { random = false, deliverPush = null } = {}) {
       },
     });
   app = open();
+  // Existing completion scenarios explicitly opt into client reporting.
+  app.saveRewardSettings({ ...app.getRewardsAdmin().settings, clientReportEnabled: true });
   app.saveServerSettings({
     members: [1, 2, 3].map((i) => ({ name: "メンバー" + i, active: true })),
     schedule: { ...DEFAULT_SCHEDULE, orderMode: random ? "random" : "fixed" },
@@ -70,6 +72,7 @@ async function fixture(t, { random = false, deliverPush = null } = {}) {
     cookies[id] = (
       await request("register", { memberId: id, password: "test-only" }, id)
     ).cookie;
+  for (const id of [1,2,3]) await api("notification-preferences", { wishConfirmed:true, reservationTurn:true, bookingDisplaced:true }, id);
   await api("state");
   return {
     get app() {
@@ -1078,7 +1081,7 @@ test("スタンプとインクの初期報酬・旧設定の補完・固定報�
   delete config.quantities.stampInk;
   delete config.weights.bathStamp;
   delete config.weights.stampInk;
-  db.prepare("INSERT INTO reward_settings VALUES(1,?)").run(
+  db.prepare("INSERT OR REPLACE INTO reward_settings VALUES(1,?)").run(
     JSON.stringify(config),
   );
   db.close();

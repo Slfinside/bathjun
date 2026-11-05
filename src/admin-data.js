@@ -102,6 +102,9 @@ export function createAdminData({
     db.exec("BEGIN IMMEDIATE");
     try {
       for (const table of [
+        "rebooking_prompts",
+        "rebooking_history",
+        "completion_notice_receipts",
         "completion_reminders",
         "nudge_jobs",
         "nudges",

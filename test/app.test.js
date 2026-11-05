@@ -56,6 +56,7 @@ async function fixture(t, { at = "2026-10-28T08:00:00+09:00", database } = {}) {
       password: "test-password-123",
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
+    await request("notification-preferences", {reservationTurn:true,wishConfirmed:true,bookingDisplaced:true},r.cookie);
     return r.cookie;
   }
   return {

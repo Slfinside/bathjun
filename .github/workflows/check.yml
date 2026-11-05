@@ -15,6 +15,10 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
+      - name: Check client workflows in Chromium
+        run: npm run test:browser
+      - name: Check mixed booking and item operations
+        run: npm run test:sequences
       - name: Build the static client manual
         run: python3 packaging/build-help.py --output /tmp/bathjun-help-site
       - name: Compile the shipped UI against .NET Framework reference assemblies

@@ -89,3 +89,9 @@ test('同じ本人の複数端末へ通知し、送信中の時刻変更が新�
  const f=await fixture(t);await f.subscribe(1,'device-a');await f.subscribe(1,'device-b');await f.book();f.setTime(at('17:50:00'));let changed=false;
  f.setHook(async()=>{if(!changed){changed=true;await f.book(1110);}});await f.flush();assert.equal(f.app.notificationDueAt(),at('18:20:00').getTime());f.setHook(null);f.setTime(at('18:20:00'));await f.flush();assert.equal(f.sent.filter(s=>s.payload.body.includes('18:30')).length,2);assert.equal(f.app.notificationDueAt(),null);
 });
+
+test('通知送信中に何分前かを変えても、同じ開始時刻の通知は二重に送らない',async t=>{
+ const f=await fixture(t);await f.subscribe(1);await f.book();f.setTime(at('17:50:00'));
+ let changed=false;f.setHook(async()=>{if(!changed){changed=true;await f.api('notification-preferences',{reminderMinutes:20},f.cookies[1])}});
+ await f.flush();f.setHook(null);await f.flush();assert.equal(f.sent.length,1);
+});

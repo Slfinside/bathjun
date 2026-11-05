@@ -20,6 +20,7 @@ async function fixture(t,{subscribe=true}={}) {
  async function request(path,body,id=1){const r=await fetch(`http://127.0.0.1:${server.address().port}/api/${path}`,{method:body===undefined?'GET':'POST',headers:{cookie:cookies[id]||'','Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:r.status,body:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
  async function api(path,body,id=1){const r=await request(path,body,id);assert.equal(r.status,200,JSON.stringify(r.body));return r.body;}
  for(const id of [1,2,3]){cookies[id]=(await request('register',{memberId:id,password:'test-password'},id)).cookie;if(subscribe){const key=createECDH('prime256v1');key.generateKeys();await api('push/subscribe',{subscription:{endpoint:`https://web.push.apple.com/planning-${id}`,keys:{p256dh:key.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}}},id);}}
+ for(const id of [1,2,3])await api('notification-preferences',{wishConfirmed:true,reservationTurn:true,bookingDisplaced:true},id);
  await api('state');await app.flushNotifications();sent.length=0;
  return {get app(){return app;},api,request,sent,setTime:value=>clock=at(value),setFailure:value=>failWish=value,
   book:(start=900,id=1,day='2026-10-28')=>api('book',{day,start,duration:30},id),

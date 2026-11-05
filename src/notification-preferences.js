@@ -1,9 +1,9 @@
 export const DEFAULT_NOTIFICATION_PREFERENCES = Object.freeze({
   nudge: true,
-  bookingDisplaced: true,
-  wishConfirmed: true,
+  bookingDisplaced: false,
+  wishConfirmed: false,
   wishUnconfirmed: true,
-  reservationTurn: true,
+  reservationTurn: false,
   bathReminder: true,
   completionReminder: true,
   reminderMinutes: 10,

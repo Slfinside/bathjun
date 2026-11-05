@@ -1,3 +1,4 @@
+import { clientReportsAllowed, lastReportMinutes } from "./completion-policy.js";
 import { readFileSync } from "node:fs";
 import { randomBytes, randomInt } from "node:crypto";
 import { createStandbyStamps } from "./standby-stamps.js";
@@ -155,6 +156,7 @@ export function createRewards({ db, now, scheduleForDay }) {
   const defaults = () => ({
     itemsEnabled: true,
     standbyFailureDays: 2,
+    clientReportEnabled: false,
     clientReportMinutes: 3,
     dashboardReportMinutes: 1,
     extensionMinutes: 30,
@@ -202,11 +204,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     now,
     scheduleForDay,
     threshold: () => settings().standbyFailureDays,
-    reportMinutes: () =>
-      Math.max(
-        settings().clientReportMinutes,
-        settings().dashboardReportMinutes,
-      ),
+    reportMinutes: () => lastReportMinutes(settings()),
   });
   const requireItems = () => {
     if (!settings().itemsEnabled)
@@ -324,8 +322,11 @@ export function createRewards({ db, now, scheduleForDay }) {
       )
     )
       bad("完了報告の期限は1〜180分で設定してください。");
+    const clientReportEnabled = value.clientReportEnabled ?? settings().clientReportEnabled;
+    if (typeof clientReportEnabled !== "boolean") bad("クライアントからの完了報告の設定を確認してください。");
     const normalized = {
       itemsEnabled,
+      clientReportEnabled,
       standbyFailureDays,
       clientReportMinutes,
       dashboardReportMinutes,
@@ -622,6 +623,8 @@ export function createRewards({ db, now, scheduleForDay }) {
       ).run(id);
   }
   function complete(member, payload, source = "client") {
+    const config = settings();
+    if (source !== "dashboard" && !clientReportsAllowed(config)) bad("クライアントからの完了報告は無効です。サーバーのダッシュボードで報告してください。", 403);
     const { day, revision } = payload || {};
     if (
       typeof day !== "string" ||
@@ -733,10 +736,7 @@ export function createRewards({ db, now, scheduleForDay }) {
             ? booking.start + booking.duration
             : scheduleForDay(date).bathEnd,
         ).getTime() +
-        Math.max(
-          settings().clientReportMinutes,
-          settings().dashboardReportMinutes,
-        ) *
+        lastReportMinutes(settings()) *
           60000;
       const resolved = standbyRows.find((row) => row.day === date);
       const repair = repairs.find((row) => row.day === date);

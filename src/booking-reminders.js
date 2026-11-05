@@ -56,8 +56,9 @@ export function createBookingReminders({db,now,deliverPush,familyConfig,onQueued
           tag:`bath-reminder-${job.day}-${job.member_id}`,day:job.day,url:'/'
         },{publicKey:config.vapid_public,privateKey:config.vapid_private},{ttl:Math.max(1,Math.floor((startAt-now().getTime())/1000))});
         if(isClosed())return;
-        // IDs are unique per booking revision: an in-flight old send cannot mark a replacement as sent.
-        db.prepare('UPDATE booking_reminders SET sent=1 WHERE id=?').run(job.id);
+        // Changing only the lead time may recreate this job during delivery.
+        // A different bath start still needs its own notification.
+        db.prepare('UPDATE booking_reminders SET sent=1 WHERE endpoint=? AND day=? AND member_id=? AND start=?').run(job.endpoint,job.day,job.member_id,job.start);
       }catch(error) {
         if(isClosed())return;
         if(error.statusCode===404||error.statusCode===410)db.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').run(job.endpoint);

@@ -24,6 +24,7 @@ let pageView = "home",
   celebrationWeek = null;
 const celebrating = new Set();
 let guidePending = false;
+let checkRebookingOnOpen = true, rebookingQuestion = null, rebookingFlow = false;
 async function openClientGuide(topic, onboarding = false) {
   if (guidePending) return;
   guidePending = true;
@@ -228,25 +229,13 @@ async function api(path, data) {
   } catch {
     throw new Error("サーバーに接続できません。接続を確認してください。");
   }
-  const result = await response.json();
-  if (!response.ok) {
-    if (
-      response.status === 401 &&
-      !["login", "register", "family/login", "passkey/auth/verify"].includes(
-        path,
-      )
-    ) {
-      me = null;
-      state = null;
-      resetNavigation();
-      selectedMember = null;
-      dialog.close();
-      void init();
-    }
-    throw Object.assign(new Error(result.error || "読み込みに失敗しました。"), {
-      status: response.status,
-    });
+  if (response.status === 401 && !["login", "register", "family/login", "passkey/auth/verify"].includes(path)) {
+    me = null; state = null; resetNavigation(); selectedMember = null; void init();
   }
+  let result;
+  try { result = await response.json(); }
+  catch { throw Object.assign(new Error("サーバーの応答を読み込めませんでした。接続を確認して、もう一度お試しください。"), { status: response.status }); }
+  if (!response.ok) throw Object.assign(new Error(typeof result?.error === "string" ? result.error : "読み込みに失敗しました。"), { status: response.status });
   return result;
 }
 function renderFamily(configured = true) {
@@ -674,11 +663,13 @@ async function refresh(force = false) {
       data.autoStandby,
       data.autoWishes,
       data.rewards,
+      data.unreportedBooking,
       data.standbyWarning,
       data.ignoreLowerPriorityWishes,
       Math.floor(new Date(data.now).getTime() / 60000),
     ]);
     const before = previousTurn;
+    const previousDay = state?.day;
     const itemsWereEnabled = itemsEnabled();
     state = data;
     if (
@@ -701,7 +692,7 @@ async function refresh(force = false) {
           ) && !data.bookings.some((b) => b.memberId === id),
       ) || null;
     if (
-      state?.day === data.day &&
+      previousDay === data.day &&
       data.notificationPreferences?.reservationTurn &&
       data.day <= data.today &&
       before !== null &&
@@ -818,13 +809,14 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
     content = `${icon("clock")}<div><h3>${!state.draw ? "まずは、今日の順番を抽選。" : !state.draw.order.includes(me.id) ? "次回の順番決定から参加できます。" : !turn ? "この日の予約がそろいました。" : `${escapeHTML(memberName(turn))}さんが選ぶ番です。`}</h3><p>予約や順番の変更は自動で更新されます。</p></div>`;
   const beforeTurn = !expired && !booking && !yourTurn;
   const completion =
+    state.rewards.settings.clientReportEnabled === true &&
     booking &&
     !booking.completedAt &&
     slotDate(booking.start) <= serverNow() &&
     serverNow().getTime() <=
       slotDate(booking.start + booking.duration).getTime() +
         (state.rewards.settings.clientReportMinutes ?? 3) * 60000;
-  return `<section class="booking-banner ${yourTurn ? "is-turn" : ""}">${content}${beforeTurn ? `<div class="preference-action"><h3>事前希望</h3>${ownWish() ? `<p>${time(ownWish().start)}〜${time(ownWish().start + ownWish().duration)}</p>` : ""}<button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div>` : ""}${completion ? '<button class="primary" data-action="complete-bath">完了を報告</button>' : booking?.completedAt ? "<p>入浴済み・完了報告済み</p>" : ""}${yourTurn ? `<button class="primary" data-action="book">時間を選ぶ${icon("arrow")}</button>` : ""}${!expired && (!booking || canEdit) ? `<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button>` : ""}</section>`;
+  return `<section class="booking-banner ${yourTurn ? "is-turn" : ""}">${content}${beforeTurn ? `<div class="preference-action"><h3>事前希望</h3>${ownWish() ? `<p>${time(ownWish().start)}〜${time(ownWish().start + ownWish().duration)}</p>` : ""}<button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div>` : ""}${completion ? '<button class="primary" data-action="complete-bath">完了を報告</button>' : booking?.completedAt ? "<p>入浴済み・完了報告済み</p>" : ""}${booking && state.unreportedBooking?.revision === booking.revision ? '<button class="primary" data-action="rebook">予約を取り直す</button>' : ""}${yourTurn ? `<button class="primary" data-action="book">時間を選ぶ${icon("arrow")}</button>` : ""}${!expired && (!booking || canEdit) ? `<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button>` : ""}</section>`;
 }
 function renderWishes() {
   return `<section class="wishes-card"><div class="card-title"><h2>みんなの希望</h2></div>${state.wishes.map(renderWish).join("")}${state.skips
@@ -929,10 +921,12 @@ function available(start, duration) {
 function openBooking(mode = "booking") {
   if (!itemsEnabled())
     pendingItem = mode === "booking" ? ownBooking()?.ticket || null : null;
-  const isWish = mode === "wish",
-    booking = ownBooking(),
-    wish = ownWish();
-  const entry = isWish ? wish : booking || wish;
+  const isWish = mode === "wish", isRebooking = mode === "rebook";
+  const originalBooking = ownBooking();
+  const booking = isRebooking ? null : originalBooking, wish = isRebooking ? null : ownWish();
+  const entry = isRebooking ? originalBooking : isWish ? wish : booking || wish;
+  if (isRebooking) dialog.dataset.rebookRevision = originalBooking.revision;
+  else delete dialog.dataset.rebookRevision;
   const extra =
     pendingItem === "extend"
       ? booking?.ticketExtension ||
@@ -953,16 +947,16 @@ function openBooking(mode = "booking") {
     (_, i) => state.settings.minDuration + i * state.settings.step,
   );
   const initialDuration =
-    entry?.duration || (durations.includes(30) ? 30 : durations[0]);
+    (durations.includes(entry?.duration) ? entry.duration : null) || (durations.includes(30) ? 30 : durations[0]);
   dialog.dataset.mode = mode;
-  dialog.innerHTML = `<div class="sheet-handle" aria-hidden="true"></div><div class="sheet-heading"><div><div class="eyebrow">${isWish ? "LET YOUR FAMILY KNOW" : "YOUR LITTLE BREAK"}</div><h2 id="booking-title">${isWish ? "先に、希望を伝えよう。" : booking ? "おふろの時間を変更" : "何時に、あたたまる？"}</h2></div><button class="icon-button" data-action="close" aria-label="閉じる">${icon("close")}</button></div><p class="muted">${dateLabel(state.day)} · ${isWish ? "希望は家族みんなに共有されます。順番が来て重なりがなければ自動で確定します。" : "脱衣所に入る時刻を選んでください。"}</p>${
+  dialog.innerHTML = `<div class="sheet-handle" aria-hidden="true"></div><div class="sheet-heading"><div><div class="eyebrow">${isWish ? "LET YOUR FAMILY KNOW" : "YOUR LITTLE BREAK"}</div><h2 id="booking-title">${isWish ? "先に、希望を伝えよう。" : isRebooking ? "おふろを予約し直す" : booking ? "おふろの時間を変更" : "何時に、あたたまる？"}</h2></div><button class="icon-button" data-action="close" aria-label="閉じる">${icon("close")}</button></div><p class="muted">${dateLabel(state.day)} · ${isWish ? "希望は家族みんなに共有されます。順番が来て重なりがなければ自動で確定します。" : "脱衣所に入る時刻を選んでください。"}</p>${
     !isWish && state.wishes.some((w) => w.memberId !== me.id)
       ? `<details class="other-wishes"><summary>ほかの人の希望を確認する</summary>${state.wishes
           .filter((w) => w.memberId !== me.id)
           .map((w) => renderWish(w))
           .join("")}</details>`
       : ""
-  }${itemsEnabled() && pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}${ticketLimits(pendingItem || booking?.ticket)}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish ? "希望する開始時刻" : "脱衣所に入る時刻"}</label><select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${booking?.noNegotiation ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "重なっている時間にも希望を出せます。重なりがある間は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish ? `<button type="button" class="skip-button" data-action="wish-standby">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見を伝える"}</button>` : ""}${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
+  }${isRebooking && itemsEnabled() && originalBooking?.ticket ? '<p class="fine-print">元の予約で使ったアイテムは戻りません。新しい予約に使う場合は、別のアイテムが必要です。</p>' : ""}${itemsEnabled() && pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}${ticketLimits(pendingItem || booking?.ticket)}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish ? "希望する開始時刻" : "脱衣所に入る時刻"}</label><select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${(isRebooking ? entry?.noNegotiation : booking?.noNegotiation) ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "重なっている時間にも希望を出せます。重なりがある間は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish ? `<button type="button" class="skip-button" data-action="wish-standby">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見を伝える"}</button>` : ""}${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
   updateSlots(entry?.start);
   applyMemberColors(dialog);
   dialog.showModal();
@@ -1339,6 +1333,10 @@ dialog.addEventListener("change", (event) => {
       `[name=duration][value="${values.get("duration")}"]`,
     );
     if (duration) duration.checked = true;
+    const durationSelect = dialog.querySelector('select[name="duration"]');
+    if (durationSelect && [...durationSelect.options].some(option => option.value === values.get("duration"))) durationSelect.value = values.get("duration");
+    const negotiation = dialog.querySelector('[name="noNegotiation"]');
+    if (negotiation) negotiation.checked = values.has("noNegotiation");
     updateSlots(Number(values.get("start")));
   }
 });
@@ -1360,6 +1358,7 @@ dialog.addEventListener("submit", async (event) => {
       note: String(form.get("note") || ""),
       noNegotiation: form.get("noNegotiation") === "on",
       ticket: pendingItem,
+      ...(dialog.dataset.mode === "rebook" ? { rebookRevision: dialog.dataset.rebookRevision } : {}),
     });
     dialog.close();
     pendingItem = null;
@@ -1379,6 +1378,7 @@ dialog.addEventListener("submit", async (event) => {
   }
 });
 async function init() {
+  checkRebookingOnOpen = true;
   try {
     const family = await api("family");
     familyAuthenticated = family.authenticated;
@@ -1420,8 +1420,10 @@ function schedulePoll() {
 schedulePoll();
 document.addEventListener("visibilitychange", () => {
   clearTimeout(pollTimer);
-  if (document.visibilityState === "visible")
+  if (document.visibilityState === "visible") {
+    checkRebookingOnOpen = true;
     void refresh(true).finally(schedulePoll);
+  }
 });
 const installButton = document.querySelector("#install-help-button");
 const installDialog = document.querySelector("#install-dialog");
@@ -1491,7 +1493,7 @@ function confirmStandby() {
 }
 function ticketSelect() {
   if (!itemsEnabled()) return "";
-  const existing = ownBooking()?.ticket;
+  const existing = dialog.dataset.mode === "booking" ? ownBooking()?.ticket : null;
   return `<label>使うアイテム<select name="ticket" ${existing ? "disabled" : ""}><option value="">使わない</option>${[
     "skip",
     "extend",
@@ -1608,6 +1610,14 @@ async function handleRewardsAction(action, event) {
       .toISOString()
       .slice(0, 10);
     await refresh(true);
+    return true;
+  }
+  if (action === "rebook") {
+    if (busy) return true;
+    busy = true;
+    try { await startRebooking(state.unreportedBooking); }
+    catch (error) { notify(error.message); }
+    finally { busy = false; }
     return true;
   }
   if (action.startsWith("nav-")) {
@@ -1757,14 +1767,9 @@ document.querySelector("#header-account").addEventListener(
 );
 
 function maybeCelebrate() {
-  if (
-    !state ||
-    !itemsEnabled() ||
-    pageView !== "home" ||
-    dialog.open ||
-    guidePending
-  )
-    return;
+  if (!state || pageView !== "home" || dialog.open || guidePending || rebookingFlow) return;
+  if (maybeOfferRebooking()) return;
+  if (!itemsEnabled()) return;
   const pending = state.rewards?.celebrations.find(
     (x) => !celebrating.has(x.week),
   );
@@ -1837,7 +1842,58 @@ document.addEventListener("keydown", (event) => {
 function resetNavigation() {
   pageView = "home";
   pendingItem = null;
+  checkRebookingOnOpen = true;
+  rebookingQuestion = null;
+  rebookingFlow = false;
+  autoEditDirty = false;
   stampWeek = null;
   celebrationWeek = null;
   celebrating.clear();
+  document.querySelectorAll("dialog[open]").forEach(open => open.close());
 }
+
+function maybeOfferRebooking() {
+  if (!checkRebookingOnOpen) return false;
+  checkRebookingOnOpen = false;
+  const offer = state.unreportedBooking;
+  if (!offer || offer.prompted) return false;
+  rebookingQuestion = offer;
+  dialog.dataset.mode = "rebooking-question";
+  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">予約を取り直しますか？</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p>${dateLabel(offer.day)}分の ${time(offer.start)}〜${time(offer.start + offer.duration)} の予約に、完了報告がありません。</p><p class="muted">まだ入っていない場合は、空いている時間で予約し直せます。新しい予約を確定するまで、元の予約は残ります。</p><p class="form-error" data-rebooking-error role="alert"></p><button class="primary" data-rebooking-decision="rebook">予約を取り直す</button><button class="cancel-booking" data-rebooking-decision="later">今はしない</button>`;
+  dialog.showModal(); return true;
+}
+async function startRebooking(offer) {
+  if (!offer) throw Error("取り直せる予約がありません。");
+  rebookingFlow = true;
+  try {
+    await api("rebooking/prompt", {day:offer.day,revision:offer.revision,decision:"rebook"});
+    rebookingQuestion = null;
+    if (dialog.open) dialog.close();
+    selectedDay = offer.day; pageView = "home";
+    await refresh(true);
+    if (ownBooking()?.revision !== offer.revision || state.unreportedBooking?.revision !== offer.revision)
+      throw Error("予約が変更されました。現在の予定を確認してください。");
+    pendingItem = null; openBooking("rebook");
+  } finally { rebookingFlow = false; }
+}
+dialog.addEventListener("click", async event => {
+  const decision = event.target.closest("[data-rebooking-decision]")?.dataset.rebookingDecision;
+  if (!decision || !rebookingQuestion || busy) return;
+  busy = true;
+  try {
+    if (decision === "rebook") await startRebooking(rebookingQuestion);
+    else {
+      await api("rebooking/prompt", {day:rebookingQuestion.day,revision:rebookingQuestion.revision,decision:"later"});
+      rebookingQuestion = null; dialog.close();
+    }
+  } catch (error) {
+    const feedback = dialog.querySelector("[data-rebooking-error]");
+    if (feedback) feedback.textContent = error.message; else notify(error.message);
+  } finally { busy = false; }
+});
+dialog.addEventListener("close", () => {
+  const offer = rebookingQuestion; rebookingQuestion = null;
+  if (offer) void api("rebooking/prompt", {day:offer.day,revision:offer.revision,decision:"later"})
+    .catch(error => {if (error.status !== 409 && error.status !== 401) notify(error.message);});
+  queueMicrotask(maybeCelebrate);
+});

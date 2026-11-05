@@ -1,3 +1,5 @@
+import { createRebooking } from "./rebooking.js";
+import { notificationReportMinutes, clientReportsAllowed, lastReportMinutes } from "./completion-policy.js";
 import { createCompletionReminders } from './completion-reminders.js';
 import {createRewards} from './rewards.js';
 import {createNudges} from './nudges.js';
@@ -349,12 +351,13 @@ export function createApp({
   const autoStandby=createAutoStandby(db,(day,member)=>autoWishes.standbyForDay(day,member));
   const scheduleForDay = serverSettings.scheduleForDay;
   const rewards=createRewards({db,now,scheduleForDay});
-  const completionReminders=createCompletionReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,reportMinutes:()=>rewards.settings().clientReportMinutes});
+  const completionReminders=createCompletionReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,reportMinutes:()=>notificationReportMinutes(rewards.settings()),clientReportsAllowed:()=>clientReportsAllowed(rewards.settings())});
   const reminders=createBookingReminders({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed});
   const nudges=createNudges({db,now,deliverPush,familyConfig,onQueued:onNotificationQueued,isClosed:()=>closed,currentTurn,isDayOpen:day=>day<=currentTime().today&&slotDate(day,scheduleForDay(day).bathEnd)>now()&&bookingOpensAt(day)<=now().getTime()});
   const currentTime = () => bathCalendar(now());
   const bookingOpensAt = day => slotDate(day,0).getTime();
   const autoWishes=createAutoWishes({db,now,scheduleForDay,currentTurn,onRejected:wish=>wishNotifications.record(wish,"wishUnconfirmed")});
+  const rebooking=createRebooking({db,now,scheduleForDay,rewardSettings:rewards.settings});
   const wishStarts=createWishStarts({db,now,scheduleForDay,rewards,notifications:wishNotifications,currentTurn,prepareDay:day=>ensureFixedDraw(day),onSettled:(day,previous)=>enqueueTurn(day,previous)});
   function processAutoWishes() {
     const time=currentTime();
@@ -418,7 +421,7 @@ export function createApp({
     wishStarts.process();
     applyDailyStandby();
     const time = currentTime();
-    const continuing=day===shiftDay(time.today,-2)&&db.prepare("SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)").all(day).some(b=>slotDate(day,b.start)<=now()&&now().getTime()<=slotDate(day,b.start+b.duration).getTime()+Math.max(rewards.settings().clientReportMinutes,rewards.settings().dashboardReportMinutes)*60000);
+    const continuing=day===shiftDay(time.today,-2)&&db.prepare("SELECT b.start,b.duration FROM bookings b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)").all(day).some(b=>slotDate(day,b.start)<=now()&&now().getTime()<=slotDate(day,b.start+b.duration).getTime()+lastReportMinutes(rewards.settings())*60000);
     if (day !== time.today && day !== time.yesterday && !continuing && !(allowTomorrow && [time.tomorrow,time.dayAfterTomorrow].includes(day)))
       fail(400, "表示できる日付、または受付中の日付を選んでください。");
     return day;
@@ -619,6 +622,7 @@ export function createApp({
       if(req.method==='POST'&&url.pathname==='/api/auto-wishes'){
         const result=autoWishes.save(me.id,body);processAutoWishes();onNotificationQueued();return send(200,result);
       }
+      if(req.method==='POST'&&url.pathname==='/api/rebooking/prompt')return send(200,rebooking.decide(me.id,body));
       if(req.method==='GET'&&url.pathname==='/api/rewards'){const day=url.searchParams.get('week')||validDay(url.searchParams.get('day')||currentTime().activeDay,true);if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day)))fail(400,'週を確認してください。');return send(200,rewards.view(me.id,day));}
       if(req.method==='POST'&&url.pathname==='/api/gifts/receive')return send(200,rewards.receive(me.id,body?.id));
       if(req.method==='POST'&&url.pathname==='/api/items/stamp')return send(200,rewards.useStamp(me.id,body));
@@ -730,6 +734,7 @@ export function createApp({
         return send(200, {
           me,
           rewards:rewards.view(me.id,day),
+          unreportedBooking:rebooking.offer(me.id),
           standbyWarning:rewards.standbyWarning(me.id,day),
           notificationPreferences:getNotificationPreferences(db,me.id),
           autoStandby:autoStandby.enabled(me.id),
@@ -913,10 +918,14 @@ export function createApp({
         const day = validDay(body.day);
         const { start, duration } = body;
         const existing=db.prepare('SELECT * FROM bookings WHERE day=? AND member_id=?').get(day,me.id);
-        const selectedTicket=body.ticket===undefined?existing?.ticket:rewards.ticket(body.ticket);
-        if(!validateSlot(start,duration,rewards.bookingRule(day,me.id,selectedTicket,existing)))fail(400,'この日の設定に合う時間と長さを選んでください。');
+        const isRebooking=body.rebookRevision!==undefined;
+        if(isRebooking&&rebooking.wasApplied(day,me.id,body,existing))return send(200,{ok:true});
+        if(isRebooking)rebooking.check(day,me.id,body.rebookRevision);
+        const reusableBooking=isRebooking?null:existing;
+        const selectedTicket=body.ticket===undefined?reusableBooking?.ticket:rewards.ticket(body.ticket);
+        if(!validateSlot(start,duration,rewards.bookingRule(day,me.id,selectedTicket,reusableBooking)))fail(400,'この日の設定に合う時間と長さを選んでください。');
         if(slotDate(day,start)<=now())fail(400,'これからの時刻を選んでください。');
-        rewards.checkTicketSlot(day,selectedTicket,start,duration,existing);
+        rewards.checkTicketSlot(day,selectedTicket,start,duration,reusableBooking);
         ensureFixedDraw(day);
         const draw=db.prepare('SELECT order_json FROM draws WHERE day=?').get(day);
         if(!draw)fail(409,'先に抽選してください。');
@@ -929,7 +938,7 @@ export function createApp({
           fail(400, "備考は300文字以内で入力してください。");
         if (typeof noNegotiation !== "boolean")
           fail(400, "時間変更の相談について選択し直してください。");
-        if (existing && slotDate(day, existing.start) <= now())
+        if (existing && !isRebooking && slotDate(day, existing.start) <= now())
           fail(409, "開始済みの予約は変更できません。");
         if(overlapsAdjacentDay(day,start,duration))fail(409,"前日・翌日分の予約と時間が重なっています。");
         const turn = currentTurn(day);
@@ -950,8 +959,10 @@ export function createApp({
                 wishNotifications.record({day,member_id:other.member_id,start:other.start,duration:other.duration,revision},'wishUnconfirmed');
               }
             }
-            const applied=rewards.commitTicket(day,me.id,selectedTicket,existing);
-            db.prepare('INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,ticket,ticket_extension,revision) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,no_negotiation=excluded.no_negotiation,auto_confirmed=0,auto_revision=NULL,automatic=0,ticket=excluded.ticket,ticket_extension=excluded.ticket_extension,revision=excluded.revision').run(day,me.id,start,duration,note.trim(),noNegotiation?1:0,applied.kind,applied.extension,randomBytes(16).toString('hex'));
+            const applied=rewards.commitTicket(day,me.id,selectedTicket,reusableBooking);
+            const revision=randomBytes(16).toString('hex');
+            if(isRebooking)rebooking.archive(existing,revision);
+            db.prepare('INSERT INTO bookings(day,member_id,start,duration,note,no_negotiation,ticket,ticket_extension,revision) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET start=excluded.start,duration=excluded.duration,note=excluded.note,no_negotiation=excluded.no_negotiation,auto_confirmed=0,auto_revision=NULL,automatic=0,ticket=excluded.ticket,ticket_extension=excluded.ticket_extension,revision=excluded.revision').run(day,me.id,start,duration,note.trim(),noNegotiation?1:0,applied.kind,applied.extension,revision);
             db.prepare('DELETE FROM wishes WHERE day=? AND member_id=?').run(day,me.id);
           });
         }catch(error){if(String(error).includes('booking_overlap'))fail(409,'ほかの人の予約と重なっています。');throw error;}

@@ -27,6 +27,7 @@ async function fixture(t,{family=false}={}) {
  let familyCookie='';
  if(family){await app.setFamilyPassword('initial-family-secret');familyCookie=(await api('family/login',{password:'initial-family-secret'})).cookie;}
  const cookies={};for(let id=1;id<=3;id++){const reply=await api('register',{memberId:id,password:`initial-password-${id}`},familyCookie);assert.equal(reply.status,200);cookies[id]=[familyCookie,reply.cookie].filter(Boolean).join('; ');}
+ for(const id of [1,2,3])await api('notification-preferences',{wishConfirmed:true,reservationTurn:true,bookingDisplaced:true},cookies[id]);
  const day='2026-10-28';
  const state=async()=>{const r=await api('state?day='+day,undefined,cookies[1]);assert.equal(r.status,200,JSON.stringify(r.body));return r.body;};
  return {app,api,cookies,day,state,database,setTime:value=>clock=new Date(value)};
