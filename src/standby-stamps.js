@@ -66,8 +66,8 @@ export function createStandbyStamps({
         for (const day of ended)
           save.run(day, member, "stamp", completions.get(following));
       } else {
-        // A missed ordinary booking / no input is still a failure; it cannot
-        // leave an earlier standby pending indefinitely or rescue it days later.
+        // Unreported ordinary days settle at the day boundary. A later valid
+        // completion is handled above and can update this derived result.
         const deadline=end(following);
         if (time >= deadline)
           for (const day of ended)

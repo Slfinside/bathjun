@@ -76,3 +76,9 @@ test('a late Saturday completion can finish the preceding weekly card exactly on
  const f=await fixture(t);f.time('2026-11-07T08:00:00');await f.api('book',{day:'2026-11-07',start:1080,duration:30});const booking=(await f.state('2026-11-07')).bookings[0];f.sql(db=>{for(let day=1;day<=6;day++){const date='2026-11-0'+day;db.prepare("INSERT INTO bath_completions VALUES(?,1,?,1080,30,?,'dashboard')").run(date,'earlier-report-'+day,date+'T09:20:00.000Z')}});f.time('2026-11-10T12:00:00');f.app.completeBath({memberId:1,day:'2026-11-07',revision:booking.revision});f.app.completeBath({memberId:1,day:'2026-11-07',revision:booking.revision});
  assert.equal(f.sql(db=>db.prepare("SELECT COUNT(*) n FROM weekly_rewards WHERE member_id=1 AND week='2026-11-01'").get().n),1);
 });
+
+test('an earlier completion never marks a displaced and newly booked reservation as complete',async t=>{
+ const f=await fixture(t);f.settings({skipNoticeMinutes:0});f.app.distributeItems({recipients:[2],kinds:['skip'],quantity:1,requestId:'report-revision-skip'});const gift=(await f.api('state',undefined,2)).rewards.gifts[0];await f.api('gifts/receive',{id:gift.id},2);
+ await f.book(1080,60);const old=(await f.state()).bookings[0];f.time('2026-11-04T18:10:00');f.app.completeBath({memberId:1,day:DAY,revision:old.revision});await f.book(1095,30,2,{ticket:'skip'});await f.book(1200,30,1);f.time('2026-11-04T20:10:00');
+ const state=await f.state(),current=state.bookings.find(b=>b.memberId===1);assert.equal(current.completedAt,null);assert.notEqual(current.revision,old.revision);assert.equal(state.nightPlanning.minutes,20);assert.equal(f.app.getUpdateStatus().busy,true);assert.ok((await f.api('bath-reports')).reports.some(b=>b.revision===current.revision));
+});

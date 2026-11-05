@@ -1062,7 +1062,7 @@ export function createApp({
     saveAnnouncement:announcements.save,
     archiveAnnouncement:announcements.archive,
     activateUpdateAnnouncements:announcements.activate,
-    getUpdateStatus:()=>({busy:db.prepare("SELECT day,start,duration FROM active_booking_slots bookings WHERE NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=bookings.day AND c.member_id=bookings.member_id)").all().some(b=>slotDate(b.day,b.start).getTime()<=now().getTime()+10*60000&&slotDate(b.day,b.start+b.duration)>now())}),
+    getUpdateStatus:()=>({busy:db.prepare("SELECT day,start,duration FROM active_booking_slots bookings WHERE NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.revision=bookings.revision)").all().some(b=>slotDate(b.day,b.start).getTime()<=now().getTime()+10*60000&&slotDate(b.day,b.start+b.duration)>now())}),
     getRewardsAdmin:rewards.admin,
     distributeItems:rewards.distribute,
     saveRewardSettings:value=>{const result=rewards.saveSettings(value);completionReminders.restore();return result;},

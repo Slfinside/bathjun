@@ -43,7 +43,7 @@ export function createTimeSelectionNotifications({db,now,scheduleForDay,nightDea
     const skips=db.prepare('SELECT member_id FROM bath_skips WHERE day=?').all(day).map(s=>s.member_id);
     const answered=new Set([...bookings,...wishes].map(x=>x.member_id).concat(skips));
     const untimed=wishes.filter(w=>w.start===null&&!bookings.some(b=>b.member_id===w.member_id));
-    const nighttime=bookings.filter(b=>!db.prepare('SELECT 1 FROM bath_noncompletions WHERE revision=?').get(b.revision)&&slotDate(day,b.start).getTime()<deadline&&!db.prepare('SELECT 1 FROM bath_completions WHERE day=? AND member_id=?').get(day,b.member_id));
+    const nighttime=bookings.filter(b=>!db.prepare('SELECT 1 FROM bath_noncompletions WHERE revision=?').get(b.revision)&&slotDate(day,b.start).getTime()<deadline&&!db.prepare('SELECT 1 FROM bath_completions WHERE revision=?').get(b.revision));
     return {day,deadline,expiresAt:Math.min(deadline,slotDate(day,scheduleForDay(day).bathEnd).getTime()),
       hasUntimed:untimed.length>0,untimed,allReady:members.length>0&&members.every(id=>answered.has(id)),
       wishMinutes:wishes.filter(w=>(w.start===null||slotDate(day,w.start).getTime()<deadline)&&!bookings.some(b=>b.member_id===w.member_id)).reduce((sum,w)=>sum+w.duration,0),
