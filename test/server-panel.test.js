@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createPanelController } from "../src/server-panel.js";
 import { createApp } from "../src/app.js";
-async function fixture(t) {
+async function fixture(t,{onShow}={}) {
   const dir = mkdtempSync(join(tmpdir(), "bathjun-panel-"));
   const path = join(dir, "control.sock"),
     token = "a".repeat(64);
@@ -25,6 +25,7 @@ async function fixture(t) {
     onChangePassword:app.changePassword,
     onResetData:app.resetAllData,
     onStop: () => stopped++,
+    onShow,
   });
   await control.listen();
   t.after(async () => {
@@ -128,4 +129,9 @@ test("ダッシュボードは認証済みローカルIPCからのみ読み出�
  assert.equal(reply.dashboard.phase,"starting");assert.equal(reply.dashboard.shareUrl,"");
  assert.ok(!JSON.stringify(reply.dashboard).includes("password"));
  c.socket.destroy();
+});
+
+test("authenticated show can reopen a lost management window without stopping the server",async t=>{
+ let shown=0;const f=await fixture(t,{onShow:async()=>{shown++}}),c=await client(f.path);t.after(()=>c.socket.destroy());
+ c.send({token:f.token,command:'show',id:'restore'});let reply;do{reply=await c.next()}while(reply.id!=='restore');assert.equal(reply.ok,true);assert.equal(shown,1);assert.equal(f.stopped(),0);
 });

@@ -37,8 +37,15 @@ try{
  const response=await fetch(state.url);assert.equal(response.status,200);
  await command('show');await delay(300);
  // UI existence is checked in PowerShell against the real child process/window.
- const window=execFileSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',`$p = Get-Process -Name Bathjun-Server | Where-Object { $_.Path -eq $env:BATHJUN_EXPECTED_UI -and $_.MainWindowHandle -ne 0 }; if (-not $p) { throw 'Shipped management window is missing' }; $p | ForEach-Object { $_.MainWindowTitle }`],{encoding:'utf8',env:{...process.env,BATHJUN_EXPECTED_UI:join(root,'bin/Bathjun-Server.exe')}});
- assert.ok(window.trim(),'Management window is missing');
+ const getWindow=()=>JSON.parse(execFileSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',`$p = Get-Process -Name Bathjun-Server -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:BATHJUN_EXPECTED_UI -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1; if ($p) { @{id=$p.Id; title=$p.MainWindowTitle} | ConvertTo-Json -Compress } else { 'null' }`],{encoding:'utf8',env:{...process.env,BATHJUN_EXPECTED_UI:join(root,'bin/Bathjun-Server.exe')}}));
+ const firstWindow=getWindow();assert.ok(firstWindow?.title,'Management window is missing');
+ // Kill only this fixture's GUI: reservations must remain accessible and the UI must reopen.
+ execFileSync('taskkill.exe',['/PID',String(firstWindow.id),'/F'],{stdio:'pipe'});
+ let restored;
+ for(let n=0;n<12;n++){await delay(500);assert.equal(exit,undefined,'Management failure stopped the server.\n'+output);restored=getWindow();if(restored&&restored.id!==firstWindow.id)break;}
+ assert.ok(restored?.title&&restored.id!==firstWindow.id,'Management window did not automatically reopen.\n'+output);
+ assert.equal((await command('status')).state.pid,state.pid,'Server restarted after a GUI failure');
+ assert.equal((await fetch(state.url)).status,200);
  assert.match(output,/更新のお知らせを読み込めませんでした/);
  assert.match(output,new RegExp('ふろじゅん v'+JSON.parse(readFileSync(join(root,'app/package.json'),'utf8')).version.replaceAll('.','\\.')));
  console.log(output);

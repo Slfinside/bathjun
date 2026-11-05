@@ -31,6 +31,7 @@ export function createPanelController({
   onChangePassword,
   onResetData,
   onStop,
+  onShow,
 }) {
   const clients = new Set();
   let state = {
@@ -177,6 +178,7 @@ export function createPanelController({
               "全データをリセットしました。家族の合い言葉とメンバーを設定してください。",
           });
         } else if (message.command === "show") {
+          await onShow?.();
           for (const client of clients)
             if (client.panelAuthenticated)
               send(client, { ok: true, show: true });
@@ -241,15 +243,15 @@ export async function showExistingWindowsPanel() {
     !/^[a-f0-9]{64}$/.test(locator.token)
   )
     return false;
-  return new Promise((resolve) => {
+  return new Promise((resolve,reject) => {
     const socket = connect(pipePath(locator.name));
-    let done = false;
-    const finish = (value) => {
+    let done = false,buffer="";
+    const finish = (value,error) => {
       if (done) return;
       done = true;
       clearTimeout(timeout);
       socket.destroy();
-      resolve(value);
+      if(error)reject(error);else resolve(value);
     };
     const timeout = setTimeout(() => finish(false), 2000);
     socket.on("error", () => finish(false));
@@ -260,52 +262,74 @@ export async function showExistingWindowsPanel() {
           "\n",
       ),
     );
-    socket.on("data", () => finish(true));
+    socket.on("data", data => {
+      buffer+=data.toString("utf8");
+      if(Buffer.byteLength(buffer)>262144)return finish(false,new Error("管理画面からの応答を確認できませんでした。"));
+      let index;while((index=buffer.indexOf("\n"))>=0){
+        const line=buffer.slice(0,index);buffer=buffer.slice(index+1);
+        try{const reply=JSON.parse(line);if(reply.id==="open")finish(reply.ok===true,reply.ok?null:new Error(reply.error||"管理画面を開けませんでした。"))}catch(error){finish(false,error)}
+      }
+    });
   });
 }
 export async function startWindowsPanel(handlers) {
   if (process.platform !== "win32") return;
   const token = randomBytes(32).toString("hex"),
     name = "Bathjun-" + randomBytes(16).toString("hex");
+  let child, launching, restartTimer, closing=false, automaticRetries=0;
+  const reportFailure=error=>console.error("サーバー操作画面を開けませんでした。予約サーバーは継続しています。\n"+(error.stack||error.message));
   const controller = createPanelController({
     ...handlers,
     path: pipePath(name),
     token,
+    // A second shortcut invocation can restore the UI of the existing server.
+    onShow: () => launch(),
   });
-  await controller.listen();
-  activePanel = controller;
-  const child = spawn(
-    fileURLToPath(new URL("../../bin/Bathjun-Server.exe", import.meta.url)),
-    [
-      name,
-      token,
-      ...(handlers.mode === "public" ? ["--public"] : []),
-      ...(process.env.BATHJUN_AUTOSTART === "1" ? ["--minimized"] : []),
-    ],
-    { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
-  );
-  child.stdout.on("data", data => process.stdout.write(data));
-  child.stderr.on("data", data => process.stderr.write(data));
-  await new Promise((resolve, reject) => {
-    child.once("spawn", resolve);
-    child.once("error", reject);
-  }).catch(async (error) => {
-    activePanel = null;
-    await controller.close();
-    throw error;
-  });
-  child.once("exit", (code, signal) => {
-    console.error(`サーバー操作画面が終了しました（終了コード: ${code ?? signal}）。上のエラーを確認してください。`);
-    void controller.stop(1);
-  });
-  const locatorPath = join(dataPaths().directory, "panel.json");
-  writeFileSync(locatorPath, JSON.stringify({ name, token }), { mode: 0o600 });
-  process.once("exit", () => {
-    try {
-      if (JSON.parse(readFileSync(locatorPath, "utf8")).token === token)
-        unlinkSync(locatorPath);
-    } catch {}
-    child.kill();
+  const closeController=controller.close;
+  controller.close=async()=>{
+    closing=true;clearTimeout(restartTimer);
+    activePanel=null;
+    await closeController();
+    child?.kill();
+  };
+  function launch(){
+    if(closing||child?.exitCode===null&&!child.killed)return Promise.resolve();
+    if(launching)return launching;
+    clearTimeout(restartTimer);
+    launching=(async()=>{
+      const current=spawn(
+        fileURLToPath(new URL("../../bin/Bathjun-Server.exe", import.meta.url)),
+        [name,token,...(handlers.mode === "public" ? ["--public"] : []),
+          ...(process.env.BATHJUN_AUTOSTART === "1" ? ["--minimized"] : [])],
+        {stdio:["ignore","pipe","pipe"],windowsHide:true},
+      );
+      child=current;
+      current.stdout.on("data",data=>process.stdout.write(data));
+      current.stderr.on("data",data=>process.stderr.write(data));
+      current.once("exit",(code,signal)=>{
+        if(child===current)child=null;
+        if(closing)return;
+        console.error(`サーバー操作画面が終了しました（終了コード: ${code??signal}）。予約サーバーは継続しています。`);
+        if(automaticRetries++<1){
+          console.error("サーバー操作画面を開き直します。");
+          restartTimer=setTimeout(()=>{void launch().catch(reportFailure)},300);
+          restartTimer.unref();
+        }else console.error("操作画面を開き直すには、ふろじゅんの起動用ショートカットをもう一度開いてください。上のエラーも確認してください。");
+      });
+      try{
+        await new Promise((resolve,reject)=>{current.once("spawn",resolve);current.once("error",reject)});
+      }catch(error){if(child===current)child=null;throw error}
+    })().finally(()=>{launching=null});
+    return launching;
+  }
+  await controller.listen();activePanel=controller;
+  try{await launch()}catch(error){await controller.close();throw error}
+  const locatorPath=join(dataPaths().directory,"panel.json");
+  writeFileSync(locatorPath,JSON.stringify({name,token}),{mode:0o600});
+  process.once("exit",()=>{
+    closing=true;clearTimeout(restartTimer);
+    try{if(JSON.parse(readFileSync(locatorPath,"utf8")).token===token)unlinkSync(locatorPath)}catch{}
+    child?.kill();
   });
   return controller;
 }
