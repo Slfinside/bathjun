@@ -1193,12 +1193,8 @@ document
         me = null;
         state = null;
         resetNavigation();
-        notificationStatus = "未設定";
-        previousTurn = null;
-        passkeyList = null;
         selectedMember = null;
         selectedDay = undefined;
-        lastSignature = "";
         renderLogin();
       } catch (error) {
         notify(error.message);
@@ -1858,6 +1854,10 @@ document.addEventListener("keydown", (event) => {
 });
 
 function resetNavigation() {
+  passkeyList = null;
+  previousTurn = null;
+  notificationStatus = "未設定";
+  lastSignature = "";
   pageView = "home";
   pendingItem = null;
   checkRebookingOnOpen = true;

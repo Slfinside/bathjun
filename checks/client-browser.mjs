@@ -11,13 +11,13 @@ assert.ok(executablePath,'Install Chrome/Chromium or set BATHJUN_BROWSER_PATH');
 const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox']});
 const output=process.env.BATHJUN_BROWSER_SCREENSHOTS;
 if(output)mkdirSync(output,{recursive:true});
-async function scenario(name,fn,{maxDuration=90}={}){
+async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1'}={}){
  const directory=mkdtempSync(join(tmpdir(),'bathjun-browser-'));
  let clock=new Date('2026-11-02T08:00:00+09:00');
  const app=createApp({database:join(directory,'test.sqlite'),requireFamily:false,now:()=>clock,deliverPush:async()=>{}});
  app.saveServerSettings({members:[{name:'利用者A',active:true},{name:'利用者B',active:true}],schedule:{...DEFAULT_SCHEDULE,orderMode:'fixed',maxDuration}});
  clock=new Date('2026-11-04T08:00:00+09:00');
- const {server}=createHttpServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://127.0.0.1:${server.address().port}`;
+ const {server}=createHttpServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://${hostname}:${server.address().port}`;
  const context=await browser.newContext({viewport:{width:390,height:844},locale:'ja-JP'}),page=await context.newPage(),errors=[];
  page.on('pageerror',error=>errors.push(error.message));
  const api=async(path,body)=>{const r=await context.request.post(url+'/api/'+path,{data:body});assert.equal(r.status(),200,await r.text());return r.json()};
@@ -169,6 +169,23 @@ try {
   await modal.getByRole('button',{name:'効果を有効にする',exact:true}).click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});
   result=(await state()).rewards;assert.equal(result.wallet.find(x=>x.kind==='boost').quantity,0);assert.equal(result.boostRemaining,6);
  });
+ await scenario('passkey-after-expiry',async({page,context,url,api,state,navigate})=>{
+  await api('register',{memberId:2,password:'synthetic-member-b'});await api('login',{memberId:1,password:'test-only'});
+  const cdp=await context.newCDPSession(page);await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','#auto-wishes-form');
+  await page.locator('[data-action="passkey-register"]').click();
+  await page.getByText('パスキーを登録しました。次回から合い言葉や名前の入力を省略できます。',{exact:true}).waitFor();
+  assert.equal((await state()).passkeyCount,1);
+  await page.locator('[data-action="passkey-manage"]').click();await page.locator('.passkey-list li').waitFor();
+  await context.request.post(url+'/api/logout',{data:{}});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  await page.locator('[data-member="2"]').click();await page.locator('#password').fill('synthetic-member-b');
+  await page.locator('#login-form button[type="submit"]').click();await page.locator('.date-bar').waitFor();
+  await navigate('設定','#auto-wishes-form');assert.equal(await page.locator('.passkey-list li').count(),0);
+  // Authenticate with the first member's actual virtual passkey after logging out B.
+  await page.locator('[data-action="logout"]').click();await page.locator('[data-action="passkey-login"]').click();
+  await page.locator('.date-bar').waitFor();assert.equal((await state()).me.id,1);
+ },{hostname:'localhost'});
  await scenario('unresponsive-server',async({page,url})=>{
   await page.addInitScript(()=>{
    const originalFetch=window.fetch;
