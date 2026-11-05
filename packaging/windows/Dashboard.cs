@@ -8,13 +8,13 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
 public sealed class DashboardOverlap { public int memberId,start,end; }
-public sealed class DashboardEntry { public DashboardOverlap[] overlaps; public int memberId,start,duration,automatic; public string name,kind,startsAt,endsAt,emoji,color,revision,completedAt,day,ticket; }
+public sealed class DashboardEntry { public DashboardOverlap[] overlaps; public int memberId,start,duration,automatic; public string name,kind,startsAt,endsAt,emoji,color,revision,completedAt,notBathedAt,day,ticket; public bool archived; }
 public sealed class DashboardMember { public int id; public string name,status,emoji,color; public bool deferred; }
 public sealed class DashboardUntimedWish { public int memberId,duration; public string name; }
 public sealed class DashboardData {
     public string day,now,phase,shareUrl; public int bathStart,bathEnd,reportMinutes=1;
     public DashboardUntimedWish[] untimedWishes;
-    public DashboardEntry current,next,afterNext; public DashboardEntry[] entries; public DashboardMember[] members; public string[] qr;
+    public DashboardEntry[] pendingReports; public DashboardEntry current,next,afterNext; public DashboardEntry[] entries; public DashboardMember[] members; public string[] qr;
 }
 public sealed class DashboardPreferences {
     public bool fixedDetails; public int returnMinutes=1;
@@ -51,7 +51,9 @@ public sealed class DisplaySchedulePreferences {
 // Single native surface: no embedded browser or camera stream. All drawn content,
 // including the QR quiet zone, moves periodically inside a safe margin.
 internal sealed class DashboardForm : Form {
-    public Action<DashboardEntry> Report;
+    public Action<DashboardEntry> Report,ReportNotBathed;
+    readonly List<KeyValuePair<RectangleF,DashboardEntry>> missedAreas=new List<KeyValuePair<RectangleF,DashboardEntry>>(),scheduleReportAreas=new List<KeyValuePair<RectangleF,DashboardEntry>>();
+    RectangleF pendingReportsArea;
     readonly List<KeyValuePair<RectangleF,DashboardEntry>> reportAreas=new List<KeyValuePair<RectangleF,DashboardEntry>>();
     float paintScale,paintDx,paintDy;bool reportBusy;
     readonly Action request;
@@ -89,7 +91,13 @@ internal sealed class DashboardForm : Form {
         Font=new Font(typeface,12,FontStyle.Regular,GraphicsUnit.Point,JapaneseCharset);
         KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Escape||e.KeyCode==Keys.F11)Close();};
         // First tap always opens details; the return target only closes from details.
-        MouseDown+=delegate(object sender,MouseEventArgs e){foreach(var area in reportAreas)if(area.Key.Contains(e.Location)){if(!reportBusy&&Report!=null){reportBusy=true;Report(area.Value);Invalidate();}return;}if(Detailed&&returnArea.Contains(e.Location))Close();else ShowDetails();};
+        MouseDown+=delegate(object sender,MouseEventArgs e){
+            foreach(var area in missedAreas)if(area.Key.Contains(e.Location)){if(!reportBusy)ConfirmNotBathed(area.Value);return;}
+            foreach(var area in reportAreas)if(area.Key.Contains(e.Location)){if(!reportBusy&&Report!=null){reportBusy=true;Report(area.Value);Invalidate();}return;}
+            foreach(var area in scheduleReportAreas)if(area.Key.Contains(e.Location)){if(!reportBusy)ChooseReport(area.Value);return;}
+            if(pendingReportsArea.Contains(e.Location)){if(!reportBusy)ChoosePendingReport();return;}
+            if(Detailed&&returnArea.Contains(e.Location))Close();else ShowDetails();
+        };
         Shown+=delegate{if(usePresence)presence.Start();Poll();clock.Start();};
         clock.Tick+=delegate{
             if(!waiting&&elapsed.Elapsed.TotalSeconds-requestedAt>=5)Poll();
@@ -182,7 +190,7 @@ internal sealed class DashboardForm : Form {
         using(var brush=new SolidBrush(Ink))using(var format=new StringFormat{Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center})g.DrawString(string.IsNullOrEmpty(emoji)?"?":emoji,font,brush,new RectangleF(x,y,diameter,diameter),format);
     }
     protected override void OnPaint(PaintEventArgs e) {
-        base.OnPaint(e);reportAreas.Clear();var g=e.Graphics;g.Clear(Background);
+        base.OnPaint(e);reportAreas.Clear();missedAreas.Clear();scheduleReportAreas.Clear();pendingReportsArea=RectangleF.Empty;var g=e.Graphics;g.Clear(Background);
         g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         bool portrait=ClientSize.Height>ClientSize.Width;
@@ -244,17 +252,48 @@ internal sealed class DashboardForm : Form {
     void PeopleAt(DateTime now,out DashboardEntry current,out DashboardEntry next,out DashboardEntry afterNext) {
         current=null;next=null;afterNext=null;
         if(data==null)return;
-        var confirmed=new List<DashboardEntry>();foreach(var entry in data.entries??new DashboardEntry[0])if(entry.kind=="予約")confirmed.Add(entry);
+        var confirmed=new List<DashboardEntry>();foreach(var entry in data.entries??new DashboardEntry[0])if(entry.kind=="予約"&&entry.notBathedAt==null&&!entry.archived)confirmed.Add(entry);
         confirmed.Sort((a,b)=>a.start.CompareTo(b.start));
         foreach(var entry in confirmed){if(entry.completedAt==null&&Instant(entry.startsAt)<=now&&now<Instant(entry.endsAt))current=entry;else if(Instant(entry.startsAt)>now){if(next==null)next=entry;else if(afterNext==null)afterNext=entry;}}
     }
     DashboardEntry PendingCompletion(DateTime now) {
-        DashboardEntry result=null;foreach(var entry in data==null?new DashboardEntry[0]:data.entries??new DashboardEntry[0])if(entry.kind=="予約"&&entry.completedAt==null&&entry.revision!=null&&Instant(entry.endsAt)<=now&&now<=Instant(entry.endsAt).AddMinutes(data.reportMinutes))if(result==null||entry.start>result.start)result=entry;return result;
+        DashboardEntry result=null;foreach(var entry in data==null?new DashboardEntry[0]:data.entries??new DashboardEntry[0])if(entry.kind=="予約"&&entry.completedAt==null&&entry.notBathedAt==null&&!entry.archived&&entry.revision!=null&&Instant(entry.endsAt)<=now&&now<=Instant(entry.endsAt).AddMinutes(data.reportMinutes))if(result==null||entry.start>result.start)result=entry;return result;
     }
     void ReportButton(Graphics g,DashboardEntry entry,RectangleF rect) {
-        if(Report==null||entry==null||entry.revision==null||entry.completedAt!=null)return;
+        if(Report==null||entry==null||entry.revision==null||entry.completedAt!=null||entry.notBathedAt!=null||entry.archived)return;
         Box(g,rect,Color.FromArgb(66,85,49),Green,10);Write(g,reportBusy?"送信中…":"完了を報告",14,Ink,new RectangleF(rect.X+10,rect.Y+10,rect.Width-16,28),true);
         reportAreas.Add(new KeyValuePair<RectangleF,DashboardEntry>(new RectangleF((rect.X+paintDx)*paintScale,(rect.Y+paintDy)*paintScale,rect.Width*paintScale,rect.Height*paintScale),entry));
+    }
+    RectangleF HitArea(RectangleF rect){return new RectangleF((rect.X+paintDx)*paintScale,(rect.Y+paintDy)*paintScale,rect.Width*paintScale,rect.Height*paintScale);}
+    void ReportButtons(Graphics g,DashboardEntry entry,RectangleF rect){
+        if(ReportNotBathed==null){ReportButton(g,entry,rect);return;}
+        var positive=new RectangleF(rect.X-152,rect.Y,148,rect.Height);ReportButton(g,entry,positive);
+        Box(g,rect,Paper,Line,10);Write(g,"入っていない",13,Muted,new RectangleF(rect.X+8,rect.Y+10,rect.Width-12,28),true);missedAreas.Add(new KeyValuePair<RectangleF,DashboardEntry>(HitArea(rect),entry));
+    }
+    Form ReportWindow(string title,int height){var form=new Form{Text=title,ClientSize=new Size(580,height),StartPosition=FormStartPosition.CenterParent,BackColor=Background,ForeColor=Ink,Font=Font,MinimizeBox=false,MaximizeBox=false,FormBorderStyle=FormBorderStyle.FixedDialog};form.AutoScaleDimensions=new SizeF(96,96);form.AutoScaleMode=AutoScaleMode.Dpi;return form;}
+    Button ReportChoice(string title,DialogResult result,int top){return new Button{Text=title,DialogResult=result,Location=new Point(22,top),Size=new Size(536,48),BackColor=Paper,ForeColor=Ink,FlatStyle=FlatStyle.Flat};}
+    void ChooseReport(DashboardEntry entry){
+        using(var form=ReportWindow("入浴の報告",300)){
+            form.Controls.Add(new Label{Text=entry.day+"分  "+entry.name+"\n"+Time(entry.start)+"〜"+Time(entry.start+entry.duration),Location=new Point(22,18),Size=new Size(536,78)});
+            var complete=ReportChoice("完了を報告",DialogResult.Yes,106);var missed=ReportChoice("入っていない",DialogResult.No,164);var cancel=ReportChoice("キャンセル",DialogResult.Cancel,222);form.Controls.AddRange(new Control[]{complete,missed,cancel});form.CancelButton=cancel;
+            var result=form.ShowDialog(this);if(result==DialogResult.Yes&&Report!=null){reportBusy=true;Report(entry);Invalidate();}else if(result==DialogResult.No)ConfirmNotBathed(entry);
+        }
+    }
+    void ConfirmNotBathed(DashboardEntry entry){
+        if(ReportNotBathed==null)return;
+        using(var form=ReportWindow("入っていないと報告しますか？",250)){
+            form.Controls.Add(new Label{Text=entry.name+"  "+Time(entry.start)+"〜"+Time(entry.start+entry.duration)+"\nこの予約を「入っていない」と記録します。\n確定後は変更できません。",Location=new Point(22,18),Size=new Size(536,84)});
+            var confirm=ReportChoice("入っていないと確定",DialogResult.OK,124);var cancel=ReportChoice("キャンセル",DialogResult.Cancel,182);form.Controls.AddRange(new Control[]{confirm,cancel});form.CancelButton=cancel;
+            if(form.ShowDialog(this)==DialogResult.OK){reportBusy=true;ReportNotBathed(entry);Invalidate();}
+        }
+    }
+    void ChoosePendingReport(){
+        var pending=data==null?new DashboardEntry[0]:data.pendingReports??new DashboardEntry[0];if(pending.Length==0)return;
+        using(var form=ReportWindow("未報告の予定",460)){
+            var list=new ListBox{Location=new Point(22,18),Size=new Size(536,300),ItemHeight=42,Font=Font};foreach(var entry in pending)list.Items.Add(entry.day+"  "+entry.name+"  "+Time(entry.start)+"〜"+Time(entry.start+entry.duration));list.SelectedIndex=0;
+            var select=ReportChoice("この予約を報告する",DialogResult.OK,336);var cancel=ReportChoice("キャンセル",DialogResult.Cancel,394);form.Controls.AddRange(new Control[]{list,select,cancel});form.CancelButton=cancel;
+            if(form.ShowDialog(this)==DialogResult.OK&&list.SelectedIndex>=0)ChooseReport(pending[list.SelectedIndex]);
+        }
     }
     static string CountdownText(int minutes){return minutes<60?minutes+"分":minutes/60+"時間"+(minutes%60==0?"":minutes%60+"分");}
     string[] RemainingParts(DashboardEntry entry,DateTime now) {
@@ -289,7 +328,7 @@ internal sealed class DashboardForm : Form {
         var pending=PendingCompletion(now);var first=pending??current??next;var second=pending!=null?(current??next):current!=null?next:afterNext;
         float x=rect.X+24,w=rect.Width-48,y=rect.Y;
         bool canReport=age<=20&&first!=null&&(pending!=null||current!=null);
-        Write(g,pending!=null?"入浴完了":current!=null?"入浴中":"次にお風呂に入る人",Mix(24,16),Green,new RectangleF(x,y+18,canReport?w-168:w,36),true);
+        Write(g,pending!=null?"入浴完了":current!=null?"入浴中":"次にお風呂に入る人",Mix(24,16),Green,new RectangleF(x,y+18,canReport?w-(ReportNotBathed==null?168:320):w,36),true);
         float avatarSize=Mix(68,42),nameX=x+avatarSize+18;
         if(first!=null&&age<=20)Avatar(g,first.emoji,first.color,x,y+Mix(67,64),avatarSize,vivid);
         var firstRect=new RectangleF(first==null?x:nameX,y+Mix(59,57),first==null?w:w-avatarSize-18,Mix(94,46));
@@ -304,14 +343,14 @@ internal sealed class DashboardForm : Form {
             else Write(g,UpcomingTime(first,now),Mix(31,18),Green,new RectangleF(x,y+Mix(185,110),w,Mix(70,36)),true);
         }
         float divider=y+Mix(270,150);Divider(g,x,divider,w);
-        if(canReport)ReportButton(g,first,new RectangleF(x+w-154,y+14,154,44));
+        if(canReport)ReportButtons(g,first,new RectangleF(x+w-154,y+14,154,44));
         Write(g,pending!=null&&current!=null?"入浴中":pending!=null||current!=null?"次に入る人":"その次に入る人",Mix(22,12),Green,new RectangleF(x,divider+Mix(23,10),w,34),true);
         var secondName=MixRect(new RectangleF(x,divider+65,w,70),new RectangleF(x,divider+37,Math.Min(150,w*.3f),30),(float)transition);
         var secondTime=MixRect(new RectangleF(x,divider+137,w,58),new RectangleF(x+Math.Min(150,w*.3f)+18,divider+37,w-Math.Min(150,w*.3f)-18,30),(float)transition);
         if(second==null)secondName.Width=w;
         WriteFit(g,age>20?"更新待ち":second==null?"次の予約はありません":second.name,second==null?Mix(28,16):Mix(44,17),14,fg,secondName,true);
         Write(g,age>20||second==null?"":pending!=null&&second==current?"あと "+CountdownText(MinutesUntil(Instant(current.endsAt),now))+" | 〜"+Time(current.start+current.duration):UpcomingTime(second,now),Mix(31,18),Green,secondTime,true);
-        if(age<=20&&pending!=null&&current!=null)ReportButton(g,current,new RectangleF(x+w-154,divider+Mix(16,76),154,44));
+        if(age<=20&&pending!=null&&current!=null)ReportButtons(g,current,new RectangleF(x+w-154,divider+Mix(16,76),154,44));
     }
     sealed class ChartPart {public int start,end;public double weight;}
     static float ChartY(int minute,List<ChartPart> parts,float top,float height) {
@@ -322,6 +361,7 @@ internal sealed class DashboardForm : Form {
     void DrawVerticalSchedule(Graphics g,RectangleF rect,Color fg,double age) {
         Write(g,"スケジュール",16,fg,new RectangleF(rect.X,rect.Y,rect.Width,30),true);
         if(data==null||age>20){Write(g,"更新待ち",13,Muted,new RectangleF(rect.X,rect.Y+42,rect.Width,28));return;}
+        if(age<=20&&(data.pendingReports??new DashboardEntry[0]).Length>0){var button=new RectangleF(rect.Right-130,rect.Y,130,30);Box(g,button,Paper,Line,6);Write(g,"未報告 "+data.pendingReports.Length+"件",11,Green,new RectangleF(button.X+8,button.Y+6,button.Width-12,22),true);pendingReportsArea=HitArea(button);}
         var untimed=data.untimedWishes??new DashboardUntimedWish[0];float untimedHeight=0;
         if(untimed.Length>0){
             Write(g,"時刻未定（使う時間）",11,Muted,new RectangleF(rect.X,rect.Y+29,rect.Width,20));
@@ -343,9 +383,11 @@ internal sealed class DashboardForm : Form {
             bool wish=entry.kind!="予約",conflict=entry.overlaps!=null&&entry.overlaps.Length>0;float x=trackX+lanes[i]*laneWidth;
             var bar=new RectangleF(x+2,y+1,Math.Max(1,laneWidth-4),Math.Max(3,bottom-y-2));
             Box(g,bar,wish?Paper:Color.FromArgb(48,62,38),conflict?Orange:Green,4,wish);
+            if(entry.notBathedAt!=null)using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Muted,Color.Transparent))g.FillRectangle(brush,bar);
+            if(age<=20&&entry.kind=="予約"&&!entry.archived&&entry.completedAt==null&&entry.notBathedAt==null&&entry.revision!=null&&Instant(entry.startsAt)<=ServerNow)scheduleReportAreas.Add(new KeyValuePair<RectangleF,DashboardEntry>(HitArea(bar),entry));
             if(conflict)foreach(var overlap in entry.overlaps){float a=ChartY(overlap.start,parts,chartTop,chartHeight),b=ChartY(overlap.end,parts,chartTop,chartHeight);using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Orange,Color.Transparent))g.FillRectangle(brush,bar.X,a,bar.Width,Math.Max(1,b-a));}
             if(conflict&&bar.Height>=26)using(var brush=new SolidBrush(Paper))g.FillRectangle(brush,new RectangleF(bar.X+3,bar.Y+2,Math.Max(1,bar.Width-6),24));
-            if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+entry.name+(entry.automatic!=0&&bar.Height<44?" · 自動予約":""),Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
+            if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+(entry.notBathedAt!=null?"入っていない · ":entry.completedAt!=null?"完了 · ":"")+entry.name+(entry.automatic!=0&&bar.Height<44?" · 自動予約":""),Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
             if(entry.automatic!=0&&bar.Height>=44)Write(g,"自動予約",10,wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+27,Math.Max(1,bar.Width-8),18));
         }
         foreach(var part in parts)if(part.end-part.start>=120&&part.weight==60){float y=ChartY((part.start+part.end)/2,parts,chartTop,chartHeight);Write(g,"〜",16,Muted,new RectangleF(trackX,y-10,trackWidth,24));}

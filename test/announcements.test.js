@@ -74,8 +74,8 @@ test('past cells and rejected completion reports do not refund ink',async t=>{
  const f=await fixture(t);await ink(f,'2026-11-03');await f.book();const booking=(await f.state()).bookings[0];f.time('2026-11-04T18:10:00');assert.throws(()=>f.app.completeBath({memberId:1,day:'2026-11-04',revision:'wrong'}));f.app.completeBath({memberId:1,day:'2026-11-04',revision:booking.revision});assert.equal((await f.state()).rewards.gifts.filter(g=>!g.receivedAt&&g.kind==='stampInk').length,0);
 });
 
-test('inking today after a failed report window does not earn a refund on rebooking',async t=>{
- const f=await fixture(t);await f.book();const old=(await f.state()).bookings[0];f.time('2026-11-04T18:32:00');assert.equal((await f.state()).rewards.card.days.find(x=>x.day==='2026-11-04').status,'failed');await ink(f);
+test('inking today after an explicit non-entry does not earn a refund on rebooking',async t=>{
+ const f=await fixture(t);await f.book();const old=(await f.state()).bookings[0];f.time('2026-11-04T18:32:00');await f.api('not-bathed',{day:'2026-11-04',revision:old.revision,confirmed:true});assert.equal((await f.state()).rewards.card.days.find(x=>x.day==='2026-11-04').status,'failed');await ink(f);
  await f.api('book',{day:'2026-11-04',start:1200,duration:30,rebookRevision:old.revision});const booking=(await f.state()).bookings[0];f.time('2026-11-04T20:10:00');f.app.completeBath({memberId:1,day:'2026-11-04',revision:booking.revision});assert.equal((await f.state()).rewards.gifts.filter(x=>!x.receivedAt&&x.kind==='stampInk').length,0);
 });
 test('auto-update readiness is blocked during bathing and ten minutes before it',async t=>{

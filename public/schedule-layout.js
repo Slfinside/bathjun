@@ -1,7 +1,7 @@
 // Preserve every reservation; compress only uninterrupted free intervals of 2h or more.
 export function scheduleSegments(bookings, start, end, wishes = []) {
   wishes = wishes.filter(wish=>Number.isInteger(wish.start));
-  if (wishes.length) return tentativeSegments(bookings, wishes, start, end);
+  if (wishes.length||bookings.some(b=>b.notBathedAt||b.archived)) return tentativeSegments(bookings, wishes, start, end);
   const segments = [];
   let cursor = start;
   const gap = (from, to) => {
@@ -85,11 +85,11 @@ function tentativeSegments(bookings, wishes, start, end) {
 
 // Half-open intervals: finishing exactly when another person starts is allowed.
 export function overlapDetails(entry, entries) {
-  if(!Number.isInteger(entry.start))return [];
+  if(!Number.isInteger(entry.start)||entry.notBathedAt||entry.archived)return [];
   return entries
     .filter(
       (other) =>
-        Number.isInteger(other.start) &&
+        Number.isInteger(other.start) && !other.notBathedAt && !other.archived &&
         other !== entry &&
         other.memberId !== entry.memberId &&
         entry.start < other.start + other.duration &&

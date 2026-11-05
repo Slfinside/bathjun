@@ -56,8 +56,7 @@ export async function openGuide(topic, { onboarding = false, rules = {} } = {}) 
   const extra = [];
   if (topic === "autoStandby" && Number.isInteger(rules.standbyFailureDays))
     extra.push({ title: "現在の設定", text: `${rules.standbyFailureDays}日連続で入浴しないと、その連続した日が失敗になります。入力した時点では判定しません。` });
-  if (topic === "stamps" && Number.isInteger(rules.clientReportMinutes) && Number.isInteger(rules.dashboardReportMinutes))
-    extra.push({ title: "現在の報告期限", text: rules.clientReportEnabled === true ? `予約終了後、本人の画面では${rules.clientReportMinutes}分以内、サーバーのダッシュボードでは${rules.dashboardReportMinutes}分以内に報告してください。予約終了前でも、上がった時点で報告できます。` : `本人の画面からの完了報告は無効です。予約終了後${rules.dashboardReportMinutes}分以内に、サーバーのダッシュボードで報告してください。予約終了前でも、上がった時点で報告できます。` });
+  if(topic==='stamps')extra.push({title:'現在の報告設定',text:rules.clientReportEnabled?'本人の画面とダッシュボードから、期限なしで完了を報告できます。':'本人の画面からの完了報告は無効です。ダッシュボードから期限なしで報告してください。「入っていない」は本人の画面からも報告できます。'});
   for (const item of [...extra, ...entry.details]) {
     const h = document.createElement("h3"),
       p = document.createElement("p");

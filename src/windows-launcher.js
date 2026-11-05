@@ -52,6 +52,7 @@ try {
         adminCall((app) => app.saveRewardSettings(payload)),
       onDistributeItems: (payload) =>
         adminCall((app) => app.distributeItems(payload)),
+      onNotBathed:payload=>adminCall(app=>app.notBathed(payload)),
       onCompleteBath: (payload) =>
         adminCall((app) => app.completeBath(payload)),
       onGetDashboard: () => adminCall((app) => app.getDashboard()),

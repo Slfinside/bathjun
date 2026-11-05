@@ -23,7 +23,7 @@ export function createPanelController({
   onGetRewards,
   onSaveRewardSettings,
   onDistributeItems,
-  onCompleteBath,
+  onCompleteBath,onNotBathed,
   onGetSettings,
   onSaveSettings,
   onGetSecurity,
@@ -126,6 +126,7 @@ export function createPanelController({
               phase: state.phase,
             },
           });
+        } else if(message.command==='bath/not-bathed'){await onNotBathed(message.payload);send(socket,{id:message.id,ok:true,dashboard:{...dashboardView(await onGetDashboard()),...dashboardQr(state),phase:state.phase}});
         } else if (message.command === "settings/get")
           send(socket, {
             id: message.id,

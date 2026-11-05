@@ -66,7 +66,7 @@ test('再予約の確認は端末間・再起動後に重複せず、元の予�
 });
 
 test('再予約の失敗は元の枠と履歴を保ち、成功時だけ保存・再送時は二重適用しない',async t=>{
- const f=await fixture(t);await f.book();await f.book(1200,30,2);const old=(await f.state()).bookings.find(b=>b.memberId===1);f.time('2026-11-04T18:32:00');
+ const f=await fixture(t);await f.book();await f.book(1200,30,2);const old=(await f.state()).bookings.find(b=>b.memberId===1);f.time('2026-11-04T18:32:00');await f.api('not-bathed',{day:'2026-11-04',revision:old.revision,confirmed:true});
  const body={day:'2026-11-04',start:1200,duration:30,rebookRevision:old.revision};
  assert.equal((await f.request('book',body)).status,409);
  assert.equal((await f.state()).bookings.find(b=>b.memberId===1).revision,old.revision);
@@ -82,7 +82,7 @@ test('再予約に消費済み延長は引き継がず、新しいチケット�
  const f=await fixture(t);f.settings({extensionBlocked:false,extensionNoticeMinutes:0});
  f.app.distributeItems({recipients:[1],kinds:['extend'],quantity:2,requestId:'rebooking-test-extend'});
  const gift=(await f.state()).rewards.gifts[0];await f.api('gifts/receive',{id:gift.id});
- await f.book(1080,120,1,{ticket:'extend'});const old=(await f.state()).bookings[0];f.time('2026-11-04T20:02:00');
+ await f.book(1080,120,1,{ticket:'extend'});const old=(await f.state()).bookings[0];f.time('2026-11-04T20:02:00');await f.api('not-bathed',{day:'2026-11-04',revision:old.revision,confirmed:true});
  assert.equal((await f.request('book',{day:'2026-11-04',start:1320,duration:120,rebookRevision:old.revision})).status,400);
  f.settings({extensionMinutes:60});const body={day:'2026-11-04',start:1320,duration:150,rebookRevision:old.revision,ticket:'extend'};
  await f.api('book',body);await f.api('book',body);
@@ -99,12 +99,12 @@ test('翌朝は前日分を提案し、区切りまでに新たな開始時刻�
 });
 
 
-test('クライアント報告がオフなら通知はダッシュボードを案内し、その期限で判定する',async t=>{
+test('クライアント報告がオフなら通知はダッシュボードを案内し、報告は期限なしで受け付ける',async t=>{
  const f=await fixture(t),key=createECDH('prime256v1');key.generateKeys();
  await f.api('push/subscribe',{subscription:{endpoint:'https://web.push.apple.com/report-dashboard-only',keys:{p256dh:key.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}}});
  f.settings({clientReportMinutes:180,dashboardReportMinutes:1});await f.book();f.time('2026-11-04T18:30:00');await f.app.flushNotifications();
- const reminders=f.sent.filter(x=>x.payload.tag.startsWith('bath-completion-'));assert.equal(reminders.length,1);assert.match(reminders[0].payload.body,/ダッシュボード/);assert.equal(reminders[0].options.ttl,60);
- f.time('2026-11-04T18:31:01');assert.equal((await f.state()).rewards.card.days.find(d=>d.day==='2026-11-04').status,'failed');
+ const reminders=f.sent.filter(x=>x.payload.tag.startsWith('bath-completion-'));assert.equal(reminders.length,1);assert.match(reminders[0].payload.body,/ダッシュボード/);assert.equal(reminders[0].options.ttl,86400);
+ f.time('2026-11-04T18:31:01');assert.equal((await f.state()).rewards.card.days.find(d=>d.day==='2026-11-04').status,'pending');
  // Enlarging the window after it expired must not send the same notification again.
  await f.app.flushNotifications();f.settings({dashboardReportMinutes:10});await f.app.flushNotifications();
  assert.equal(f.sent.filter(x=>x.payload.tag.startsWith('bath-completion-')).length,1);

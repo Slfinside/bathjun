@@ -29,7 +29,7 @@ export function createCompletionReminders({
   const bookingFor = (day, member) =>
     db
       .prepare(
-        "SELECT b.*,m.active FROM bookings b JOIN members m ON m.id=b.member_id WHERE b.day=? AND b.member_id=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.day=b.day AND c.member_id=b.member_id)",
+        "SELECT b.*,m.active FROM active_booking_slots b JOIN members m ON m.id=b.member_id WHERE b.day=? AND b.member_id=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.revision=b.revision)",
       )
       .get(day, member);
   const endsAt = (booking) =>

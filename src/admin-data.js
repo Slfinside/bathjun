@@ -102,6 +102,7 @@ export function createAdminData({
     db.exec("BEGIN IMMEDIATE");
     try {
       for (const table of [
+        "bath_noncompletions",
         "time_selection_jobs",
         "time_selection_receipts",
 

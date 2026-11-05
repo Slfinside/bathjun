@@ -2760,3 +2760,11 @@ footer .site-credit {
 .announcement-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.9; margin: 0 0 28px; }
 .announcement-dialog .primary { width: 100%; }
 .announcement-skip { display: block; margin: 12px auto 0; padding: 10px 16px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+
+.reservation.not-bathed { background: repeating-linear-gradient(-45deg, #8d958513 0, #8d958513 7px, #8d958530 7px, #8d958530 9px); border-color: var(--muted); }
+.reservation.not-bathed .reservation-time { text-decoration: line-through; }
+.outcome-label { display: inline-block; padding: 3px 8px; border-radius: 7px; font-size: 12px; background: var(--pear); color: var(--ink); }
+.reservation[role="button"] { cursor: pointer; }
+.reservation[role="button"]:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; }
+.report-history-entry { padding: 20px; margin: 16px 0; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }
+#booking-dialog .secondary { display: block; width: 100%; padding: 16px; margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; }

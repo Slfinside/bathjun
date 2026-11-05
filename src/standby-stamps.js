@@ -45,7 +45,7 @@ export function createStandbyStamps({
     const limit = threshold(),
       time = now().getTime();
     const save = db.prepare(
-      "INSERT OR IGNORE INTO standby_stamps(day,member_id,status,resolved_at) VALUES(?,?,?,?)",
+      "INSERT INTO standby_stamps(day,member_id,status,resolved_at) VALUES(?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET status=excluded.status,resolved_at=excluded.resolved_at WHERE standby_stamps.status!=excluded.status",
     );
     const end = (day) => slotDate(day, scheduleForDay(day).bathEnd).getTime();
     for (let i = 0; i < skips.length; ) {
@@ -68,12 +68,8 @@ export function createStandbyStamps({
       } else {
         // A missed ordinary booking / no input is still a failure; it cannot
         // leave an earlier standby pending indefinitely or rescue it days later.
-        const booking = bookings.get(following);
-        const deadline = booking
-          ? slotDate(following, booking.start + booking.duration).getTime() +
-            reportMinutes() * 60000
-          : end(following) + reportMinutes() * 60000;
-        if (time > deadline)
+        const deadline=end(following);
+        if (time >= deadline)
           for (const day of ended)
             save.run(day, member, "failed", now().toISOString());
       }

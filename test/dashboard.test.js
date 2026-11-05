@@ -13,7 +13,7 @@ test('ダッシュボードは予約時刻で状態と次・現在を判定し�
  const s=snapshot();s.members[1].emoji="🌷";s.members[1].color="#d67f79";const v=dashboardView(s);
  assert.equal(v.current.emoji,"🌷");assert.equal(v.members[1].color,"#d67f79");
  assert.equal(v.current.name,'利用者2');assert.equal(v.next.name,'利用者3');
- assert.deepEqual(v.members.map(m=>m.status),['入浴済','入浴中','予約済','未確定','未入力']);
+ assert.deepEqual(v.members.map(m=>m.status),['未報告','入浴中','予約済','未確定','未入力']);
  assert.equal(v.members[4].deferred,true);assert.equal(v.entries[3].kind,'希望・未確定');
  assert.equal(v.entries[3].startsAt,'2026-10-28T12:00:00.000Z');
  assert.equal(dashboardView(snapshot('2026-10-28T19:30:00+09:00')).current,null);

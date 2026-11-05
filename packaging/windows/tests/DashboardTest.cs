@@ -89,7 +89,7 @@ internal static class DashboardTest {
                 if(((NumericUpDown)Get(panel,"standbyFailureDays")).Value!=3||((NumericUpDown)Get(panel,"clientReportMinutes")).Value!=10||((NumericUpDown)Get(panel,"dashboardReportMinutes")).Value!=5||!((CheckBox)Get(panel,"itemsEnabled")).Checked)throw new Exception("Stamp and item settings not loaded");
                 var clientReports=(CheckBox)Get(panel,"clientReportEnabled");
                 if(clientReports.Checked||((NumericUpDown)Get(panel,"clientReportMinutes")).Enabled)throw new Exception("Client report default was not disabled");
-                clientReports.Checked=true;if(!((NumericUpDown)Get(panel,"clientReportMinutes")).Enabled)throw new Exception("Client report window did not enable");
+                clientReports.Checked=true;if(((NumericUpDown)Get(panel,"clientReportMinutes")).Enabled)throw new Exception("Removed report deadline became editable");
                 ((CheckBox)Get(panel,"extensionBlocked")).Checked=false;
                 if(((DateTimePicker)Get(panel,"extensionBlockedStart")).Enabled)throw new Exception("Disabled limits still editable");
                 ((CheckBox)Get(panel,"extensionBlocked")).Checked=true;
@@ -116,12 +116,23 @@ internal static class DashboardTest {
         var areas=(List<KeyValuePair<RectangleF,DashboardEntry>>)Get(form,"reportAreas");if(areas.Count!=1)throw new Exception("Current bath has no completion button");var rect=areas[0].Key;
         var click=typeof(Control).GetMethod("OnMouseDown",BindingFlags.Instance|BindingFlags.NonPublic);var args=new object[]{new MouseEventArgs(MouseButtons.Left,1,(int)(rect.X+rect.Width/2),(int)(rect.Y+rect.Height/2),0)};click.Invoke(form,args);click.Invoke(form,args);
         if(reports!=1||(bool)detailed.GetValue(form,null))throw new Exception("Completion tap changed view or repeated submission");
+        int missed=0;type.GetField("ReportNotBathed").SetValue(form,(Action<DashboardEntry>)(entry=>{missed++;}));update.Invoke(form,new object[]{data});
+        using(var image=new Bitmap(form.ClientSize.Width,form.ClientSize.Height))form.DrawToBitmap(image,new Rectangle(Point.Empty,form.ClientSize));
+        var misses=(List<KeyValuePair<RectangleF,DashboardEntry>>)Get(form,"missedAreas");if(misses.Count!=1)throw new Exception("Non-entry button missing next to completion");var missedRect=misses[0].Key;
+        foreach(bool confirm in new[]{false,true})using(var timer=new System.Windows.Forms.Timer{Interval=50}){
+            timer.Tick+=delegate{foreach(Form open in Application.OpenForms)if(open.Text=="入っていないと報告しますか？"){timer.Stop();open.DialogResult=confirm?DialogResult.OK:DialogResult.Cancel;open.Close();break;}};timer.Start();
+            click.Invoke(form,new object[]{new MouseEventArgs(MouseButtons.Left,1,(int)(missedRect.X+missedRect.Width/2),(int)(missedRect.Y+missedRect.Height/2),0)});
+            if(missed!=(confirm?1:0)||(bool)detailed.GetValue(form,null))throw new Exception("Non-entry confirmation or compact-view preservation failed");
+        }
+        type.GetField("ReportNotBathed").SetValue(form,null);
         var copy=new JavaScriptSerializer().Deserialize<DashboardData>(new JavaScriptSerializer().Serialize(data));copy.now="2026-10-29T18:30:30+09:00";update.Invoke(form,new object[]{copy});
         if(type.GetMethod("PendingCompletion",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,new object[]{DateTime.Parse(copy.now).ToUniversalTime()})==null)throw new Exception("Pending completion disappeared before deadline");
         copy.now="2026-10-29T18:31:01+09:00";update.Invoke(form,new object[]{copy});
         if(type.GetMethod("PendingCompletion",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,new object[]{DateTime.Parse(copy.now).ToUniversalTime()})!=null)throw new Exception("Pending completion survived deadline");
         copy.reportMinutes=5;copy.now="2026-10-29T18:35:00+09:00";update.Invoke(form,new object[]{copy});if(type.GetMethod("PendingCompletion",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,new object[]{DateTime.Parse(copy.now).ToUniversalTime()})==null)throw new Exception("Configured report deadline ignored");
-        copy.now="2026-10-29T18:35:01+09:00";update.Invoke(form,new object[]{copy});if(type.GetMethod("PendingCompletion",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,new object[]{DateTime.Parse(copy.now).ToUniversalTime()})!=null)throw new Exception("Configured report deadline not enforced");update.Invoke(form,new object[]{data});
+        copy.now="2026-10-29T18:35:01+09:00";update.Invoke(form,new object[]{copy});if(type.GetMethod("PendingCompletion",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,new object[]{DateTime.Parse(copy.now).ToUniversalTime()})!=null)throw new Exception("Configured report window not enforced");
+        using(var image=new Bitmap(form.ClientSize.Width,form.ClientSize.Height))form.DrawToBitmap(image,new Rectangle(Point.Empty,form.ClientSize));
+        var chartReports=(List<KeyValuePair<RectangleF,DashboardEntry>>)Get(form,"scheduleReportAreas");if(chartReports.Count==0)throw new Exception("Schedule lost reporting after the large-button window");update.Invoke(form,new object[]{data});
     }
     static void Countdown(Form form,Type type,DashboardData data) {
         using(var bitmap=new Bitmap(800,300))using(var graphics=Graphics.FromImage(bitmap)){
@@ -229,6 +240,8 @@ internal static class DashboardTest {
                     Set(form,"transition",compact?0d:1d);
                     if(!compact)Call(form,"ShowDetails");
                     using(var bitmap=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,size));if(!compact){var people=(RectangleF)Get(form,"peopleArea");var schedule=(RectangleF)Get(form,"scheduleArea");if(schedule.Left<people.Right||schedule.Height<people.Height*1.4f)throw new Exception("Detailed schedule is not a tall column on the right");}bitmap.Save(Path.Combine(args[1],"dashboard-"+size.Width+"x"+size.Height+(compact?"-away":"")+".png"));}
+                    if(!compact&&size.Width==1280){var outcome=new JavaScriptSerializer().Deserialize<DashboardData>(new JavaScriptSerializer().Serialize(data));outcome.now="2026-10-29T21:05:00+09:00";outcome.entries[0].completedAt="2026-10-29T18:25:00+09:00";outcome.entries[1].notBathedAt="2026-10-29T19:00:00+09:00";outcome.pendingReports=new[]{outcome.entries[outcome.entries.Length-1]};type.GetMethod("UpdateData").Invoke(form,new object[]{outcome});using(var image=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(image,new Rectangle(Point.Empty,size));image.Save(Path.Combine(args[1],"dashboard-bath-outcomes.png"));}type.GetMethod("UpdateData").Invoke(form,new object[]{data});}
+
                     if(!compact&&size.Width==1280){data.untimedWishes=new[]{new DashboardUntimedWish{memberId=4,name="時刻未定のメンバー",duration=45}};using(var image=new Bitmap(size.Width,size.Height)){form.DrawToBitmap(image,new Rectangle(Point.Empty,size));image.Save(Path.Combine(args[1],"dashboard-untimed.png"));}data.untimedWishes=null;}
                     if(compact&&size.Width==1280&&size.Height==720){
                         var empty=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));empty.entries=new DashboardEntry[0];type.GetMethod("UpdateData").Invoke(form,new object[]{empty});

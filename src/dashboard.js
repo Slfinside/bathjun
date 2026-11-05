@@ -21,15 +21,17 @@ export function dashboardView(snapshot) {
   const confirmed = bookings.map((b) => timed(b, "予約"));
   const entries = [
     ...confirmed,
+    ...(snapshot.bookingHistory||[]).map(b=>timed(b,"予約")),
     ...wishes.filter(w=>w.start!==null).map((w) => timed(w, "希望・未確定")),
   ].sort((a, b) => a.start - b.start || a.memberId - b.memberId);
   for (const entry of entries) entry.overlaps = overlapDetails(entry, entries);
   const upcoming = confirmed
-    .filter((b) => Date.parse(b.startsAt) > instant)
+    .filter((b) => !b.notBathedAt&&Date.parse(b.startsAt) > instant)
     .sort((a, b) => a.start - b.start);
   return {
     day,
     now,
+    pendingReports:(snapshot.pendingReports||[]).map(b=>({...b,kind:"予約",startsAt:slotDate(b.day,b.start).toISOString(),endsAt:slotDate(b.day,b.start+b.duration).toISOString()})),
     reportMinutes: snapshot.reportMinutes ?? 1,
     untimedWishes: wishes.filter(w=>w.start===null).map(w=>({memberId:w.memberId,duration:w.duration,name:members.find(m=>m.id===w.memberId)?.name||"利用停止メンバー"})),
     bathStart: settings.bathStart,
@@ -37,7 +39,7 @@ export function dashboardView(snapshot) {
     current:
       confirmed.find(
         (b) =>
-          !b.completedAt &&
+          !b.completedAt && !b.notBathedAt &&
           Date.parse(b.startsAt) <= instant &&
           instant < Date.parse(b.endsAt),
       ) || null,
@@ -54,14 +56,14 @@ export function dashboardView(snapshot) {
           emoji: m.emoji || null,
           color: m.color || null,
           status: b
-            ? b.completedAt
-              ? "入浴済"
+            ? b.notBathedAt ? "未入浴" : b.completedAt
+              ? "完了"
               : instant >= Date.parse(b.endsAt)
                 ? b.revision &&
                   instant <=
                     Date.parse(b.endsAt) + (snapshot.reportMinutes ?? 1) * 60000
                   ? "入浴完了"
-                  : "入浴済"
+                  : "未報告"
                 : instant >= Date.parse(b.startsAt)
                   ? "入浴中"
                   : "予約済"

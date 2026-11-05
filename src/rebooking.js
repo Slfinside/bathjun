@@ -5,12 +5,15 @@ import {lastReportMinutes} from './completion-policy.js';
 const fail=(message,status=409)=>{throw Object.assign(new Error(message),{status})};
 export function createRebooking({db,now,scheduleForDay,rewardSettings}) {
  db.exec(readFileSync(new URL('../migrations/0019_rebooking.sql',import.meta.url),'utf8'));
- function eligible(booking, member) {
+ for(const row of db.prepare('SELECT * FROM rebooking_history').all()){db.prepare("INSERT OR IGNORE INTO bath_noncompletions VALUES(?,?,?,?,'legacy-rebooking')").run(row.old_revision,row.day,row.member_id,row.created_at)}
+ function eligible(booking, member, requireMissed=true) {
   if(!booking || booking.member_id!==member)return false;
   const instant=now().getTime(),rule=scheduleForDay(booking.day);
   if(instant>=slotDate(booking.day,rule.bathEnd).getTime())return false;
-  if(instant<=slotDate(booking.day,booking.start+booking.duration).getTime()+lastReportMinutes(rewardSettings())*60000)return false;
-  if(db.prepare('SELECT 1 FROM bath_completions WHERE day=? AND member_id=?').get(booking.day,member))return false;
+  const missed=!!db.prepare('SELECT 1 FROM bath_noncompletions WHERE revision=?').get(booking.revision);
+  if(requireMissed&&!missed)return false;
+  if(!missed&&instant<=slotDate(booking.day,booking.start+booking.duration).getTime()+rewardSettings().dashboardReportMinutes*60000)return false;
+  if(db.prepare('SELECT 1 FROM bath_completions WHERE day=? AND member_id=? AND revision=?').get(booking.day,member,booking.revision))return false;
   const minute=(instant-slotDate(booking.day,0).getTime())/60000;
   const nextStart=Math.max(rule.bathStart,(Math.floor(minute/rule.step)+1)*rule.step);
   return nextStart<rule.bathEnd;
@@ -24,15 +27,16 @@ export function createRebooking({db,now,scheduleForDay,rewardSettings}) {
  function offer(member) {
   const time=bathCalendar(now());
   for(const booking of db.prepare('SELECT * FROM bookings WHERE member_id=? AND day BETWEEN ? AND ? ORDER BY day DESC').all(member,time.yesterday,time.today)){
-   if(!eligible(booking,member))continue;
+   if(!eligible(booking,member,false))continue;
    return {day:booking.day,revision:booking.revision,start:booking.start,duration:booking.duration,
+    canRebook:!!db.prepare('SELECT 1 FROM bath_noncompletions WHERE revision=?').get(booking.revision),
     prompted:!!db.prepare('SELECT 1 FROM rebooking_prompts WHERE member_id=? AND revision=?').get(member,booking.revision)};
   }
   return null;
  }
  function decide(member,payload) {
   if(!payload||!['later','rebook'].includes(payload.decision)||typeof payload.day!=='string')fail('再予約の確認内容を確認してください。',400);
-  check(payload.day,member,payload.revision);
+  if(payload.decision==='rebook')check(payload.day,member,payload.revision);else {const booking=db.prepare('SELECT * FROM bookings WHERE day=? AND member_id=?').get(payload.day,member);if(booking?.revision!==payload.revision||!eligible(booking,member,false))fail('この予約は確認済みか受付を終了しています。');}
   db.prepare('INSERT OR IGNORE INTO rebooking_prompts VALUES(?,?,?,?,?)').run(payload.revision,payload.day,member,payload.decision,now().toISOString());
   return {ok:true};
  }

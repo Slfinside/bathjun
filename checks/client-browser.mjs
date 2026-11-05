@@ -45,6 +45,24 @@ try {
   app.saveAnnouncement({label:'スキップ',state:'published',pages:[{title:'最初',text:'最初です'},{title:'次',text:'次です'}]});await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'スキップする'}).click();await ack;assert.equal((await state()).announcements.length,0);
   app.saveAnnouncement({label:'ログアウト',state:'published',pages:[{title:'ログアウト前',text:'説明'}]});await page.reload();await modal.waitFor();await api('logout',{});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await page.locator('.member-button').first().waitFor();assert.equal(await page.locator('.announcement-dialog[open]').count(),0);
  });
+ await scenario('bath-complete-status',async({app,page,url,api,state,time,screenshot})=>{
+  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});await api('book',{day:'2026-11-04',start:1080,duration:30});time('2026-11-04T18:05:00');await page.goto(url);
+  await page.locator('.reservation[data-action="report-entry"]').click();const modal=page.locator('#booking-dialog');await modal.getByRole('heading',{name:'入浴の報告',exact:true}).waitFor();await modal.getByRole('button',{name:'完了を報告',exact:true}).click();await page.locator('.reservation .outcome-label').getByText('完了',{exact:true}).waitFor();assert.ok((await state()).bookings[0].completedAt);await screenshot('complete');
+ });
+ await scenario('bath-missed-rebook',async({page,url,api,state,time,screenshot})=>{
+  await api('book',{day:'2026-11-04',start:1080,duration:60});time('2026-11-04T18:10:00');await page.goto(url);await page.locator('[data-action="not-bathed"]').click();const modal=page.locator('#booking-dialog');await modal.getByRole('heading',{name:'入っていないと報告しますか？'}).waitFor();await modal.getByRole('button',{name:'キャンセル',exact:true}).click();assert.equal((await state()).bookings[0].notBathedAt,null);
+  await page.locator('[data-action="not-bathed"]').click();const done=page.waitForResponse(r=>r.url().endsWith('/api/not-bathed'));await modal.getByRole('button',{name:'入っていないと確定',exact:true}).click();await done;await page.locator('.reservation.not-bathed').waitFor();await screenshot('missed');
+  await page.locator('[data-action="rebook"]').click();await modal.getByRole('heading',{name:'おふろを予約し直す'}).waitFor();await modal.locator('#start').selectOption('1095');await modal.locator('#save-booking').click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});assert.equal(await page.locator('.reservation.not-bathed').count(),1);assert.equal(await page.locator('.reservation').count(),2);assert.equal((await state()).bookingHistory.length,1);await screenshot('rebooked');
+ });
+ await scenario('late-bath-report',async({app,page,url,api,navigate,state,time,screenshot})=>{
+  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});await api('book',{day:'2026-11-04',start:1080,duration:30});time('2026-11-10T12:00:00');await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('入浴の報告','.reports-page');await page.getByRole('button',{name:'入浴を報告する',exact:true}).click();const modal=page.locator('#booking-dialog');await modal.getByRole('button',{name:'完了を報告',exact:true}).click();await page.getByText('未報告の予約はありません。',{exact:true}).waitFor();await screenshot('reported');
+ });
+ await scenario('report-during-lazy-load',async({app,page,url,api,navigate,time,state})=>{
+  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});await api('book',{day:'2026-11-04',start:1080,duration:30});time('2026-11-05T08:00:00');await api('book',{day:'2026-11-05',start:1080,duration:60});time('2026-11-05T18:10:00');await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('入浴の報告','.reports-page');
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);await page.route('**/bath-reports.js',async route=>{seen();await held;await route.continue();});
+  const entries=page.locator('.report-history-entry');await entries.nth(0).getByRole('button',{name:'入浴を報告する'}).click();await requested;await entries.nth(1).getByRole('button',{name:'入浴を報告する'}).click();release();
+  const modal=page.locator('#booking-dialog');await modal.getByRole('heading',{name:'入浴の報告',exact:true}).waitFor();assert.match(await modal.innerText(),/2026-11-04分/);await modal.getByRole('button',{name:'完了を報告',exact:true}).click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});assert.ok((await state('2026-11-04')).bookings[0].completedAt);assert.equal((await state('2026-11-05')).bookings[0].completedAt,null);
+ });
  await scenario('duration-only',async({page,url,state,screenshot})=>{
   await page.goto(url);await page.locator('[data-action="book"]').click();
   const modal=page.locator('#booking-dialog');await modal.locator('[name="untimed"]').check();
@@ -71,11 +89,12 @@ try {
   assert.equal(app.getRewardsAdmin().settings.clientReportEnabled,false);
   await api('book',{day:'2026-11-04',start:1080,duration:30});const original=(await state()).bookings[0];
   time('2026-11-04T18:32:00');await page.goto(url);
-  const modal=page.locator('#booking-dialog');await modal.getByRole('heading',{name:'予約を取り直しますか？'}).waitFor();
+  const modal=page.locator('#booking-dialog');await modal.getByRole('heading',{name:'入浴の報告'}).waitFor();
   assert.equal(await page.locator('[data-action="complete-bath"]').count(),0);
-  await screenshot('question');await modal.getByRole('button',{name:'今はしない',exact:true}).click();
+  await screenshot('question');await modal.getByRole('button',{name:'後で報告する',exact:true}).click();
   await page.reload();await page.locator('.date-bar').waitFor();assert.equal(await page.locator('#booking-dialog[open]').count(),0);
   assert.equal((await state()).bookings[0].revision,original.revision);
+  await page.locator('[data-action="not-bathed"]').click();const nonEntry=page.waitForResponse(r=>r.url().endsWith('/api/not-bathed'));await modal.getByRole('button',{name:'入っていないと確定',exact:true}).click();await nonEntry;
   await page.locator('[data-action="rebook"]').click();await modal.getByRole('heading',{name:'おふろを予約し直す'}).waitFor();
   await modal.locator('#start').selectOption('1140');
   let first=true;await page.route('**/api/book',async route=>{
@@ -165,7 +184,7 @@ try {
  await scenario('morning-rebooking',async({page,url,api,time,screenshot})=>{
   await api('book',{day:'2026-11-04',start:1800,duration:30});time('2026-11-05T06:32:00');
   await page.goto(url);const modal=page.locator('#booking-dialog');
-  await modal.getByRole('button',{name:'予約を取り直す',exact:true}).click();
+  await modal.getByRole('button',{name:'入っていない',exact:true}).click();const ack=page.waitForResponse(r=>r.url().endsWith('/api/not-bathed'));await modal.getByRole('button',{name:'入っていないと確定',exact:true}).click();await ack;await page.locator('[data-action="rebook"]').click();
   await modal.getByRole('heading',{name:'おふろを予約し直す',exact:true}).waitFor();
   await page.getByRole('heading',{name:'11月4日(水)',exact:true}).waitFor();
   assert.deepEqual(await modal.locator('#start option').evaluateAll(options=>options.map(o=>Number(o.value))),[1845]);

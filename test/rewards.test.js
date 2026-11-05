@@ -249,7 +249,7 @@ test("1つの予約のチケットは併用不可で、同じ予約の変更で�
     1,
   );
 });
-test("完了報告は早上がり可、本人限定、ダッシュボード1分・クライアント3分の期限", async (t) => {
+test("完了報告は早上がり可、本人限定、終了後も期限なし", async (t) => {
   const f = await fixture(t);
   await f.book(1);
   let booking = (await f.state()).bookings[0];
@@ -279,7 +279,7 @@ test("完了報告は早上がり可、本人限定、ダッシュボード1分�
   await f.book(2, 1140);
   booking = (await f.state(2)).bookings.find((b) => b.memberId === 2);
   f.time("2026-10-25T19:31:01");
-  assert.throws(() =>
+  assert.doesNotThrow(() =>
     f.app.completeBath({
       day: "2026-10-25",
       memberId: 2,
@@ -299,7 +299,7 @@ test("完了報告は早上がり可、本人限定、ダッシュボード1分�
         3,
       )
     ).status,
-    409,
+    200,
   );
 });
 test("土曜分は日曜朝まで受付し、達成特典を自動送付・お祝いし、二重受取を防ぐ", async (t) => {
@@ -828,7 +828,7 @@ test("アイテム無効中も既存の延長予約の効果は維持し、未�
   );
 });
 
-test("完了報告期限をクライアント・ダッシュボード別に設定し、境界と表示に反映する", async (t) => {
+test("ダッシュボードの表示時間を変更しても完了報告には期限を設けない", async (t) => {
   const f = await fixture(t);
   f.app.saveRewardSettings({
     ...f.app.getRewardsAdmin().settings,
@@ -848,14 +848,13 @@ test("完了報告期限をクライアント・ダッシュボード別に設�
   await f.book(1, 1080, 30, null, "2026-10-26");
   const second = (await f.state()).bookings[0];
   f.time("2026-10-26T18:35:01");
-  assert.throws(
+  assert.doesNotThrow(
     () =>
       f.app.completeBath({
         day: "2026-10-26",
         memberId: 1,
         revision: second.revision,
       }),
-    /受付時間外/,
   );
   f.time("2026-10-26T18:40:00");
   await f.api("complete", { day: "2026-10-26", revision: second.revision });
@@ -945,7 +944,7 @@ test("早上がり報告・キャンセル・通知無効・ログアウトで�
   }
 });
 
-test("予約終了通知は時間変更・期限設定に追従し、再起動時は報告可能な間だけ追送する", async (t) => {
+test("予約終了通知は時間変更に追従し、表示時間とは分離して24時間だけ追送する", async (t) => {
   const f = await fixture(t);
   await enableReportPush(f);
   await f.book(1);
@@ -961,11 +960,11 @@ test("予約終了通知は時間変更・期限設定に追従し、再起動�
   await f.restart();
   await f.app.flushNotifications();
   assert.equal(completionNotices(f).length, 1);
-  assert.ok(completionNotices(f)[0].options.ttl <= 300);
+  assert.equal(completionNotices(f)[0].options.ttl, 86100);
   const expired = await fixture(t);
   await enableReportPush(expired);
   await expired.book(1);
-  expired.time("2026-10-25T18:33:01");
+  expired.time("2026-10-26T18:30:01");
   await expired.restart();
   await expired.app.flushNotifications();
   assert.equal(completionNotices(expired).length, 0);
@@ -1054,7 +1053,7 @@ test("自動の様子見も連続判定し、1日設定でも入力時ではな�
   assert.equal((await one.state()).rewards.card.days[0].status, "failed");
 });
 
-test("翌日に入浴報告がなければ以前の様子見を保留し続けず、入浴期限の長い方まで待つ", async (t) => {
+test("翌日に入浴報告がなければその日分の終了まで以前の様子見を保留する", async (t) => {
   const f = await fixture(t);
   f.app.saveRewardSettings({
     ...f.app.getRewardsAdmin().settings,
@@ -1066,7 +1065,7 @@ test("翌日に入浴報告がなければ以前の様子見を保留し続け�
   await f.book(1, 1080, 30, null, "2026-10-26");
   f.time("2026-10-26T18:40:00");
   assert.equal((await f.state()).rewards.card.days[0].status, "pending");
-  f.time("2026-10-26T18:40:01");
+  f.time("2026-10-27T07:00:00");
   assert.equal((await f.state()).rewards.card.days[0].status, "failed");
 });
 

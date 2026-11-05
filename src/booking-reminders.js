@@ -10,7 +10,7 @@ export function createBookingReminders({db,now,deliverPush,familyConfig,onQueued
 
   function syncMember(day,memberId) {
     const preferences=getNotificationPreferences(db,memberId);
-    const booking=db.prepare('SELECT b.start FROM bookings b JOIN members m ON m.id=b.member_id WHERE b.day=? AND b.member_id=? AND m.active=1').get(day,memberId);
+    const booking=db.prepare('SELECT b.start FROM active_booking_slots b JOIN members m ON m.id=b.member_id WHERE b.day=? AND b.member_id=? AND m.active=1').get(day,memberId);
     const startAt=booking?slotDate(day,booking.start).getTime():0;
     const existing=db.prepare('SELECT endpoint,start,sent,lead_minutes FROM booking_reminders WHERE day=? AND member_id=?').all(day,memberId);
     let changed=0;
@@ -44,7 +44,7 @@ export function createBookingReminders({db,now,deliverPush,familyConfig,onQueued
       if (isClosed()) return;
       const job = db.prepare('SELECT r.*,p.subscription_json,s.expires,p.member_id AS subscription_member FROM booking_reminders r JOIN push_subscriptions p ON p.endpoint=r.endpoint JOIN sessions s ON s.token_hash=p.session_hash WHERE r.sent=0 AND r.next_attempt<=? AND r.id=?').get(now().getTime(), queuedJob.id);
       if (!job) continue;
-      const booking=db.prepare('SELECT b.start,m.name,m.active FROM bookings b JOIN members m ON m.id=b.member_id WHERE b.day=? AND b.member_id=?').get(job.day,job.member_id);
+      const booking=db.prepare('SELECT b.start,m.name,m.active FROM active_booking_slots b JOIN members m ON m.id=b.member_id WHERE b.day=? AND b.member_id=?').get(job.day,job.member_id);
       const startAt=slotDate(job.day,job.start).getTime();
       if(!getNotificationPreferences(db,job.member_id).bathReminder||job.expires<=now().getTime()||job.subscription_member!==job.member_id||!booking||!booking.active||booking.start!==job.start||startAt<=now().getTime()) {
         db.prepare('DELETE FROM booking_reminders WHERE id=?').run(job.id);continue;

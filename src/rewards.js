@@ -1,3 +1,4 @@
+import {migrateBathOutcomes} from './bath-outcomes.js';
 import { clientReportsAllowed, lastReportMinutes } from "./completion-policy.js";
 import { readFileSync } from "node:fs";
 import { randomBytes, randomInt } from "node:crypto";
@@ -105,6 +106,7 @@ export function createRewards({ db, now, scheduleForDay }) {
         );
     }
   }
+  migrateBathOutcomes(db);
   // Handle databases from the unreleased time-based preview without losing effects.
   if (
     db
@@ -654,18 +656,10 @@ export function createRewards({ db, now, scheduleForDay }) {
       if (previous?.revision === revision) return { ok: true };
       if (!booking || booking.revision !== revision)
         bad("予約が変更されました。読み込み直してください。", 409);
-      if (
-        now() < slotDate(day, booking.start) ||
-        now().getTime() >
-          slotDate(day, booking.start + booking.duration).getTime() +
-            (source === "dashboard"
-              ? settings().dashboardReportMinutes
-              : settings().clientReportMinutes) *
-              60000
-      )
-        bad("完了報告の受付時間外です。", 409);
+      if(now()<slotDate(day,booking.start))bad("予約の開始後に報告してください。",409);
+      if(db.prepare('SELECT 1 FROM bath_noncompletions WHERE revision=?').get(revision))bad('「入っていない」と報告済みです。予約を取り直してください。',409);
       db.prepare(
-        "INSERT OR IGNORE INTO bath_completions VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO bath_completions VALUES(?,?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET revision=excluded.revision,start=excluded.start,duration=excluded.duration,reported_at=excluded.reported_at,source=excluded.source",
       ).run(
         day,
         member,
@@ -678,6 +672,19 @@ export function createRewards({ db, now, scheduleForDay }) {
       refundInk(member,day);
       settle(member);
       return { ok: true };
+    });
+  }
+  function notBathed(member,payload,source='client'){
+    const {day,revision}=payload||{};
+    if(typeof day!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(day)||typeof revision!=='string'||payload.confirmed!==true)bad('「入っていない」の確認を行ってください。');
+    return transaction(()=>{
+      const booking=db.prepare('SELECT * FROM bookings WHERE day=? AND member_id=?').get(day,member);
+      if(!booking||booking.revision!==revision)bad('予約が変更されました。読み込み直してください。',409);
+      if(db.prepare('SELECT 1 FROM bath_noncompletions WHERE revision=?').get(revision))return {ok:true};
+      if(now()<slotDate(day,booking.start))bad('予約の開始後に報告してください。',409);
+      if(db.prepare('SELECT 1 FROM bath_completions WHERE revision=?').get(revision))bad('完了報告済みです。',409);
+      db.prepare('INSERT INTO bath_noncompletions VALUES(?,?,?,?,?)').run(revision,day,member,now().toISOString(),source);
+      settle(member);return {ok:true};
     });
   }
   function card(member, day) {
@@ -740,15 +747,8 @@ export function createRewards({ db, now, scheduleForDay }) {
           "SELECT start,duration FROM bookings WHERE day=? AND member_id=?",
         )
         .get(date, member);
-      const deadline =
-        slotDate(
-          date,
-          booking
-            ? booking.start + booking.duration
-            : scheduleForDay(date).bathEnd,
-        ).getTime() +
-        lastReportMinutes(settings()) *
-          60000;
+      const deadline=slotDate(date,scheduleForDay(date).bathEnd).getTime();
+      const notBathed=!!db.prepare('SELECT 1 FROM bath_noncompletions n JOIN bookings b ON b.revision=n.revision WHERE b.day=? AND b.member_id=?').get(date,member);
       const resolved = standbyRows.find((row) => row.day === date);
       const repair = repairs.find((row) => row.day === date);
       return {
@@ -765,10 +765,10 @@ export function createRewards({ db, now, scheduleForDay }) {
         status:
           repair || stamps.some((x) => x.day === date)
             ? "stamp"
-            : resolved?.status ||
+            : (notBathed?"failed":resolved?.status) ||
               (pendingSkips.has(date) && !booking
                 ? "pending"
-                : now().getTime() > deadline
+                : notBathed||now().getTime()>=deadline
                   ? "failed"
                   : "pending"),
       };
@@ -943,6 +943,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     draw,
     consumeDraw,
     complete,
+    notBathed,
     card,
     claim,
     view,
