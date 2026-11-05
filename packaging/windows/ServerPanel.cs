@@ -74,8 +74,24 @@ public sealed class ItemMember {public int id,boostRemaining;public string name;
 public sealed class RewardSettings {public string rewardMode,fixedKind;public int fixedQuantity, extensionMinutes,boostDraws,extensionBlockedStart,extensionBlockedEnd,extensionNoticeMinutes,skipNoticeMinutes;public bool itemsEnabled=true,extensionBlocked,clientReportEnabled;public int standbyFailureDays=2,clientReportMinutes=3,dashboardReportMinutes=1;public Dictionary<string,int> quantities,weights;}
 public sealed class GiftRecord {public string id,name,kind,createdAt,receivedAt;public int memberId,quantity;}
 public sealed class RewardsAdmin {public RewardSettings settings;public ItemMember[] members;public GiftRecord[] history;}
-public sealed class Reply {public string id;public bool ok,show;public string error,notice;public ServerState state;public Settings settings;public SecurityInfo security;public Verification verification;public DashboardData dashboard;public RewardsAdmin rewards;}
+public sealed class AnnouncementPage {public string id,title,text,imagePath;public bool hasImage;}
+public sealed class AnnouncementEntry {public string id,label,state,published_at,created_at;public long? scheduled_at;public int readCount;public AnnouncementPage[] pages;public override string ToString(){return label+" · "+(state=="published"?"配信済み":state=="scheduled"?"予約済み":state=="archived"?"配信終了":"下書き")+" · 確認 "+readCount+"人";}}
+public sealed class AnnouncementsAdmin {public AnnouncementEntry[] entries;}
+public sealed class UpdateReadiness {public bool busy;}
+public sealed class Reply {public string id;public bool ok,show;public string error,notice;public ServerState state;public Settings settings;public SecurityInfo security;public Verification verification;public DashboardData dashboard;public RewardsAdmin rewards;public AnnouncementsAdmin announcements;public UpdateReadiness readiness;}
 internal sealed class PanelForm : Form {
+    readonly ComboBox announcementList=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Width=550};
+    readonly TextBox announcementLabel=new TextBox{Width=550};
+    readonly DataGridView announcementPages=new DataGridView{Width=550,Height=250,AllowUserToAddRows=false,AllowUserToDeleteRows=false,RowHeadersVisible=false,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,SelectionMode=DataGridViewSelectionMode.CellSelect};
+    readonly ComboBox announcementMode=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Width=220};
+    readonly DateTimePicker announcementWhen=new DateTimePicker{Format=DateTimePickerFormat.Custom,CustomFormat="yyyy/MM/dd HH:mm",Width=220};
+    readonly Button announcementSave=ActionButton("お知らせを保存・配信"),announcementArchive=ActionButton("配信を終了／予約を取り消す");
+    readonly Label announcementFeedback=new Label{Width=550,Height=52};string announcementId,pendingAnnouncement;
+    readonly CheckBox autoUpdateEnabled=new CheckBox{Text="自動で更新する（入浴中・開始直前を避ける）",AutoSize=true};
+    readonly DateTimePicker autoUpdateTime=Clock();readonly Label updateFeedback=new Label{Width=550,Height=50};
+    readonly System.Windows.Forms.Timer autoUpdateTimer=new System.Windows.Forms.Timer{Interval=60000};
+    AutomaticUpdatePreferences autoUpdatePreferences=new AutomaticUpdatePreferences();DateTime nextAutoAttempt=DateTime.MinValue;
+    TaskCompletionSource<bool> updateReadiness;string readinessRequest;
     readonly JavaScriptSerializer json=new JavaScriptSerializer();
     readonly string pipeName,token;
     TouchScroll touchScroll;CancellationTokenSource automaticUpdate;
@@ -150,18 +166,56 @@ internal sealed class PanelForm : Form {
         presenceEnabled.Text="人感センサーで表示の明るさを調整（対応端末のみ）";presenceEnabled.AutoSize=true;
         presenceEnabled.Checked=ReadPresencePreference();presenceEnabled.CheckedChanged+=delegate{SavePresencePreference();};layout.Controls.Add(presenceEnabled);
         releases.Click+=delegate{if(automaticUpdate!=null){automaticUpdate.Cancel();return;}CheckForUpdates();};layout.Controls.Add(releases);
+        BuildAutomaticUpdate(layout);
         var update=ActionButton("インストーラーを選んで更新");update.Click+=delegate{UpdateServer();};layout.Controls.Add(update);
         var stop=ActionButton("サーバーを停止して終了");stop.Click+=delegate{StopServer();};layout.Controls.Add(stop);
         layout.Controls.Add(TextLabel("×は通知領域にしまいます。スリープ防止はサーバー稼働中だけ有効で、終了すると解除します。AC電源につないで使ってください。",68));
         BuildSettings(config);var displayTab=new TabPage("ダッシュボード"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(displayTab);BuildDashboardSettings(displayTab);var itemsTab=new TabPage("アイテム・特典"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(itemsTab);BuildItems(itemsTab);var security=new TabPage("パスワード・リセット"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(security);BuildSecurity(security);
+        var announcementsTab=new TabPage("お知らせ"){Padding=new Padding(16),AutoScroll=true};tabs.TabPages.Add(announcementsTab);BuildAnnouncements(announcementsTab);
         var menu=new ContextMenuStrip();menu.Items.Add("操作画面を開く",null,delegate{ShowPanel();});menu.Items.Add("画面だけ消す",null,delegate{TurnScreenOff();});menu.Items.Add("サーバーを停止",null,delegate{StopServer();});tray.Icon=Icon;tray.Text="ふろじゅん サーバー";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowPanel();};tray.Visible=true;
         displayScheduleTimer.Tick+=delegate{TickDisplaySchedule();};
-        Load+=delegate{displayService=new WindowsDisplayService();ShowPowerState();BeginRead();displayScheduleTimer.Start();};
+        autoUpdateTimer.Tick+=delegate{TryAutomaticUpdate();};
+        Load+=delegate{displayService=new WindowsDisplayService();ShowPowerState();BeginRead();displayScheduleTimer.Start();autoUpdateTimer.Start();};
         Shown+=delegate{if(minimized){WindowState=FormWindowState.Minimized;Hide();}};
         FormClosing+=delegate(object sender,FormClosingEventArgs e){if(!canClose && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();tray.ShowBalloonTip(2500,"ふろじゅん","サーバーは継続しています。通知領域のアイコンから操作画面に戻れます。",ToolTipIcon.Info);}};
-        FormClosed+=delegate{closing=true;if(automaticUpdate!=null)automaticUpdate.Cancel();if(touchScroll!=null)touchScroll.Dispose();displayScheduleTimer.Stop();if(displayService!=null)displayService.Dispose();displayScheduleTimer.Dispose();if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
+        FormClosed+=delegate{closing=true;autoUpdateTimer.Stop();autoUpdateTimer.Dispose();if(updateReadiness!=null)updateReadiness.TrySetResult(false);if(automaticUpdate!=null)automaticUpdate.Cancel();if(touchScroll!=null)touchScroll.Dispose();displayScheduleTimer.Stop();if(displayService!=null)displayService.Dispose();displayScheduleTimer.Dispose();if(dashboard!=null)dashboard.Close();saveTimeout.Dispose();securityTimeout.Dispose();if(outbox!=null)outbox.Dispose();tray.Visible=false;tray.Dispose();try{pipe.Dispose();}catch{}};
         ResumeLayout(true);touchScroll=new TouchScroll(this);
     }
+    void BuildAnnouncements(TabPage page){
+        var box=new FlowLayoutPanel{FlowDirection=FlowDirection.TopDown,WrapContents=false,AutoSize=true,Dock=DockStyle.Top};page.Controls.Add(box);
+        box.Controls.Add(TextLabel("お知らせは、ログイン後の画面内に表示します。プッシュ通知は送りません。配信後は編集せず、新しく作成してください。画像は1ページ1枚、PNG/JPEG・2MBまでです。",76));
+        box.Controls.Add(announcementList);announcementList.SelectedIndexChanged+=delegate{LoadAnnouncement(announcementList.SelectedItem as AnnouncementEntry);};
+        var create=ActionButton("新しいお知らせ");create.Click+=delegate{announcementList.SelectedIndex=-1;LoadAnnouncement(null);};box.Controls.Add(create);
+        box.Controls.Add(new Label{Text="管理用の名前",AutoSize=true});box.Controls.Add(announcementLabel);
+        announcementPages.Columns.Add("Title","タイトル");announcementPages.Columns.Add("Text","本文");announcementPages.Columns.Add("Image","画像ファイル");announcementPages.Columns.Add(new DataGridViewCheckBoxColumn{Name="Remove",HeaderText="画像削除",FillWeight=45});announcementPages.Columns["Text"].FillWeight=180;announcementPages.DefaultCellStyle.WrapMode=DataGridViewTriState.True;announcementPages.RowTemplate.Height=72;box.Controls.Add(announcementPages);
+        var actions=new FlowLayoutPanel{Width=550,AutoSize=true};var add=new Button{Text="ページ追加",Width=125,Height=38};var remove=new Button{Text="ページ削除",Width=125,Height=38};var image=new Button{Text="画像を選ぶ",Width=125,Height=38};
+        add.Click+=delegate{if(announcementPages.Rows.Count<10)announcementPages.Rows.Add("","","",false);};remove.Click+=delegate{if(announcementPages.CurrentCell!=null&&announcementPages.Rows.Count>1)announcementPages.Rows.RemoveAt(announcementPages.CurrentCell.RowIndex);};
+        image.Click+=delegate{if(announcementPages.CurrentCell==null)return;using(var picker=new OpenFileDialog{Filter="画像|*.png;*.jpg;*.jpeg"})if(picker.ShowDialog(this)==DialogResult.OK){var row=announcementPages.Rows[announcementPages.CurrentCell.RowIndex];row.Cells["Image"].Value=picker.FileName;row.Cells["Remove"].Value=false;}};actions.Controls.AddRange(new Control[]{add,remove,image});box.Controls.Add(actions);
+        announcementMode.Items.AddRange(new object[]{"下書き","今すぐ配信","日時を指定して配信"});announcementMode.SelectedIndex=0;announcementMode.SelectedIndexChanged+=delegate{announcementWhen.Enabled=announcementMode.SelectedIndex==2;};box.Controls.Add(announcementMode);announcementWhen.Value=DateTime.Now.AddHours(1);box.Controls.Add(announcementWhen);
+        announcementSave.Click+=delegate{if(pendingAnnouncement!=null)return;announcementPages.EndEdit();var pages=new List<object>();foreach(DataGridViewRow row in announcementPages.Rows){string path=Convert.ToString(row.Cells["Image"].Value);pages.Add(new{id=row.Tag as string,title=Convert.ToString(row.Cells["Title"].Value),text=Convert.ToString(row.Cells["Text"].Value),imagePath=Path.IsPathRooted(path)?path:null,removeImage=Convert.ToBoolean(row.Cells["Remove"].Value)});}pendingAnnouncement=Send("announcements/save",new{id=announcementId,label=announcementLabel.Text,state=announcementMode.SelectedIndex==2?"scheduled":announcementMode.SelectedIndex==1?"published":"draft",scheduledAt=new DateTimeOffset(announcementWhen.Value).ToUnixTimeMilliseconds(),pages=pages});announcementSave.Enabled=pendingAnnouncement==null;announcementFeedback.Text=pendingAnnouncement==null?"サーバーに接続してください。":"保存しています…";};box.Controls.Add(announcementSave);
+        announcementArchive.Click+=delegate{if(announcementId!=null&&pendingAnnouncement==null)pendingAnnouncement=Send("announcements/archive",new{id=announcementId});};box.Controls.Add(announcementArchive);box.Controls.Add(announcementFeedback);LoadAnnouncement(null);
+    }
+    void LoadAnnouncement(AnnouncementEntry entry){
+        announcementId=entry==null?null:entry.id;announcementLabel.Text=entry==null?"":entry.label;announcementPages.Rows.Clear();foreach(var item in entry==null?new[]{new AnnouncementPage{title="",text=""}}:entry.pages){int row=announcementPages.Rows.Add(item.title,item.text,item.hasImage?"（登録済み）":"",false);announcementPages.Rows[row].Tag=item.id;}
+        announcementMode.SelectedIndex=entry==null||entry.state=="draft"?0:entry.state=="scheduled"?2:1;if(entry!=null&&entry.scheduled_at.HasValue)announcementWhen.Value=DateTimeOffset.FromUnixTimeMilliseconds(entry.scheduled_at.Value).LocalDateTime;
+        announcementSave.Enabled=entry==null||entry.state=="draft"||entry.state=="scheduled";announcementArchive.Enabled=entry!=null&&entry.state!="archived";
+    }
+    void FillAnnouncements(AnnouncementsAdmin data){announcementList.Items.Clear();foreach(var entry in data.entries??new AnnouncementEntry[0])announcementList.Items.Add(entry);LoadAnnouncement(null);announcementFeedback.Text="保存済みのお知らせと配信履歴を表示しています。";}
+    string AutomaticUpdatePath(){return Path.Combine(Path.GetDirectoryName(PresencePreferencePath()),"automatic-update.json");}
+    void BuildAutomaticUpdate(FlowLayoutPanel box){
+        try{if(File.Exists(AutomaticUpdatePath()))autoUpdatePreferences=json.Deserialize<AutomaticUpdatePreferences>(File.ReadAllText(AutomaticUpdatePath()));}catch{autoUpdatePreferences=new AutomaticUpdatePreferences{enabled=false};}
+        if(autoUpdatePreferences==null||autoUpdatePreferences.minute<0||autoUpdatePreferences.minute>=1440)autoUpdatePreferences=new AutomaticUpdatePreferences{enabled=false};
+        autoUpdateEnabled.Checked=autoUpdatePreferences.enabled;autoUpdateTime.Value=ToClock(autoUpdatePreferences.minute);box.Controls.Add(autoUpdateEnabled);var row=new FlowLayoutPanel{Width=550,AutoSize=true};row.Controls.Add(new Label{Text="毎日確認する時刻（日本時間）",AutoSize=true});row.Controls.Add(autoUpdateTime);box.Controls.Add(row);
+        var save=ActionButton("自動更新の設定を保存");save.Click+=delegate{autoUpdatePreferences.enabled=autoUpdateEnabled.Checked;autoUpdatePreferences.minute=Minutes(autoUpdateTime);autoUpdatePreferences.checkedDay=null;SaveAutomaticUpdate();updateFeedback.Text="設定を保存しました。入浴中や開始10分前からは更新を見送ります。";};box.Controls.Add(save);box.Controls.Add(updateFeedback);
+    }
+    void SaveAutomaticUpdate(){try{Directory.CreateDirectory(Path.GetDirectoryName(AutomaticUpdatePath()));File.WriteAllText(AutomaticUpdatePath(),json.Serialize(autoUpdatePreferences));}catch{updateFeedback.Text="自動更新の設定を保存できませんでした。";}}
+    async Task<bool> CanAutomaticallyUpdate(){
+        if(pendingSave!=null||pendingSecurity!=null||pendingAnnouncement!=null)return false;
+        var wait=new TaskCompletionSource<bool>();updateReadiness=wait;readinessRequest=Send("update/status",null);if(readinessRequest==null)return false;
+        var completed=await Task.WhenAny(wait.Task,Task.Delay(15000));if(updateReadiness==wait)updateReadiness=null;
+        return completed==wait.Task&&await wait.Task;
+    }
+    void TryAutomaticUpdate(){if(!closing&&connected&&currentPhase=="ready"&&!updatePreparing&&DateTime.UtcNow>=nextAutoAttempt&&autoUpdatePreferences.Due(DateTime.UtcNow.AddHours(9))){nextAutoAttempt=DateTime.UtcNow.AddMinutes(15);CheckForUpdates(true);}}
     void BuildItems(TabPage page) {
         var box=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,FlowDirection=FlowDirection.TopDown,WrapContents=false};page.Controls.Add(box);
         box.Controls.Add(itemsEnabled);
@@ -255,31 +309,33 @@ internal sealed class PanelForm : Form {
     static bool ReadPresencePreference(){try{return File.ReadAllText(PresencePreferencePath()).Trim()=="enabled";}catch{return false;}}
     void SavePresencePreference(){try{File.WriteAllText(PresencePreferencePath(),presenceEnabled.Checked?"enabled":"disabled");}catch{MessageBox.Show(this,"人感センサーの設定を保存できませんでした。");}}
     public void SetPublicMode(bool value){publicMode=value;}
-    async void CheckForUpdates(){
+    async void CheckForUpdates(bool unattended=false){
         if(updatePreparing)return;updatePreparing=true;automaticUpdate=new CancellationTokenSource();var cancel=automaticUpdate.Token;string download=null;
         try{
             if(!connected||currentPhase!="ready"||serverPid<=0)throw new InvalidOperationException("サーバーが稼働状態になってから確認してください。");
+            if(unattended&&!await CanAutomaticallyUpdate())return;
             string root=ServerUpdate.InstallRoot,current=ServerUpdate.VersionAt(root);bool portable=!File.Exists(Path.Combine(root,"Uninstall.exe"));
             releases.Text="確認を中止";
             var available=await Task.Run(()=>AutomaticUpdate.Check(current,portable,cancel));cancel.ThrowIfCancellationRequested();if(closing||IsDisposed)return;
-            if(available==null){MessageBox.Show(this,"現在のバージョン "+current+" は最新です。");return;}
-            if(MessageBox.Show(this,current+" → "+available.release.tag_name.Substring(1)+" に更新できます。\nダウンロードして更新しますか？\n\n予約データは保持します。ダウンロード中はサーバーを継続し、適用時に一時停止して再起動します。","ふろじゅんの更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
+            if(available==null){if(!unattended)MessageBox.Show(this,"現在のバージョン "+current+" は最新です。");else{autoUpdatePreferences.checkedDay=DateTime.UtcNow.AddHours(9).ToString("yyyy-MM-dd");SaveAutomaticUpdate();updateFeedback.Text="最新バージョンを確認しました。";}return;}
+            if(!unattended&&MessageBox.Show(this,current+" → "+available.release.tag_name.Substring(1)+" に更新できます。\nダウンロードして更新しますか？\n\n予約データは保持します。ダウンロード中はサーバーを継続し、適用時に一時停止して再起動します。","ふろじゅんの更新",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
             var progress=new Progress<int>(percent=>{if(automaticUpdate!=null&&!cancel.IsCancellationRequested&&releases.Enabled&&!closing&&!IsDisposed)releases.Text="取得中 "+percent+"%（中止）";});
             download=await Task.Run(()=>AutomaticUpdate.Download(available,current,value=>((IProgress<int>)progress).Report(value),cancel));cancel.ThrowIfCancellationRequested();
-            if(closing||IsDisposed)return;if(pendingSave!=null||pendingSecurity!=null)throw new InvalidOperationException("保存中の操作があります。完了後にもう一度更新してください。");
+            if(closing||IsDisposed)return;if(pendingSave!=null||pendingSecurity!=null||pendingAnnouncement!=null)throw new InvalidOperationException("保存中の操作があります。完了後にもう一度更新してください。");
+            if(unattended&&!await CanAutomaticallyUpdate()){updateFeedback.Text="入浴予定が近いため、更新を見送りました。";return;}
             releases.Enabled=false;releases.Text="更新を準備中…";
             var helper=await Task.Run(()=>ServerUpdate.Stage(download,root,serverPid,publicMode));
             if(dashboard!=null)dashboard.Close();if(Send("stop",null)==null){try{helper.Kill();}catch{}throw new IOException("サーバーを停止できませんでした。もう一度お試しください。");}
         }catch(OperationCanceledException){}
-        catch(UpdateUnavailableException error){if(!cancel.IsCancellationRequested&&!closing&&!IsDisposed){try{Process.Start(new ProcessStartInfo(ServerUpdate.ReleaseUrl){UseShellExecute=true});}catch(Exception){MessageBox.Show(this,error.Message+"\n\nブラウザーで次のURLを開いてください。\n"+ServerUpdate.ReleaseUrl,"リリースページ");}}}
-        catch(Exception error){if(!cancel.IsCancellationRequested&&!closing&&!IsDisposed)MessageBox.Show(this,error.Message+"\n\n配布ページ："+ServerUpdate.ReleaseUrl,"更新を確認できませんでした");}
+        catch(UpdateUnavailableException error){if(unattended){updateFeedback.Text=error.Message;nextAutoAttempt=DateTime.UtcNow.AddHours(1);}else if(!cancel.IsCancellationRequested&&!closing&&!IsDisposed){try{Process.Start(new ProcessStartInfo(ServerUpdate.ReleaseUrl){UseShellExecute=true});}catch(Exception){MessageBox.Show(this,error.Message+"\n\nブラウザーで次のURLを開いてください。\n"+ServerUpdate.ReleaseUrl,"リリースページ");}}}
+        catch(Exception error){if(unattended){updateFeedback.Text=error.Message;nextAutoAttempt=DateTime.UtcNow.AddHours(1);}else if(!cancel.IsCancellationRequested&&!closing&&!IsDisposed)MessageBox.Show(this,error.Message+"\n\n配布ページ："+ServerUpdate.ReleaseUrl,"更新を確認できませんでした");}
         finally{if(download!=null)try{Directory.Delete(Path.GetDirectoryName(download),true);}catch{}automaticUpdate.Dispose();automaticUpdate=null;updatePreparing=false;if(!closing&&!IsDisposed){releases.Enabled=true;releases.Text="最新版を確認";}}
     }
     async void UpdateServer(){
         if(updatePreparing)return;
         try {
             if(!connected||currentPhase!="ready"||serverPid<=0){MessageBox.Show(this,"サーバーが稼働状態になってから更新してください。");return;}
-            if(pendingSave!=null||pendingSecurity!=null){MessageBox.Show(this,"設定の保存・操作が終わってから更新してください。");return;}
+            if(pendingSave!=null||pendingSecurity!=null||pendingAnnouncement!=null){MessageBox.Show(this,"設定の保存・操作が終わってから更新してください。");return;}
             string root=ServerUpdate.InstallRoot;
             if(!File.Exists(Path.Combine(root,"Uninstall.exe"))){MessageBox.Show(this,"ZIP版は新しいZIPを別のフォルダーへ展開し、停止後に「はじめる.cmd」を開いて更新してください。テストデータは引き継ぎます。");return;}
             updatePreparing=true;
@@ -424,7 +480,7 @@ internal sealed class PanelForm : Form {
         saveState.Text="サーバーに送信できませんでした。接続を確認してください。";return null;
     }
     void WriteFailed(Exception error){try{BeginInvoke((MethodInvoker)delegate{if(closing)return;saveTimeout.Stop();pendingSave=null;pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);save.Enabled=connected;saveState.Text="サーバーに送信できませんでした。再起動してください。";});}catch{}}
-    void BeginRead(){reader=new Thread(delegate(){try{pipe=new NamedPipeClientStream(".",pipeName,PipeDirection.InOut,PipeOptions.Asynchronous);pipe.Connect(10000);writer=new StreamWriter(pipe,new UTF8Encoding(false),4096,true);var input=new StreamReader(pipe,Encoding.UTF8,false,4096,true);outbox=new PanelOutbox(outgoing=>{writer.WriteLine(outgoing);writer.Flush();},WriteFailed);connected=true;Send("status",null);Send("settings/get",null);Send("security/get",null);Send("items/get",null);string line;while((line=input.ReadLine())!=null){var reply=json.Deserialize<Reply>(line);BeginInvoke((MethodInvoker)delegate{if(closing)return;if(reply.show)ShowPanel();if(reply.rewards!=null)FillRewards(reply.rewards);if(reply.dashboard!=null&&dashboard!=null)dashboard.UpdateData(reply.dashboard);bool secured=reply.id==pendingSecurity&&pendingSecurity!=null;if(secured){pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);}bool saved=reply.id==pendingSave&&pendingSave!=null;if(saved){pendingSave=null;saveTimeout.Stop();save.Enabled=true;}if(!reply.ok){distributeItems.Enabled=saveRewards.Enabled=true;if(dashboard!=null)dashboard.Fail("データを更新できませんでした");save.Enabled=true;MessageBox.Show(this,reply.error ?? "操作を完了できませんでした。","ふろじゅん");}if(reply.state!=null){currentPhase=reply.state.phase;serverPid=reply.state.pid;serverPowerHeld=reply.state.serverPowerHeld;ShowPowerState();TickDisplaySchedule();status.Text=reply.state.phase=="ready"?"● サーバー稼働中":reply.state.phase=="stopping"?"停止しています…":"準備中";detail.Text=reply.state.detail;link.Text=reply.state.url??"";copy.Enabled=open.Enabled=link.Text.Length>0;screen.Enabled=SleepProtectionReady&&OnAC()&&reply.state.phase=="ready";}if(reply.settings!=null){FillSettings(reply.settings);if(pendingSave!=null||pendingSecurity!=null)save.Enabled=false;}if(reply.security!=null)FillSecurity(reply.security);if(reply.verification!=null)securityState.Text=reply.verification.matches?"入力したパスワードは現在のものと一致しています。":reply.verification.configured?"入力したパスワードは一致しません。新しいものへ変更できます。":"パスワードはまだ設定されていません。";if(reply.notice!=null){securityState.Text=reply.notice;passwordInput.Clear();passwordConfirm.Clear();}if(secured&&!reply.ok)securityState.Text=reply.error;if(saved&&reply.ok){saveState.Text="保存しました。時間の設定は "+reply.settings.effectiveDay+" 分から反映します。";Send("security/get",null);}});}}catch{}finally{connected=false;try{BeginInvoke((MethodInvoker)delegate{canClose=true;Close();});}catch{}}});reader.IsBackground=true;reader.Start();}
+    void BeginRead(){reader=new Thread(delegate(){try{pipe=new NamedPipeClientStream(".",pipeName,PipeDirection.InOut,PipeOptions.Asynchronous);pipe.Connect(10000);writer=new StreamWriter(pipe,new UTF8Encoding(false),4096,true);var input=new StreamReader(pipe,Encoding.UTF8,false,4096,true);outbox=new PanelOutbox(outgoing=>{writer.WriteLine(outgoing);writer.Flush();},WriteFailed);connected=true;Send("status",null);Send("settings/get",null);Send("security/get",null);Send("items/get",null);Send("announcements/get",null);string line;while((line=input.ReadLine())!=null){var reply=json.Deserialize<Reply>(line);BeginInvoke((MethodInvoker)delegate{if(closing)return;if(reply.show)ShowPanel();if(reply.readiness!=null&&reply.id==readinessRequest&&updateReadiness!=null)updateReadiness.TrySetResult(reply.ok&&!reply.readiness.busy);if(reply.id==pendingAnnouncement&&pendingAnnouncement!=null){pendingAnnouncement=null;announcementSave.Enabled=true;announcementFeedback.Text=reply.ok?"保存しました。":reply.error;}if(reply.announcements!=null)FillAnnouncements(reply.announcements);if(reply.rewards!=null)FillRewards(reply.rewards);if(reply.dashboard!=null&&dashboard!=null)dashboard.UpdateData(reply.dashboard);bool secured=reply.id==pendingSecurity&&pendingSecurity!=null;if(secured){pendingSecurity=null;securityTimeout.Stop();SetSecurityBusy(false);}bool saved=reply.id==pendingSave&&pendingSave!=null;if(saved){pendingSave=null;saveTimeout.Stop();save.Enabled=true;}if(!reply.ok){distributeItems.Enabled=saveRewards.Enabled=true;if(dashboard!=null)dashboard.Fail("データを更新できませんでした");save.Enabled=true;MessageBox.Show(this,reply.error ?? "操作を完了できませんでした。","ふろじゅん");}if(reply.state!=null){currentPhase=reply.state.phase;serverPid=reply.state.pid;serverPowerHeld=reply.state.serverPowerHeld;ShowPowerState();TickDisplaySchedule();status.Text=reply.state.phase=="ready"?"● サーバー稼働中":reply.state.phase=="stopping"?"停止しています…":"準備中";detail.Text=reply.state.detail;link.Text=reply.state.url??"";copy.Enabled=open.Enabled=link.Text.Length>0;screen.Enabled=SleepProtectionReady&&OnAC()&&reply.state.phase=="ready";}if(reply.settings!=null){FillSettings(reply.settings);if(pendingSave!=null||pendingSecurity!=null)save.Enabled=false;}if(reply.security!=null)FillSecurity(reply.security);if(reply.verification!=null)securityState.Text=reply.verification.matches?"入力したパスワードは現在のものと一致しています。":reply.verification.configured?"入力したパスワードは一致しません。新しいものへ変更できます。":"パスワードはまだ設定されていません。";if(reply.notice!=null){securityState.Text=reply.notice;passwordInput.Clear();passwordConfirm.Clear();}if(secured&&!reply.ok)securityState.Text=reply.error;if(saved&&reply.ok){saveState.Text="保存しました。時間の設定は "+reply.settings.effectiveDay+" 分から反映します。";Send("security/get",null);}});}}catch{}finally{connected=false;try{BeginInvoke((MethodInvoker)delegate{canClose=true;Close();});}catch{}}});reader.IsBackground=true;reader.Start();}
 }
 internal static class Program {
     [STAThread] static void Main(string[] args){if(args.Length>0&&args[0]=="--apply-update"){ServerUpdate.Run(args);return;}if(args.Length<2)return;Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);var panel=new PanelForm(args[0],args[1],Array.IndexOf(args,"--minimized")>=0);panel.SetPublicMode(Array.IndexOf(args,"--public")>=0);Application.Run(panel);}

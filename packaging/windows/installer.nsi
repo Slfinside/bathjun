@@ -4,6 +4,8 @@ Unicode true
 !include "x64.nsh"
 !include "WinVer.nsh"
 !include "Sections.nsh"
+!include "FileFunc.nsh"
+Var PreviousVersion
 Name "ふろじゅん"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Bathjun"
@@ -20,10 +22,7 @@ VIAddVersionKey "LegalCopyright" ""
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "ふろじゅんをセットアップ"
 !define MUI_WELCOMEPAGE_TEXT "Windows 10・11（64bit）用。本体は管理者権限なしで導入し、このPC内だけで試せます。外部公開ツールは任意です（導入には管理者の許可が必要）。$\r$\n$\r$\n予約データはアプリ本体と別の場所に保存し、更新・アンインストールでも残します。"
-!define MUI_FINISHPAGE_RUN
-!define MUI_FINISHPAGE_RUN_FUNCTION Launch
-!define MUI_FINISHPAGE_RUN_TEXT "今すぐ起動して、家族の合い言葉を設定する"
-!define MUI_FINISHPAGE_TEXT "インストールが完了しました。$\r$\n$\r$\n初回だけ、表示された画面で家族の合い言葉を設定してください。$\r$\n$\r$\n操作画面の「画面だけ消す」で、スリープさせずに消灯できます。終了は「サーバーを停止」。×は通知領域にしまいます。"
+!define MUI_FINISHPAGE_TEXT "インストールが完了しました。サーバーを自動で起動します。$\r$\n$\r$\n初回だけ、表示された画面で家族の合い言葉を設定してください。$\r$\n$\r$\n操作画面の「画面だけ消す」で、スリープさせずに消灯できます。終了は「サーバーを停止」。×は通知領域にしまいます。"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
@@ -38,7 +37,7 @@ Function ${Prefix}EnsureStopped
 retry:
   System::Call 'kernel32::CreateFileW(w "$INSTDIR\bin\node.exe", i 0x40000000, i 0, p 0, i 3, i 0, p 0) p .r0'
   ${If} $0 == -1
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "ふろじゅんが起動しているか、ファイルが使用中です。起動画面で Ctrl+C を押して終了し、再試行してください。" IDRETRY retry
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "ふろじゅんが起動しているか、ファイルが使用中です。管理画面の「サーバーを停止して終了」で停止し、再試行してください。" IDRETRY retry
     Abort
   ${Else}
     System::Call 'kernel32::CloseHandle(p r0)'
@@ -60,6 +59,7 @@ Function .onInit
   ${EndIf}
   SetRegView 64
   SetShellVarContext current
+  ReadRegStr $PreviousVersion HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Bathjun" "DisplayVersion"
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Bathjun"
   ${If} $0 != ""
     SectionSetFlags 2 ${SF_SELECTED}
@@ -75,6 +75,12 @@ Section "ふろじゅん本体（必須）" SEC_MAIN
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Bathjun"
   File /r "${PAYLOAD}/*"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
+  ${If} $PreviousVersion != ""
+  ${AndIf} $PreviousVersion != "${VERSION}"
+    FileOpen $0 "$INSTDIR\installed-update.json" w
+    FileWrite $0 '{$\"version$\":$\"${VERSION}$\",$\"previousVersion$\":$\"$PreviousVersion$\"}'
+    FileClose $0
+  ${EndIf}
   ; Remove only the old app-owned shortcuts during a display-name upgrade.
   Delete "$DESKTOP\風呂じゅん.lnk"
   Delete "$SMPROGRAMS\風呂じゅん\風呂じゅんを起動.lnk"
@@ -132,8 +138,14 @@ SectionEnd
 !insertmacro MUI_DESCRIPTION_TEXT ${SEC_TAILSCALE} "公式Windowsパッケージを取得し、署名を検証して導入します。初回はインターネットとWindowsの管理者の許可が必要です。Tailscaleは他のアプリでも使えるため、ふろじゅんの削除時には残します。"
 !insertmacro MUI_DESCRIPTION_TEXT ${SEC_AUTO} "このWindowsユーザーがサインインしたときだけ、最小化した画面で起動します。ブラウザーは自動では開きません。"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
-Function Launch
-  ExecShell "open" "$INSTDIR\start-local.cmd"
+Function .onInstSuccess
+  IfSilent done_launch
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/BATHJUN_NO_LAUNCH" $1
+  IfErrors 0 done_launch
+  ExecShell "open" "$INSTDIR\start-after-install.cmd"
+done_launch:
 FunctionEnd
 Section "Uninstall"
   SetRegView 64
@@ -146,6 +158,8 @@ Section "Uninstall"
   ; Delete only known program directories. Never remove BathjunData or unknown user files.
   RMDir /r "$INSTDIR\app"
   RMDir /r "$INSTDIR\bin"
+  Delete "$INSTDIR\start-after-install.cmd"
+  Delete "$INSTDIR\installed-update.json"
   Delete "$INSTDIR\start-public.cmd"
   Delete "$INSTDIR\start-local.cmd"
   Delete "$INSTDIR\family-password.cmd"

@@ -2,11 +2,13 @@
 
 お風呂の順番と時間を家族で共有するアプリです。Windows PCをサーバーにして、iPhoneなどのブラウザーから予約できます。
 
-## v2.0.0
+## v2.0.1
+
+毎朝4:00のサーバー自動更新、画面内のお知らせと予約配信、当日の未確定スタンプに使ったインクの返却を追加しました。[v2.0.1の使い方](docs/updates-and-announcements.md)を参照してください。
 
 週間スタンプとアイテム、プレゼントボックス、サーバーダッシュボード、曜日ごとの自動予約を収録した安定版です。アプリ内の使い方ガイド、自動予約の曜日別設定、未報告時の再予約確認、通知・認証・入力保持などの修正も含みます。日本語名は「ふろじゅん」に戻し、bathjunの識別子と既存データを引き継ぎます。
 
-**[v2.0.0のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.0.0)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.0.0/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.0.0/Bathjun-Portable-x64.zip)
+**[v2.0.1のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.0.1)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.0.1/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.0.1/Bathjun-Portable-x64.zip)
 
 [変更点と確認範囲](docs/release-notes.md)、[使い方ガイド](docs/client-help.md)、[消灯処理と実機確認の範囲](docs/screen-off-investigation.md)をご確認ください。
 

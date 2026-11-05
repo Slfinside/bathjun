@@ -24,6 +24,7 @@ let pageView = "home",
   celebrationWeek = null;
 const celebrating = new Set();
 let guidePending = false;
+let announcementBusy=false;
 let accountGeneration = 0;
 let checkRebookingOnOpen = true, rebookingQuestion = null, rebookingFlow = false;
 async function openClientGuide(topic, onboarding = false) {
@@ -684,6 +685,7 @@ async function refreshOnce(force) {
       data.autoWishes,
       data.rewards,
       data.unreportedBooking,
+      data.announcements,
       data.standbyWarning,
       data.ignoreLowerPriorityWishes,
       Math.floor(new Date(data.now).getTime() / 60000),
@@ -1790,9 +1792,26 @@ document.querySelector("#header-account").addEventListener(
   true,
 );
 
+async function maybeShowAnnouncement(){
+  if(announcementBusy||!me||pageView!=='home'||guidePending||document.querySelector('dialog[open]'))return;
+  const entry=state?.announcements?.[0];if(!entry)return;
+  announcementBusy=true;const generation=accountGeneration,memberId=me.id;
+  try{
+    const {showAnnouncement}=await import('./announcements.js');
+    const data=await api('announcements?id='+encodeURIComponent(entry.id));
+    if(data.seen){if(generation===accountGeneration)state.announcements=state.announcements.filter(a=>a.id!==entry.id);return;}
+    if(generation!==accountGeneration||me?.id!==memberId||pageView!=='home'||document.querySelector('dialog[open]'))return;
+    const skipped=await showAnnouncement(data);
+    if(skipped===null||generation!==accountGeneration||me?.id!==memberId)return;
+    await api('announcements/seen',{id:entry.id,skipped});
+    if(generation!==accountGeneration||me?.id!==memberId)return;
+    state.announcements=state.announcements.filter(a=>a.id!==entry.id);
+  }catch(error){notify(error.message);}finally{announcementBusy=false;}
+}
 function maybeCelebrate() {
   if (!state || pageView !== "home" || dialog.open || guidePending || rebookingFlow) return;
   if (maybeOfferRebooking()) return;
+  if(state.announcements?.length){void maybeShowAnnouncement();return;}
   if (!itemsEnabled()) return;
   const pending = state.rewards?.celebrations.find(
     (x) => !celebrating.has(x.week),

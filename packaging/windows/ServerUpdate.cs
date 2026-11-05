@@ -68,17 +68,19 @@ internal static class ServerUpdate {
                     if(portable){if(File.Exists(Path.Combine(root,"Uninstall.exe")))throw new InvalidDataException("インストール版にはインストーラーを使ってください。");AutomaticUpdate.ValidatePortable(args[1],ParseVersion(VersionAt(root)));}
                     else ValidateInstaller(args[1],ParseVersion(VersionAt(root)));
                     if(Hash(args[1])!=args[6])throw new InvalidDataException("更新ファイルが変更されています。");
+                    string previousVersion=VersionAt(root);
                     Wait(serverId);Wait(panelId);
                     if(Hash(args[1])!=args[6])throw new InvalidDataException("更新ファイルが変更されています。");
                     form.BeginInvoke((MethodInvoker)delegate{label.Text="更新しています。予約データは残ります。\n完了するとサーバーを再起動します。";});
                     // NSIS requires /D last, without quotes even for paths with spaces.
                     if(portable)AutomaticUpdate.ApplyPortable(args[1],root);
-                    else using(var install=Process.Start(new ProcessStartInfo(args[1],"/S /D="+root){UseShellExecute=true})) {
+                    else using(var install=Process.Start(new ProcessStartInfo(args[1],"/S /BATHJUN_NO_LAUNCH /D="+root){UseShellExecute=true})) {
                         if(!install.WaitForExit(300000))throw new TimeoutException("更新完了を確認できませんでした。インストーラーが終了したか確認してください。");
                         if(install.ExitCode!=0)throw new IOException("更新に失敗しました（終了コード "+install.ExitCode+"）。保存したインストーラーを手動で実行してください。");
                     }
+                    File.WriteAllText(Path.Combine(root,"installed-update.json"),new JavaScriptSerializer().Serialize(new{version=VersionAt(root),previousVersion=previousVersion}));
                     string script=Path.Combine(root,!portable&&args[5]=="public"?"start-public.cmd":"start-local.cmd");
-                    Process.Start(new ProcessStartInfo(script){UseShellExecute=true,WorkingDirectory=root});
+                    Process.Start(new ProcessStartInfo(script,"--installed-update"){UseShellExecute=true,WorkingDirectory=root});
                     form.BeginInvoke((MethodInvoker)delegate{busy=false;form.Close();});
                 }catch(Exception error){form.BeginInvoke((MethodInvoker)delegate{busy=false;label.Text="更新を完了できませんでした。\n"+error.Message;});}
                 // Keep the staged installer on failure for manual recovery. Temp files

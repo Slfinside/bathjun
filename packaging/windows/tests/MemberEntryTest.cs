@@ -26,6 +26,12 @@ internal static class MemberEntryTest {
             // Saving directly must also include the name still waiting in the dedicated input.
             input.Text="メンバーB";Save(first,Path.Combine(args[0],"empty-household.json"));Check(grid.Rows.Count==2,"pending name omitted from save");Check(File.ReadAllText(Path.Combine(args[0],"empty-household.json")).Contains("\"bookingCutoff\":540"),"booking cutoff picker not saved");Check(File.ReadAllText(Path.Combine(args[0],"empty-household.json")).Contains("\"ignoreLowerPriorityWishes\":false"),"priority policy not saved");
         }finally{Dispose(first);}
+        var announcement=Create(new Member[0]);
+        try{
+            var grid=(DataGridView)Field(announcement,"announcementPages");Check(grid.Rows.Count==1,"initial announcement page missing");grid.Rows[0].Cells["Title"].Value="1ページ目";grid.Rows[0].Cells["Text"].Value="本文";grid.Rows.Add("2ページ目","続き","",false);
+            ((TextBox)Field(announcement,"announcementLabel")).Text="配信テスト";((ComboBox)Field(announcement,"announcementMode")).SelectedIndex=2;((DateTimePicker)Field(announcement,"announcementWhen")).Value=DateTime.Now.AddDays(1);
+            string line=null;var done=new ManualResetEvent(false);var outbox=new PanelOutbox(value=>{line=value;done.Set();},error=>{throw error;});Set(announcement,"outbox",outbox);typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke((Button)Field(announcement,"announcementSave"),new object[]{EventArgs.Empty});Check(done.WaitOne(2000),"announcement save not queued");Check(line.Contains("announcements/save")&&line.Contains("scheduled")&&line.Contains("2ページ目"),"announcement payload lost pages or scheduling");File.WriteAllText(Path.Combine(args[0],"announcement-save.json"),line);outbox.Dispose();
+        }finally{Dispose(announcement);}
         var second=Create(new[]{new Member{id=1,name="既存メンバー",active=false}});
         try {
             var input=(TextBox)Field(second,"newMemberName");input.Text="新しいメンバー";Save(second,Path.Combine(args[0],"existing-household.json"));

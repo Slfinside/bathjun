@@ -1,8 +1,13 @@
+import {existsSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {activateInstalledUpdate,installedLaunchMode,rememberLaunchMode} from './installed-update.js';
+import {dataPaths} from './data-paths.js';
 import { openApplication, getRunningApplication } from "./runtime.js";
 import { configureFamily } from "./family-password.js";
 import { spawn } from "node:child_process";
 import { startWindowsPanel, showExistingWindowsPanel } from "./server-panel.js";
-const mode = process.argv[2] || "public";
+const installed=process.argv[2]==="installed"||process.argv.includes("--installed-update")||existsSync(fileURLToPath(new URL("../../installed-update.json",import.meta.url)));
+const mode = process.argv[2]==="installed"?installedLaunchMode(dataPaths().directory):process.argv[2]||"public";
 if (!["public", "local", "password"].includes(mode))
   throw new Error("起動方法を確認してください。");
 // Local testing intentionally stays on loopback, regardless of inherited HOST.
@@ -23,6 +28,7 @@ try {
     process.exit(0);
   const app = openApplication();
   try {
+    activateInstalledUpdate(app,{installed});
     if (mode === "password" || !app.familyConfigured()) {
       if (process.env.BATHJUN_AUTOSTART === "1")
         throw new Error(
@@ -33,9 +39,14 @@ try {
   } finally {
     app.close();
   }
+  if(mode!=="password")rememberLaunchMode(dataPaths().directory,mode);
   if (mode !== "password")
     panel = await startWindowsPanel({
       mode,
+      onGetAnnouncements:()=>adminCall(app=>app.getAnnouncementsAdmin()),
+      onSaveAnnouncement:payload=>adminCall(app=>app.saveAnnouncement(payload)),
+      onArchiveAnnouncement:payload=>adminCall(app=>app.archiveAnnouncement(payload)),
+      onUpdateStatus:()=>adminCall(app=>app.getUpdateStatus()),
       onGetRewards: () => adminCall((app) => app.getRewardsAdmin()),
       onSaveRewardSettings: (payload) =>
         adminCall((app) => app.saveRewardSettings(payload)),

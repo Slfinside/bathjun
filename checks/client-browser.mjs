@@ -32,6 +32,19 @@ async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1'}={}){
  }finally{await context.close();await new Promise(r=>server.close(r));app.close();rmSync(directory,{recursive:true,force:true})}
 }
 try {
+ await scenario('announcements',async({app,page,url,state,screenshot,context})=>{
+  app.saveAnnouncement({label:'画面内お知らせのテスト',state:'published',pages:[{title:'はじめのお知らせ',text:'説明は本文として表示します。',imagePath:new URL('../release-announcements/items.png',import.meta.url).pathname},{title:'<script>テキストです</script>',text:'2ページ目の説明'},{title:'最後のページ',text:'お知らせの終わりです。'}]});
+  await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();await modal.locator('img').evaluate(img=>img.decode());
+  assert.equal(await modal.locator('.announcement-counter').innerText(),'1 / 3');assert.equal(await modal.locator('img').isVisible(),true);
+  const names=await modal.evaluate(el=>[...el.children].map(child=>child.tagName));assert.deepEqual(names,['SPAN','H2','IMG','P','BUTTON','BUTTON']);
+  await screenshot('first');for(const width of [320,1200]){await page.setViewportSize({width,height:844});assert.ok(await modal.evaluate(el=>el.scrollWidth<=el.clientWidth));}
+  await modal.getByRole('button',{name:'次へ',exact:true}).click();await modal.getByRole('heading',{name:'<script>テキストです</script>',exact:true}).waitFor();assert.equal(await modal.locator('script').count(),0);assert.equal(await modal.locator('img').isVisible(),false);assert.equal(await modal.locator('.announcement-counter').innerText(),'2 / 3');
+  await modal.getByRole('button',{name:'次へ',exact:true}).click();await modal.getByRole('heading',{name:'最後のページ'}).waitFor();await screenshot('last');const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'閉じる',exact:true}).click();await ack;assert.equal((await state()).announcements.length,0);await page.reload();await page.locator('.date-bar').waitFor();assert.equal(await page.locator('.announcement-dialog[open]').count(),0);
+ });
+ await scenario('announcement-skip-logout',async({app,page,url,api,state})=>{
+  app.saveAnnouncement({label:'スキップ',state:'published',pages:[{title:'最初',text:'最初です'},{title:'次',text:'次です'}]});await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'スキップする'}).click();await ack;assert.equal((await state()).announcements.length,0);
+  app.saveAnnouncement({label:'ログアウト',state:'published',pages:[{title:'ログアウト前',text:'説明'}]});await page.reload();await modal.waitFor();await api('logout',{});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await page.locator('.member-button').first().waitFor();assert.equal(await page.locator('.announcement-dialog[open]').count(),0);
+ });
  await scenario('rebooking',async({app,page,context,url,api,state,time,screenshot})=>{
   assert.equal(app.getRewardsAdmin().settings.clientReportEnabled,false);
   await api('book',{day:'2026-11-04',start:1080,duration:30});const original=(await state()).bookings[0];
