@@ -47,8 +47,43 @@ internal static class ServerUpdate {
             File.Copy(Application.ExecutablePath,helper);
             File.Copy(Application.ExecutablePath+".config",helper+".config");
             // No shell: every helper argument is quoted independently.
-            return Process.Start(new ProcessStartInfo(helper,"--apply-update "+Quote(staged)+" "+Quote(root)+" "+Process.GetCurrentProcess().Id+" "+serverPid+" "+(publicMode?"public":"local")+" "+digest){UseShellExecute=false});
+            var process=Process.Start(new ProcessStartInfo(helper,"--apply-update "+Quote(staged)+" "+Quote(root)+" "+Process.GetCurrentProcess().Id+" "+serverPid+" "+(publicMode?"public":"local")+" "+digest){UseShellExecute=false});
+            try{WaitForReady(process,staged+".ready",45000);return process;}
+            catch{try{process.Kill();}catch{}process.Dispose();throw;}
         }catch{try{Directory.Delete(folder,true);}catch{}throw;}
+    }
+    // The running server keeps its power request until the helper confirms ownership.
+    internal static void WaitForReady(Process helper,string marker,int timeout){
+        var watch=Stopwatch.StartNew();
+        while(!File.Exists(marker)){
+            if(helper.HasExited||watch.ElapsedMilliseconds>=timeout)throw new IOException("更新用のスリープ防止を確認できませんでした。サーバーは継続しています。");
+            Thread.Sleep(50);
+        }
+        if(helper.HasExited)throw new IOException("更新プログラムが終了したため、サーバーを継続します。");
+    }
+    internal static void WaitForRestart(Func<bool> ready,Action<int> delay){
+        for(int attempt=0;attempt<120;attempt++){
+            if(ready()){delay(1000);return;}
+            delay(500);
+        }
+        throw new IOException("更新は完了しましたが、サーバーの再起動とスリープ防止を確認できませんでした。管理画面で状態を確認してください。");
+    }
+    internal static bool RestartProtected(string value){
+        try{var reply=new JavaScriptSerializer().Deserialize<Reply>(value);return reply!=null&&reply.ok&&reply.state!=null&&reply.state.phase=="ready"&&reply.state.serverPowerHeld;}catch{return false;}
+    }
+    static bool ServerReady(){
+        try{
+            string directory=Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BathjunData");
+            var locator=new JavaScriptSerializer().Deserialize<Dictionary<string,string>>(File.ReadAllText(Path.Combine(directory,"panel.json")));
+            string name,token;if(!locator.TryGetValue("name",out name)||!locator.TryGetValue("token",out token)||!Regex.IsMatch(name,"^Bathjun-[a-f0-9]{32}$")||!Regex.IsMatch(token,"^[a-f0-9]{64}$"))return false;
+            using(var pipe=new System.IO.Pipes.NamedPipeClientStream(".",name,System.IO.Pipes.PipeDirection.InOut,System.IO.Pipes.PipeOptions.Asynchronous)){
+                pipe.Connect(300);
+                using(var writer=new StreamWriter(pipe,new System.Text.UTF8Encoding(false),4096,true))using(var reader=new StreamReader(pipe,System.Text.Encoding.UTF8,false,4096,true)){
+                    writer.WriteLine(new JavaScriptSerializer().Serialize(new{token=token,command="status",id="update-ready"}));writer.Flush();
+                    var response=reader.ReadLineAsync();return response.Wait(300)&&RestartProtected(response.Result);
+                }
+            }
+        }catch{return false;}
     }
     static string Quote(string value){return "\""+value.Replace("\"","")+"\"";}
     static void Wait(int id){try{using(var process=Process.GetProcessById(id)){if(!process.WaitForExit(60000))throw new TimeoutException("サーバーの終了を確認できませんでした。管理画面から停止して、もう一度更新してください。");}}catch(ArgumentException){}}
@@ -60,7 +95,7 @@ internal static class ServerUpdate {
             var label=new Label{Text="サーバーの終了を待っています…",Dock=DockStyle.Fill,Padding=new Padding(20),Font=new Font("Yu Gothic UI",11)};form.Controls.Add(label);bool busy=true;
             form.FormClosing+=delegate(object sender,FormClosingEventArgs e){if(busy)e.Cancel=true;};
             form.Shown+=delegate{var work=new Thread(delegate(){
-                try {
+                using(var power=new PowerLease())try {
                     int panelId,serverId;if(!int.TryParse(args[3],out panelId)||!int.TryParse(args[4],out serverId)||panelId<=0||serverId<=0)throw new InvalidDataException("更新情報を確認できませんでした。");
                     string root=Path.GetFullPath(args[2]);
                     bool portable=Path.GetExtension(args[1]).Equals(".zip",StringComparison.OrdinalIgnoreCase);
@@ -69,6 +104,8 @@ internal static class ServerUpdate {
                     else ValidateInstaller(args[1],ParseVersion(VersionAt(root)));
                     if(Hash(args[1])!=args[6])throw new InvalidDataException("更新ファイルが変更されています。");
                     string previousVersion=VersionAt(root);
+                    if(!power.Acquire())throw new IOException("更新中のスリープ防止を有効にできませんでした。");
+                    File.WriteAllText(args[1]+".ready","power-held");
                     Wait(serverId);Wait(panelId);
                     if(Hash(args[1])!=args[6])throw new InvalidDataException("更新ファイルが変更されています。");
                     form.BeginInvoke((MethodInvoker)delegate{label.Text="更新しています。予約データは残ります。\n完了するとサーバーを再起動します。";});
@@ -81,6 +118,8 @@ internal static class ServerUpdate {
                     File.WriteAllText(Path.Combine(root,"installed-update.json"),new JavaScriptSerializer().Serialize(new{version=VersionAt(root),previousVersion=previousVersion}));
                     string script=Path.Combine(root,!portable&&args[5]=="public"?"start-public.cmd":"start-local.cmd");
                     Process.Start(new ProcessStartInfo(script,"--installed-update"){UseShellExecute=true,WorkingDirectory=root});
+                    form.BeginInvoke((MethodInvoker)delegate{label.Text="サーバーの再起動を確認しています…";});
+                    WaitForRestart(ServerReady,Thread.Sleep);
                     form.BeginInvoke((MethodInvoker)delegate{busy=false;form.Close();});
                 }catch(Exception error){form.BeginInvoke((MethodInvoker)delegate{busy=false;label.Text="更新を完了できませんでした。\n"+error.Message;});}
                 // Keep the staged installer on failure for manual recovery. Temp files
