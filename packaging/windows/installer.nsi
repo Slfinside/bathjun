@@ -75,6 +75,8 @@ Section "ふろじゅん本体（必須）" SEC_MAIN
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Bathjun"
   File /r "${PAYLOAD}/*"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
+  ; An interrupted earlier update must not leave a stale activation marker.
+  Delete "$INSTDIR\installed-update.json"
   ${If} $PreviousVersion != ""
   ${AndIf} $PreviousVersion != "${VERSION}"
     FileOpen $0 "$INSTDIR\installed-update.json" w

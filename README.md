@@ -1,14 +1,15 @@
 # ふろじゅん ♨
 
-お風呂の順番と時間を家族で共有するアプリです。Windows PCをサーバーにして、iPhoneなどのブラウザーから予約できます。
+お風呂の順番と時間を家族で共有するアプリです。Windows PCをサーバーにして、ブラウザーから予約できます。
+細かい説明は一旦Codexに書かせているので、不自然だったり分かりにくいところがあるかもしれません。ちまちま修正しておきます。
 
-## v2.0.1
+## v2.0.2
 
-毎朝4:00のサーバー自動更新、画面内のお知らせと予約配信、当日の未確定スタンプに使ったインクの返却を追加しました。[v2.0.1の使い方](docs/updates-and-announcements.md)を参照してください。
+管理画面が出る前に起動が中断する問題への対策と、起動時のバージョン表示を追加しました。毎朝4:00のサーバー自動更新・お知らせ・インク返却も引き続き利用できます。[v2.0.1の使い方](docs/updates-and-announcements.md)を参照してください。
 
 週間スタンプとアイテム、プレゼントボックス、サーバーダッシュボード、曜日ごとの自動予約を収録した安定版です。アプリ内の使い方ガイド、自動予約の曜日別設定、未報告時の再予約確認、通知・認証・入力保持などの修正も含みます。日本語名は「ふろじゅん」に戻し、bathjunの識別子と既存データを引き継ぎます。
 
-**[v2.0.1のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.0.1)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.0.1/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.0.1/Bathjun-Portable-x64.zip)
+**[v2.0.2のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.0.2)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.0.2/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.0.2/Bathjun-Portable-x64.zip)
 
 [変更点と確認範囲](docs/release-notes.md)、[使い方ガイド](docs/client-help.md)、[消灯処理と実機確認の範囲](docs/screen-off-investigation.md)をご確認ください。
 
@@ -53,4 +54,4 @@ Windows 10/11の64bit版、.NET Framework 4.7.2以降が必要です。Node.js�
 - サーバー端末での常時表示ダッシュボードと共有QR
 - メンバー・時間帯・予約時間・抽選制限の設定、パスワード変更、全データのリセット
 
-初期状態に家族の名前や予約データは含みません。予約や認証情報はサーバーPC内に保存します。外部公開にはTailscale FunnelのHTTPSリンクを使い、家族側の端末へのTailscale導入やルーターのポート開放は不要です。
+予約や認証情報はサーバーPC内に保存します。外部公開にはTailscale FunnelのHTTPSリンクを使い、家族側の端末へのTailscale導入やルーターのポート開放は不要です。

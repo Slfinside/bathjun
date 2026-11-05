@@ -20,3 +20,8 @@ export function activateInstalledUpdate(app,{installed=false,installRoot=root}={
 }
 export function installedLaunchMode(directory){try{return JSON.parse(readFileSync(join(directory,'server-mode.json'),'utf8')).mode==='local'?'local':'public'}catch{return 'public'}}
 export function rememberLaunchMode(directory,mode){writeFileSync(join(directory,'server-mode.json'),JSON.stringify({mode}),{mode:0o600})}
+
+// Announcement delivery is optional; a damaged update marker must not stop bathing reservations.
+export function activateInstalledUpdateSafely(app,options={},onError=error=>console.error('更新のお知らせを読み込めませんでした。サーバーの起動を続けます。\n'+(error.stack||error.message))){
+  try{return activateInstalledUpdate(app,options)}catch(error){onError(error);return false}
+}
