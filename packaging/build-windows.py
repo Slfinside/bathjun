@@ -20,6 +20,10 @@ def build(args):
     for name,info in lock.items():fetch(info['url'],assets/(name+'.exe'),info['sha256'])
     output=pathlib.Path(args.output).resolve();output.parent.mkdir(parents=True,exist_ok=True)
     version=json.loads((ROOT/'package.json').read_text())['version']
+    fonts=ROOT/'public/fonts'
+    for name,info in json.loads((fonts/'source.json').read_text())['files'].items():
+        if pathlib.Path(name).name!=name or sha(fonts/name)!=info['sha256']:raise RuntimeError('Shared font checksum mismatch')
+    if not (fonts/'OFL.txt').is_file():raise RuntimeError('Shared font license missing')
     with tempfile.TemporaryDirectory(prefix='bathjun-win-build-') as temporary:
         payload=pathlib.Path(temporary)/'payload';app=payload/'app';app.mkdir(parents=True)
         for directory in ['src','public','migrations','docs']:shutil.copytree(ROOT/directory,app/directory)

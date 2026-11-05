@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 export const DEFAULT_SCHEDULE = Object.freeze({
+  dayRollover: 120,
   bathStart: 900,
   bathEnd: 1860,
   lotteryTimeRestricted: false,
@@ -24,6 +25,7 @@ export function validateSchedule(schedule) {
   if (!schedule || typeof schedule !== "object")
     throw new Error("時間設定を確認してください。");
   const numericKeys = [
+    "dayRollover",
     "bathStart",
     "bathEnd",
     "lotteryStart",
@@ -34,6 +36,7 @@ export function validateSchedule(schedule) {
   ];
   const result = {
     ...Object.fromEntries(numericKeys.map((key) => [key, schedule[key]])),
+    dayRollover: schedule.dayRollover ?? 120,
     lotteryTimeRestricted: schedule.lotteryTimeRestricted ?? false,
     orderMode: schedule.orderMode || "random",
     fixedOrder: [],
@@ -42,6 +45,8 @@ export function validateSchedule(schedule) {
     throw new Error("抽選時間の制限を確認してください。");
   if (!["random", "fixed"].includes(result.orderMode))
     throw new Error("予約順は抽選または固定順から選んでください。");
+  if (result.dayRollover < 0 || result.dayRollover >= 1440)
+    throw new Error("日付の切り替えは0:00〜23:59で設定してください。");
   if (numericKeys.some((key) => !Number.isInteger(result[key])))
     throw new Error("時刻と時間は分単位の整数で設定してください。");
   const {
@@ -128,6 +133,10 @@ export function createServerSettings(db, now) {
       throw error;
     }
   }
+  if (!db.prepare("PRAGMA table_info(members)").all().some(column=>column.name==="auto_standby"))
+    db.exec("ALTER TABLE members ADD COLUMN auto_standby INTEGER NOT NULL DEFAULT 0 CHECK(auto_standby IN (0,1))");
+  db.exec(readFileSync(new URL('../migrations/0009_auto_standby.sql',import.meta.url),'utf8'));
+  const ignoreLowerPriorityWishes=()=>!!db.prepare('SELECT ignore_lower_priority_wishes FROM reservation_policy WHERE id=1').get().ignore_lower_priority_wishes;
   const scheduleForDay = (day) => ({
     ...DEFAULT_SCHEDULE,
     ...JSON.parse(
@@ -154,7 +163,7 @@ export function createServerSettings(db, now) {
         };
         return rank(a.id) - rank(b.id);
       });
-    return { members, current: scheduleForDay(today), upcoming, effectiveDay };
+    return { members, current: scheduleForDay(today), upcoming, effectiveDay, ignoreLowerPriorityWishes:ignoreLowerPriorityWishes() };
   }
   function save(payload) {
     if (
@@ -163,6 +172,8 @@ export function createServerSettings(db, now) {
       payload.members.length > 50
     )
       throw new Error("メンバーは1〜50人で設定してください。");
+    const priorityPolicy=payload.ignoreLowerPriorityWishes===undefined?ignoreLowerPriorityWishes():payload.ignoreLowerPriorityWishes;
+    if(typeof priorityPolicy!=='boolean')throw new Error('下位の希望を許容する設定は有効・無効で選んでください。');
     const schedule = validateSchedule(payload.schedule),
       existing = db.prepare("SELECT id,active FROM members").all();
     const members = payload.members.map((member) => {
@@ -197,6 +208,7 @@ export function createServerSettings(db, now) {
       );
     db.exec("BEGIN IMMEDIATE");
     try {
+      db.prepare("UPDATE reservation_policy SET ignore_lower_priority_wishes=? WHERE id=1").run(priorityPolicy?1:0);
       const temporary = "__bathjun_" + randomBytes(16).toString("hex") + "_";
       for (const member of members)
         if (member.id)
@@ -237,5 +249,5 @@ export function createServerSettings(db, now) {
     }
     return get();
   }
-  return { scheduleForDay, get, save };
+  return { scheduleForDay, get, save, ignoreLowerPriorityWishes };
 }

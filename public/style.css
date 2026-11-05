@@ -1,3 +1,18 @@
+/* Same static typefaces as the native server dashboard. Hosted by this app. */
+@font-face {
+  font-family: "Bathjun Sans";
+  src: url("/fonts/NotoSansJP-Regular.520ea0779f08.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bathjun Sans";
+  src: url("/fonts/NotoSansJP-Bold.ac652431d4be.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600 900;
+  font-display: swap;
+}
 :root {
   color-scheme: light;
   --bg: #f6f5f0;
@@ -12,7 +27,7 @@
   --pink: #f5e8e3;
   --purple: #ede8f3;
   font-family:
-    -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
+    "Bathjun Sans", -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
     "Noto Sans JP", sans-serif;
   font-synthesis: none;
 }
@@ -1721,3 +1736,13 @@ footer .site-credit { display:block; font-size:12px; letter-spacing:.02em; }
 #header-account .avatar { flex-shrink:0; }
 #header-account .profile-identity { min-width:0; }
 #header-account .profile-name { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Full-width actions share the lottery button's size and visual weight. */
+.wish-action { margin-top: 20px; }
+.booking-banner .primary { min-height: 52px; flex-basis: 100%; }
+.notification-preferences { margin-top: 18px; display: grid; gap: 14px; }
+.notification-choice { display:flex; align-items:center; gap:10px; min-height:44px; font-size:13px; }
+.notification-choice input { width:20px; height:20px; accent-color:var(--green); }
+.reminder-minutes { display:flex; align-items:center; flex-wrap:wrap; gap:10px; font-size:13px; }
+.reminder-minutes input { width:88px; min-height:44px; font-size:16px; padding:8px; border:1px solid var(--line); border-radius:10px; background:var(--paper); }
+@media(max-width:600px) { .day-switch { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } }

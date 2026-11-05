@@ -15,7 +15,7 @@ async function fixture(t,{family=false}={}) {
  const directory=mkdtempSync(join(tmpdir(),'bathjun-advanced-')),database=join(directory,'test.sqlite');
  let clock=new Date('2026-10-27T08:00:00+09:00');
  const app=createApp({database,requireFamily:family,now:()=>clock,deliverPush:async()=>{}});
- app.saveServerSettings({members:[1,2,3].map(i=>({name:`利用者${i}`,active:true})),schedule:{...DEFAULT_SCHEDULE,orderMode:'fixed'}});
+ app.saveServerSettings({ignoreLowerPriorityWishes:false,members:[1,2,3].map(i=>({name:`利用者${i}`,active:true})),schedule:{...DEFAULT_SCHEDULE,orderMode:'fixed'}});
  clock=new Date('2026-10-28T08:00:00+09:00');
  const server=createServer(app.handle);await new Promise(r=>server.listen(0,'127.0.0.1',r));
  t.after(async()=>{await new Promise(r=>server.close(r));app.close();rmSync(directory,{recursive:true,force:true});});

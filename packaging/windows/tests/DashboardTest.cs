@@ -14,7 +14,15 @@ internal static class DashboardTest {
         var data=new JavaScriptSerializer().Deserialize<DashboardData>(File.ReadAllText(args[0]));
         foreach(var size in new[]{new Size(1280,800),new Size(800,1280),new Size(1920,1080)}) {
             foreach(bool absent in new[]{false,true}) {
-                var form=(Form)Activator.CreateInstance(type,new object[]{(Action)(()=>{}),true});
+                // libgdiplus cannot measure PrivateFontCollection faces. On Linux,
+                // use Fontconfig with the same bundled font files for rendering.
+                // Windows uses the production private-font loader directly.
+                var arguments=Environment.OSVersion.Platform==PlatformID.Win32NT
+                    ? new object[]{(Action)(()=>{}),true}
+                    : new object[]{(Action)(()=>{}),true,new FontFamily("Noto Sans JP")};
+                var form=(Form)Activator.CreateInstance(type,arguments);
+                if(form.Font.Name!="Noto Sans JP")throw new Exception("Dashboard did not load the shared typeface");
+                using(var bold=new Font(form.Font.FontFamily,18,FontStyle.Bold))if(bold.Height<=0)throw new Exception("Shared bold font cannot be measured");
                 try {
                     form.WindowState=FormWindowState.Normal;form.ClientSize=size;
                     type.GetMethod("UpdateData").Invoke(form,new object[]{data});Set(form,"held",true);

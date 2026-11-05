@@ -122,6 +122,7 @@ test("時間設定は翌日から反映し、旧範囲の外の予約も新ル�
   const today = (await f.api("state?day=2026-10-29", undefined, first)).body;
   assert.deepEqual(today.settings, {
     ...schedule,
+    dayRollover: 120,
     lotteryTimeRestricted: false,
     orderMode: "random",
     fixedOrder: [1, 2, 3, 4, 5],

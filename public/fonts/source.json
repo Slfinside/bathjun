@@ -1,0 +1,25 @@
+{
+  "family": "Noto Sans JP",
+  "upstream": "https://github.com/google/fonts/tree/66a36c8c94b1a5d992ee4e7f392fccfe4945767c/ofl/notosansjp",
+  "upstreamSha256": "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f",
+  "license": "SIL Open Font License 1.1",
+  "generation": "Static wght=400/700 instances via fontTools.varLib.instancer; family/style names normalized for GDI+; no glyph subsetting.",
+  "files": {
+    "NotoSansJP-Regular.ttf": {
+      "sha256": "65a8f7c9d8deb37bafea3c001c37cab04c5cd5959d9ba6aa32010c3bff5761f8",
+      "bytes": 5766884
+    },
+    "NotoSansJP-Bold.ttf": {
+      "sha256": "a577cc5a3b6b4c68a4f4fb3d53c5f21750f02e06a9d6d483eeaac17eab26bdc0",
+      "bytes": 5761680
+    },
+    "NotoSansJP-Regular.520ea0779f08.woff2": {
+      "sha256": "520ea0779f084d6912e298bace1380f4532f32058385327afa10202709a61759",
+      "bytes": 2302904
+    },
+    "NotoSansJP-Bold.ac652431d4be.woff2": {
+      "sha256": "ac652431d4be2d3046f678e37a2b7264503c8b05758dcf79415429b2e9f3503a",
+      "bytes": 2352972
+    }
+  }
+}

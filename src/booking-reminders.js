@@ -1,3 +1,4 @@
+import {getNotificationPreferences} from './notification-preferences.js';
 import {readFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {slotDate} from './domain.js';
@@ -5,19 +6,25 @@ import {slotDate} from './domain.js';
 export function createBookingReminders({db,now,deliverPush,familyConfig,onQueued,isClosed}) {
   db.exec(readFileSync(new URL('../migrations/0007_booking_reminders.sql',import.meta.url),'utf8'));
 
+  if(!db.prepare('PRAGMA table_info(booking_reminders)').all().some(column=>column.name==='lead_minutes'))db.exec('ALTER TABLE booking_reminders ADD COLUMN lead_minutes INTEGER NOT NULL DEFAULT 10');
+
   function syncMember(day,memberId) {
+    const preferences=getNotificationPreferences(db,memberId);
     const booking=db.prepare('SELECT b.start FROM bookings b JOIN members m ON m.id=b.member_id WHERE b.day=? AND b.member_id=? AND m.active=1').get(day,memberId);
     const startAt=booking?slotDate(day,booking.start).getTime():0;
-    const existing=db.prepare('SELECT endpoint,start FROM booking_reminders WHERE day=? AND member_id=?').all(day,memberId);
+    const existing=db.prepare('SELECT endpoint,start,sent,lead_minutes FROM booking_reminders WHERE day=? AND member_id=?').all(day,memberId);
     let changed=0;
     if(!booking||startAt<=now().getTime()) {
       if(existing.length)changed=db.prepare('DELETE FROM booking_reminders WHERE day=? AND member_id=?').run(day,memberId).changes;
+    } else if(!preferences.bathReminder) {
+      changed=db.prepare('DELETE FROM booking_reminders WHERE day=? AND member_id=? AND (sent=0 OR start!=?)').run(day,memberId,booking.start).changes;
     } else {
       if(existing.some(job=>job.start!==booking.start))changed=db.prepare('DELETE FROM booking_reminders WHERE day=? AND member_id=? AND start!=?').run(day,memberId,booking.start).changes;
+      changed+=db.prepare('DELETE FROM booking_reminders WHERE day=? AND member_id=? AND sent=0 AND lead_minutes!=?').run(day,memberId,preferences.reminderMinutes).changes;
       const subscriptions=db.prepare('SELECT p.endpoint FROM push_subscriptions p JOIN sessions s ON s.token_hash=p.session_hash WHERE p.member_id=? AND s.expires>?').all(memberId,now().getTime());
       for(const sub of subscriptions) {
-        if(existing.some(job=>job.endpoint===sub.endpoint&&job.start===booking.start))continue;
-        changed+=db.prepare('INSERT OR IGNORE INTO booking_reminders(id,endpoint,day,member_id,start,next_attempt) VALUES(?,?,?,?,?,?)').run(randomBytes(16).toString('hex'),sub.endpoint,day,memberId,booking.start,Math.max(now().getTime(),startAt-600000)).changes;
+        if(existing.some(job=>job.endpoint===sub.endpoint&&job.start===booking.start&&(job.sent||job.lead_minutes===preferences.reminderMinutes)))continue;
+        changed+=db.prepare('INSERT OR IGNORE INTO booking_reminders(id,endpoint,day,member_id,start,next_attempt,lead_minutes) VALUES(?,?,?,?,?,?,?)').run(randomBytes(16).toString('hex'),sub.endpoint,day,memberId,booking.start,Math.max(now().getTime(),startAt-preferences.reminderMinutes*60000),preferences.reminderMinutes).changes;
       }
     }
     if(changed)onQueued();
@@ -36,7 +43,7 @@ export function createBookingReminders({db,now,deliverPush,familyConfig,onQueued
     for(const job of jobs) {
       const booking=db.prepare('SELECT b.start,m.name,m.active FROM bookings b JOIN members m ON m.id=b.member_id WHERE b.day=? AND b.member_id=?').get(job.day,job.member_id);
       const startAt=slotDate(job.day,job.start).getTime();
-      if(job.expires<=now().getTime()||job.subscription_member!==job.member_id||!booking||!booking.active||booking.start!==job.start||startAt<=now().getTime()) {
+      if(!getNotificationPreferences(db,job.member_id).bathReminder||job.expires<=now().getTime()||job.subscription_member!==job.member_id||!booking||!booking.active||booking.start!==job.start||startAt<=now().getTime()) {
         db.prepare('DELETE FROM booking_reminders WHERE id=?').run(job.id);continue;
       }
       const minutes=Math.ceil((startAt-now().getTime())/60000);
