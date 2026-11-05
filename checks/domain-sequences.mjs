@@ -1,4 +1,5 @@
-// Repeatable mixed-operation checks. Every run creates and removes a synthetic DB.
+// Seeded mixed-operation checks; lottery draws keep production randomness.
+// Every run creates and removes a synthetic DB.
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';

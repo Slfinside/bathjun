@@ -12,7 +12,7 @@ npm run test:browser
 npm run test:sequences
 ```
 
-ブラウザーテストにはChromeまたはChromiumが必要です。`BATHJUN_BROWSER_PATH`で実行ファイルを指定できます。`BATHJUN_BROWSER_SCREENSHOTS`を指定すると合成データの画面を保存します。連続操作テストは`BATHJUN_SEQUENCE_SEEDS`（カンマ区切り）と`BATHJUN_SEQUENCE_STEPS`で再現できます。
+ブラウザーテストにはChromeまたはChromiumが必要です。`BATHJUN_BROWSER_PATH`で実行ファイルを指定できます。`BATHJUN_BROWSER_SCREENSHOTS`を指定すると合成データの画面を保存します。連続操作テストは`BATHJUN_SEQUENCE_SEEDS`（カンマ区切り）と`BATHJUN_SEQUENCE_STEPS`で操作選択のseedと回数を指定できます。抽選結果には通常の乱数を使い、失敗時はseedと直近の操作を出力します。
 
 テストは一時DBを使用し、実際の予約には触れません。日本時間の日付境界、抽選、認証、公開リンクの保護、予約順と重複、備考と任意表示、通知送信の対象と再試行、データ保持などを検証します。プッシュサービスへの通信はテスト用送信処理で置き換えます。
 
