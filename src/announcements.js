@@ -44,7 +44,7 @@ export function createAnnouncements({db,now,onChanged=()=>{}}){
   function picture(pageId){publishDue();return db.prepare("SELECT p.image,p.image_type FROM announcement_pages p JOIN announcements a ON a.id=p.announcement_id WHERE p.id=? AND a.state='published'").get(pageId)}
   function seen(member,body){if(body?.memberId!==undefined&&body.memberId!==member)throw Object.assign(Error('ログインしているメンバーが変わりました。読み込み直してください。'),{status:409});get(body?.id);if(typeof body.skipped!=='boolean')invalid('お知らせの確認内容を確認してください。');db.prepare('INSERT OR IGNORE INTO announcement_receipts VALUES(?,?,?,?)').run(body.id,member,now().toISOString(),body.skipped?1:0);return {ok:true}}
   function activate(bundle,previousVersion){
-    if(!bundle||typeof bundle.version!=='string'||!/^\d+\.\d+\.\d+$/.test(bundle.version)||!/^\d+\.\d+\.\d+(?:-(?:rc|beta)[\d.]*)?$/.test(previousVersion)||previousVersion===bundle.version)invalid('更新のお知らせ情報を確認できませんでした。');
+    if(!bundle||typeof bundle.version!=='string'||!/^\d+\.\d+\.\d+(?:-(?:rc|beta)[\d.]*)?$/.test(bundle.version)||!/^\d+\.\d+\.\d+(?:-(?:rc|beta)[\d.]*)?$/.test(previousVersion)||previousVersion===bundle.version)invalid('更新のお知らせ情報を確認できませんでした。');
     transaction(()=>{if(db.prepare('SELECT 1 FROM installed_update_history WHERE version=?').get(bundle.version))return;
       save({label:bundle.label,state:'published',pages:bundle.pages},bundle.version);
       db.prepare('INSERT INTO installed_update_history VALUES(?,?,?)').run(bundle.version,previousVersion,now().toISOString());

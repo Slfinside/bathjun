@@ -87,3 +87,14 @@ test('invalid receipt IDs fail cleanly and a changed shared-device account canno
  const f=await fixture(t),id=publish(f).entries[0].id;for(const body of [{},{id:7,skipped:false},{id:'wrong',skipped:true}])assert.equal((await f.request('announcements/seen',body)).status,400);
  assert.equal((await f.request('announcements/seen',{id,skipped:true,memberId:1},2)).status,409);assert.equal((await f.api('state',undefined,2)).announcements.length,1);
 });
+
+test('installed beta announcements activate once and allow beta-to-beta and stable promotion',async t=>{
+ const f=await fixture(t);
+ const activate=(version,previous)=>f.app.activateUpdateAnnouncements({version,label:'更新 '+version,pages},previous);
+ activate('2.1.0-beta1','2.0.2');activate('2.1.0-beta1','2.0.2');
+ assert.equal(f.app.getAnnouncementsAdmin().entries.length,1);
+ activate('2.1.0-beta2','2.1.0-beta1');activate('2.1.0','2.1.0-beta2');
+ assert.equal(f.app.getAnnouncementsAdmin().entries.length,3);
+ for(const invalidVersion of ['../2.1.0-beta1','2.1.0-nightly','2.1.0-beta1/extra'])assert.throws(()=>activate(invalidVersion,'2.0.2'));
+ assert.throws(()=>activate('2.1.0-beta1','2.1.0-beta1'));
+});

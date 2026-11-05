@@ -13,11 +13,13 @@
 
 [変更点と確認範囲](docs/release-notes.md)、[使い方ガイド](docs/client-help.md)、[消灯処理と実機確認の範囲](docs/screen-off-investigation.md)をご確認ください。
 
-## v2.1.0向けの開発中の機能
+## v2.1.0-beta1（ベータ版）
 
-[期限なしの完了報告・入っていないの確認・予約の取り直し](docs/bath-reports.md)を追加しています。
+開始時刻を決めずに所要時間だけ共有する希望と、期限なしの入浴報告・「入っていない」の報告・予約の取り直しを追加しました。v2.0.2の起動修正も含みます。
 
-開始時刻をまだ決めずに、所要時間だけ共有できる希望を追加しています。[通知の条件・計算例・設定方法](docs/duration-only-wishes.md)をご覧ください。以下のv2.0.0配布物には含まれません。
+**[ベータ版のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.1.0-beta1)** · [ベータ版インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.1.0-beta1/Bathjun-Setup-x64.exe) · [ベータ版ZIP](https://github.com/Slfinside/bathjun/releases/download/v2.1.0-beta1/Bathjun-Portable-x64.zip)
+
+[時刻未定の希望と通知の条件](docs/duration-only-wishes.md)、[入浴報告と取り直し](docs/bath-reports.md)をご確認ください。安定版の自動更新ではベータ版を取得しません。試す場合は手動でインストールしてください。
 
 ## 安定版のダウンロード
 
