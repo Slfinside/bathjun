@@ -66,7 +66,7 @@ def build(args):
         for name,mode in [('start-public.cmd','public'),('start-local.cmd','local'),('family-password.cmd','password')]:
             text='\r\n'.join(['@echo off','chcp 65001 >nul','setlocal','cd /d "%~dp0app"','set "BATHJUN_DATA_DIR=%LOCALAPPDATA%\\BathjunData"','set "UV_THREADPOOL_SIZE=2"','set "GOMEMLIMIT=64MiB"',f'"%~dp0bin\\node.exe" --max-old-space-size=96 src\\windows-launcher.js {mode} %*','set "bathjun_exit=%ERRORLEVEL%"','if not "%BATHJUN_AUTOSTART%"=="1" if not "%bathjun_exit%"=="0" pause','exit /b %bathjun_exit%',''])
             (payload/name).write_bytes(text.encode('utf-8'))
-        (payload/'start-after-install.cmd').write_bytes(('\r\n'.join(['@echo off','chcp 65001 >nul','setlocal','cd /d "%~dp0app"','set "BATHJUN_DATA_DIR=%LOCALAPPDATA%\\BathjunData"','set "BATHJUN_NO_BROWSER=1"','"%~dp0bin\\node.exe" --max-old-space-size=96 src\\windows-launcher.js installed',''])).encode('utf-8'))
+        (payload/'start-after-install.cmd').write_bytes(('\r\n'.join(['@echo off','chcp 65001 >nul','setlocal','cd /d "%~dp0app"','set "BATHJUN_DATA_DIR=%LOCALAPPDATA%\\BathjunData"','set "BATHJUN_NO_BROWSER=1"','"%~dp0bin\\node.exe" --max-old-space-size=96 src\\windows-launcher.js installed','set "bathjun_exit=%ERRORLEVEL%"','if not "%BATHJUN_AUTOSTART%"=="1" if not "%bathjun_exit%"=="0" pause','exit /b %bathjun_exit%',''])).encode('utf-8'))
         (payload/'start-autostart.cmd').write_bytes(('\r\n'.join(['@echo off','set "BATHJUN_AUTOSTART=1"','set "BATHJUN_NO_BROWSER=1"','call "%~dp0start-local.cmd"',''])).encode('ascii'))
         shutil.copy2(ROOT/'packaging/windows/Windowsの使い方.txt',payload/'Windowsの使い方.txt')
         shutil.copy2(ROOT/'packaging/windows/install-tailscale.ps1',payload/'install-tailscale.ps1')

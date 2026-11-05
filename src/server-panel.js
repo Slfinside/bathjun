@@ -282,8 +282,10 @@ export async function startWindowsPanel(handlers) {
       ...(handlers.mode === "public" ? ["--public"] : []),
       ...(process.env.BATHJUN_AUTOSTART === "1" ? ["--minimized"] : []),
     ],
-    { stdio: "ignore", windowsHide: true },
+    { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
   );
+  child.stdout.on("data", data => process.stdout.write(data));
+  child.stderr.on("data", data => process.stderr.write(data));
   await new Promise((resolve, reject) => {
     child.once("spawn", resolve);
     child.once("error", reject);
@@ -292,8 +294,8 @@ export async function startWindowsPanel(handlers) {
     await controller.close();
     throw error;
   });
-  child.once("exit", () => {
-    console.warn("サーバー操作画面が終了したため、サーバーも停止します。");
+  child.once("exit", (code, signal) => {
+    console.error(`サーバー操作画面が終了しました（終了コード: ${code ?? signal}）。上のエラーを確認してください。`);
     void controller.stop(1);
   });
   const locatorPath = join(dataPaths().directory, "panel.json");

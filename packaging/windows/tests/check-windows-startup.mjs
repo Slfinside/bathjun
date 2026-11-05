@@ -1,7 +1,7 @@
 // Exercise the actual shipped EXE, configuration and bundled Node together.
 // All data belongs to this synthetic fixture, never the runner's real profile.
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {spawn,execFileSync} from 'node:child_process';
 import {connect} from 'node:net';
 import {mkdirSync,readFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
@@ -31,7 +31,9 @@ try{
  const response=await fetch(state.url);assert.equal(response.status,200);
  await command('show');await delay(300);
  // UI existence is checked in PowerShell against the real child process/window.
- console.log('STARTUP_SERVER_PID='+child.pid);
+ const window=execFileSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',`$p = Get-Process -Name Bathjun-Server | Where-Object { $_.Path -eq $env:BATHJUN_EXPECTED_UI -and $_.MainWindowHandle -ne 0 }; if (-not $p) { throw 'Shipped management window is missing' }; $p | ForEach-Object { $_.MainWindowTitle }`],{encoding:'utf8',env:{...process.env,BATHJUN_EXPECTED_UI:join(root,'bin/Bathjun-Server.exe')}});
+ assert.ok(window.trim(),'Management window is missing');
+ assert.match(output,new RegExp('ふろじゅん v'+JSON.parse(readFileSync(join(root,'app/package.json'),'utf8')).version.replaceAll('.','\\.')));
  console.log(output);
  await command('stop');
  for(let n=0;n<50&&!exit;n++)await delay(100);
