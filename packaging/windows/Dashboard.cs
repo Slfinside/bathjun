@@ -380,7 +380,7 @@ internal sealed class DashboardForm : Form {
         float last=-100;foreach(int tick in ticks){float lineY=ChartY(tick,parts,chartTop,chartHeight);if(lineY-last>=16){Write(g,Time(tick),11,Muted,new RectangleF(rect.X,lineY-8,68,22));last=lineY;using(var pen=new Pen(Line,1))g.DrawLine(pen,trackX,lineY,rect.Right,lineY);}}
         for(int i=0;i<entries.Count;i++) {
             var entry=entries[i];float y=ChartY(entry.start,parts,chartTop,chartHeight),bottom=ChartY(entry.start+entry.duration,parts,chartTop,chartHeight);
-            bool wish=entry.kind!="予約",conflict=entry.overlaps!=null&&entry.overlaps.Length>0;float x=trackX+lanes[i]*laneWidth;
+            bool wish=entry.kind!="予約",conflict=entry.notBathedAt==null&&entry.overlaps!=null&&entry.overlaps.Length>0;float x=trackX+lanes[i]*laneWidth;
             var bar=new RectangleF(x+2,y+1,Math.Max(1,laneWidth-4),Math.Max(3,bottom-y-2));
             Box(g,bar,wish?Paper:Color.FromArgb(48,62,38),conflict?Orange:Green,4,wish);
             if(entry.notBathedAt!=null)using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Muted,Color.Transparent))g.FillRectangle(brush,bar);
