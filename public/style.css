@@ -2768,3 +2768,6 @@ footer .site-credit {
 .reservation[role="button"]:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; }
 .report-history-entry { padding: 20px; margin: 16px 0; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }
 #booking-dialog .secondary { display: block; width: 100%; padding: 16px; margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; }
+
+.reservation.completed { opacity: 1; }
+.reservation.completed .outcome-label { color: var(--green); font-weight: 700; }
