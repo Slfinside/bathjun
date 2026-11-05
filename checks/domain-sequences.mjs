@@ -50,7 +50,16 @@ for(const seed of seeds){
    else if(operation===2||operation===3){path=operation===2?'wish':'book';body={day,start,duration,note:'シード'+seed,ticket};}
    else if(operation===4){path='skip';body={day,skip:!!random(2)};}
    else if(operation===5){path='cancel';body={day};}
-   else if(operation===6){const b=state.bookings?.find(b=>b.memberId===id);path='complete';body={day,revision:b?.revision||'stale'};}
+   else if(operation===6){
+    const b=db.prepare('SELECT * FROM bookings WHERE member_id=? AND day>=? ORDER BY day,start LIMIT 1').get(id,shiftDay(today,-1));
+    if(b){const starts=slotDate(b.day,b.start);if(starts>clock)clock=starts;}
+    path='complete';body={day:b?.day||day,revision:b?.revision||'stale'};
+    if(b&&random(2)){
+     try{app.completeBath({...body,memberId:id});outcomes['dashboard-complete:200']=(outcomes['dashboard-complete:200']||0)+1;}
+     catch(error){assert.ok([400,403,409].includes(error.status),error.stack);}
+     body=undefined;
+    }
+   }
    else if(operation===7){const gift=state.rewards?.gifts?.[random(state.rewards?.gifts?.length||1)];path='gifts/receive';body={id:gift?.id||'missing'};}
    else if(operation===8){path='notification-preferences';body={bathReminder:!!random(2),completionReminder:!!random(2),reminderMinutes:random(180)+1};}
    else if(operation===9){path='auto-wishes';body={days:Array.from({length:7},(_,weekday)=>({weekday,enabled:false,mode:['disabled','standby','reservation'][random(3)],start:random(96)*15,duration:30,note:'自動入力試験'}))};}
@@ -61,7 +70,7 @@ for(const seed of seeds){
    if(body){const response=await request(path,body,id);const key=path+':'+response.status;outcomes[key]=(outcomes[key]||0)+1;}
    await app.flushNotifications();verify();
   }
-  console.log(`PASS seed=${seed} operations=${steps} bookings=${db.prepare('SELECT COUNT(*) n FROM bookings').get().n} outcomes=${JSON.stringify(outcomes)}`);
+  console.log(`PASS seed=${seed} operations=${steps} bookings=${db.prepare('SELECT COUNT(*) n FROM bookings').get().n} completed=${db.prepare('SELECT COUNT(*) n FROM bath_completions').get().n} rebooked=${db.prepare('SELECT COUNT(*) n FROM rebooking_history').get().n} outcomes=${JSON.stringify(outcomes)}`);
  }catch(error){console.error('Sequence failure',JSON.stringify({seed,history},null,2));throw error;}
  finally{db.close();await new Promise(r=>server.close(r));app.close();rmSync(dir,{recursive:true,force:true});}
 }

@@ -15,7 +15,7 @@ let state,
   me = null,
   selectedDay,
   selectedMember,
-  refreshing = false,
+  refreshing = null,
   busy = false,
   lastSignature = "";
 let pageView = "home",
@@ -625,26 +625,38 @@ profileDialog.addEventListener("submit", async (event) => {
     button.disabled = false;
   }
 });
-async function refresh(force = false) {
-  if (!me || refreshing) return;
-  refreshing = true;
+function refresh(force = false) {
+  if (!me) return Promise.resolve();
+  // Mutations and date changes must wait for their own fresh response.
+  if (refreshing) return force ? refreshing.then(() => refresh(true)) : refreshing;
+  refreshing = refreshOnce(force).finally(() => { refreshing = null; });
+  return refreshing;
+}
+async function refreshOnce(force) {
+  const account = me;
+  let requestedDay = selectedDay;
+  const currentRequest = () => account === me && requestedDay === selectedDay;
   try {
     let data;
     try {
-      data = await api(`state${selectedDay ? `?day=${selectedDay}` : ""}`);
+      data = await api(`state${requestedDay ? `?day=${requestedDay}` : ""}`);
     } catch (error) {
-      if (error.status !== 400 || !selectedDay) throw error;
-      selectedDay = undefined;
+      if (!currentRequest()) return;
+      if (error.status !== 400 || !requestedDay) throw error;
+      selectedDay = requestedDay = undefined;
       data = await api("state");
     }
+    if (!currentRequest()) return;
     if (
       pageView === "stamps" &&
       stampWeek &&
       data.rewards.card.week !== stampWeek
-    )
-      data.rewards.card = (
-        await api("rewards?week=" + encodeURIComponent(stampWeek))
-      ).card;
+    ) {
+      const requestedWeek = stampWeek;
+      const card = (await api("rewards?week=" + encodeURIComponent(requestedWeek))).card;
+      if (!currentRequest() || pageView !== "stamps" || stampWeek !== requestedWeek) return;
+      data.rewards.card = card;
+    }
     const signature = JSON.stringify([
       data.day,
       data.today,
@@ -676,7 +688,7 @@ async function refresh(force = false) {
       itemsWereEnabled &&
       !itemsEnabled() &&
       dialog.open &&
-      ["item", "stamp-ink", "celebration", "booking", "wish"].includes(
+      ["item", "stamp-ink", "celebration", "booking", "wish", "rebook"].includes(
         dialog.dataset.mode,
       )
     ) {
@@ -717,11 +729,10 @@ async function refresh(force = false) {
     const connection = document.querySelector("#connection-status");
     if (connection) connection.textContent = "共有データを更新済み";
   } catch (error) {
+    if (!currentRequest()) return;
     if (force) notify(error.message);
     const status = document.querySelector("#connection-status");
     if (status) status.textContent = "接続できません · サーバーと接続を確認";
-  } finally {
-    refreshing = false;
   }
 }
 function renderDashboard() {

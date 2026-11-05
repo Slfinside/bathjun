@@ -230,10 +230,13 @@ export function createApp({
       if(closed)return;
       const jobs = db
         .prepare(
-          "SELECT q.*,p.subscription_json,s.expires FROM notification_queue q JOIN push_subscriptions p ON p.endpoint=q.endpoint JOIN sessions s ON s.token_hash=p.session_hash WHERE q.next_attempt<=? ORDER BY q.id LIMIT 20",
+          "SELECT q.id FROM notification_queue q WHERE q.next_attempt<=? ORDER BY q.id LIMIT 20",
         )
         .all(now().getTime());
-      for (const job of jobs) {
+      for (const queuedJob of jobs) {
+        if (closed) return;
+        const job = db.prepare("SELECT q.*,p.subscription_json,s.expires FROM notification_queue q JOIN push_subscriptions p ON p.endpoint=q.endpoint JOIN sessions s ON s.token_hash=p.session_hash WHERE q.next_attempt<=? AND q.id=?").get(now().getTime(), queuedJob.id);
+        if (!job) continue;
         if (
           job.expires <= now().getTime() ||
           currentTurn(job.day) !== job.member_id || !getNotificationPreferences(db,job.member_id).reservationTurn
@@ -566,9 +569,12 @@ export function createApp({
         ["/api/login", "/api/register"].includes(url.pathname)
       ) {
         const epoch=familyConfig().access_token;
+        const memberId = typeof body.memberId === "string" && /^[1-9][0-9]*$/.test(body.memberId) ? Number(body.memberId) : body.memberId;
+        if (!Number.isSafeInteger(memberId) || memberId < 1)
+          fail(400, "利用できる名前を選んでください。");
         const member = db
           .prepare("SELECT * FROM members WHERE id=?")
-          .get(Number(body.memberId) || 0);
+          .get(memberId);
         if (!member || !member.active)
           fail(400, "利用できる名前を選んでください。");
         if (

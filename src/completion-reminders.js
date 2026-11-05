@@ -104,11 +104,13 @@ export function createCompletionReminders({
     if (isClosed()) return;
     const jobs = db
       .prepare(
-        "SELECT r.*,p.subscription_json,p.member_id AS owner,s.member_id AS session_member,s.expires FROM completion_reminders r JOIN push_subscriptions p ON p.endpoint=r.endpoint JOIN sessions s ON s.token_hash=p.session_hash WHERE r.sent=0 AND r.next_attempt<=? ORDER BY r.next_attempt LIMIT 20",
+        "SELECT r.id FROM completion_reminders r WHERE r.sent=0 AND r.next_attempt<=? ORDER BY r.next_attempt LIMIT 20",
       )
       .all(now().getTime());
-    for (const job of jobs) {
+    for (const queuedJob of jobs) {
       if (isClosed()) return;
+      const job = db.prepare("SELECT r.*,p.subscription_json,p.member_id AS owner,s.member_id AS session_member,s.expires FROM completion_reminders r JOIN push_subscriptions p ON p.endpoint=r.endpoint JOIN sessions s ON s.token_hash=p.session_hash WHERE r.sent=0 AND r.next_attempt<=? AND r.id=?").get(now().getTime(), queuedJob.id);
+      if (!job) continue;
       const booking = bookingFor(job.day, job.member_id);
       const deadline = booking ? endsAt(booking) + reportMinutes() * 60000 : 0;
       if (

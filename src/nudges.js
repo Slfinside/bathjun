@@ -91,13 +91,13 @@ export function createNudges({
     if (isClosed()) return;
     const jobs = db
       .prepare(
-        "SELECT j.*,n.member_id,n.day,n.requested_at,p.subscription_json,p.member_id AS owner,s.member_id AS session_member,s.expires FROM nudge_jobs j JOIN nudges n ON n.id=j.nudge_id JOIN push_subscriptions p ON p.endpoint=j.endpoint JOIN sessions s ON s.token_hash=p.session_hash WHERE j.next_attempt<=? ORDER BY j.next_attempt LIMIT 20",
+        "SELECT j.id FROM nudge_jobs j WHERE j.next_attempt<=? ORDER BY j.next_attempt LIMIT 20",
       )
       .all(now().getTime());
-    for (const job of jobs) {
+    for (const queuedJob of jobs) {
       if (isClosed()) return;
-      if (!db.prepare("SELECT 1 FROM nudge_jobs WHERE id=?").get(job.id))
-        continue;
+      const job = db.prepare("SELECT j.*,n.member_id,n.day,n.requested_at,p.subscription_json,p.member_id AS owner,s.member_id AS session_member,s.expires FROM nudge_jobs j JOIN nudges n ON n.id=j.nudge_id JOIN push_subscriptions p ON p.endpoint=j.endpoint JOIN sessions s ON s.token_hash=p.session_hash WHERE j.next_attempt<=? AND j.id=?").get(now().getTime(), queuedJob.id);
+      if (!job) continue;
       if (
         job.expires <= now().getTime() ||
         job.owner !== job.member_id ||

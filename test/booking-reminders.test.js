@@ -95,3 +95,23 @@ test('通知送信中に何分前かを変えても、同じ開始時刻の通�
  let changed=false;f.setHook(async()=>{if(!changed){changed=true;await f.api('notification-preferences',{reminderMinutes:20},f.cookies[1])}});
  await f.flush();f.setHook(null);await f.flush();assert.equal(f.sent.length,1);
 });
+
+test('複数端末への通知送信中に直前通知へ変更したら、未送信端末は新しい時刻まで待つ',async t=>{
+ const f=await fixture(t);await f.subscribe(1,'lead-a');await f.subscribe(1,'lead-b');await f.book();f.setTime(at('17:50:00'));
+ let changed=false;f.setHook(async()=>{if(!changed){changed=true;await f.api('notification-preferences',{reminderMinutes:1},f.cookies[1])}});
+ await f.flush();f.setHook(null);assert.equal(f.sent.length,1);assert.equal(f.app.notificationDueAt(),at('17:59:00').getTime());
+ f.setTime(at('17:59:00'));await f.flush();assert.equal(f.sent.length,2);assert.match(f.sent[1].payload.body,/約1分/);
+});
+
+test('複数端末への通知送信中に時計が戻っても、残りの端末へ早く通知しない',async t=>{
+ const f=await fixture(t);await f.subscribe(1,'clock-a');await f.subscribe(1,'clock-b');await f.book();f.setTime(at('17:50:00'));
+ let changed=false;f.setHook(()=>{if(!changed){changed=true;f.setTime(at('17:40:00'))}});
+ await f.flush();f.setHook(null);assert.equal(f.sent.length,1);assert.equal(f.app.notificationDueAt(),at('17:50:00').getTime());
+ f.setTime(at('17:50:00'));await f.flush();assert.equal(f.sent.length,2);
+});
+
+test('通知送信中にログアウトしたら、残りの端末には送信しない',async t=>{
+ const f=await fixture(t);await f.subscribe(1,'logout-a');await f.subscribe(1,'logout-b');await f.book();f.setTime(at('17:50:00'));
+ let changed=false;f.setHook(async()=>{if(!changed){changed=true;await f.api('logout',{},f.cookies[1])}});
+ await f.flush();assert.equal(f.sent.length,1);assert.equal(f.app.notificationDueAt(),null);
+});

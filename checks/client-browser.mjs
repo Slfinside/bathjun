@@ -83,6 +83,59 @@ try {
   await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
   await page.locator('.member-button').first().waitFor();assert.equal(await page.locator('dialog[open]').count(),0);
  });
+ await scenario('day-during-refresh',async({page,url})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  let release,seen;
+  const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);
+  let first=true;
+  await page.route('**/api/state?day=2026-11-04',async route=>{
+   if(first){first=false;const response=await route.fetch();seen();await held;await route.fulfill({response});}
+   else await route.continue();
+  });
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await requested;
+  await page.locator('[data-day="2026-11-03"]').click();release();
+  await page.getByRole('heading',{name:'11月3日(火)',exact:true}).waitFor({timeout:3000});
+ });
+ await scenario('booking-during-refresh',async({page,url,state})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  let release,seen;
+  const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);let first=true;
+  await page.route('**/api/state?day=2026-11-04',async route=>{
+   if(first){first=false;const response=await route.fetch();seen();await held;await route.fulfill({response});}
+   else await route.continue();
+  });
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await requested;
+  await page.locator('[data-action="book"]').click();await page.locator('#start').selectOption('1080');
+  const saved=page.waitForResponse(r=>r.url().endsWith('/api/book'));
+  await page.locator('#save-booking').click();assert.equal((await saved).status(),200);release();
+  await page.getByRole('heading',{name:'18:00 〜 18:30',exact:true}).waitFor({timeout:3000});
+  assert.equal((await state()).bookings[0].start,1080);
+ });
+ await scenario('logout-during-refresh',async({page,url,navigate})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  await navigate('設定','#auto-wishes-form');
+  let release,seen;
+  const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);let first=true;
+  await page.route('**/api/state?day=2026-11-04',async route=>{
+   if(first){first=false;const response=await route.fetch();seen();await held;await route.fulfill({response});}
+   else await route.continue();
+  });
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await requested;
+  await page.locator('[data-action="logout"]').click();await page.locator('.member-button').first().waitFor();
+  // Wait for the held stale response's handler, then assert the login survives it.
+  const stale=page.waitForResponse(r=>r.url().includes('/api/state?day=2026-11-04'));release();await stale;
+  await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  assert.ok(await page.locator('.member-button').count()>0);assert.equal(await page.locator('.date-bar').count(),0);
+ });
+ await scenario('morning-rebooking',async({page,url,api,time,screenshot})=>{
+  await api('book',{day:'2026-11-04',start:1800,duration:30});time('2026-11-05T06:32:00');
+  await page.goto(url);const modal=page.locator('#booking-dialog');
+  await modal.getByRole('button',{name:'予約を取り直す',exact:true}).click();
+  await modal.getByRole('heading',{name:'おふろを予約し直す',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'11月4日(水)',exact:true}).waitFor();
+  assert.deepEqual(await modal.locator('#start option').evaluateAll(options=>options.map(o=>Number(o.value))),[1845]);
+  await screenshot('previous-night');
+ });
  await scenario('gateway-response',async({page,url})=>{
   let first=true;await page.route('**/api/family',async route=>{
    if(first){first=false;await route.fulfill({status:502,contentType:'text/html',body:'<html>Bad gateway</html>'});}

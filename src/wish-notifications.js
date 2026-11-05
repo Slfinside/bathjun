@@ -68,10 +68,13 @@ export function createWishNotifications({
   async function flush() {
     const jobs = db
       .prepare(
-        "SELECT j.*,e.revision,e.day,e.member_id,e.kind,e.start,e.duration,e.displaced,p.subscription_json,p.member_id AS owner,s.expires,m.name,m.active FROM wish_notification_jobs j JOIN wish_outcomes e ON e.id=j.event_id JOIN push_subscriptions p ON p.endpoint=j.endpoint JOIN sessions s ON s.token_hash=p.session_hash JOIN members m ON m.id=e.member_id WHERE j.sent=0 AND j.next_attempt<=? ORDER BY j.next_attempt LIMIT 20",
+        "SELECT j.id FROM wish_notification_jobs j WHERE j.sent=0 AND j.next_attempt<=? ORDER BY j.next_attempt LIMIT 20",
       )
       .all(now().getTime());
-    for (const job of jobs) {
+    for (const queuedJob of jobs) {
+      if (isClosed()) return;
+      const job = db.prepare("SELECT j.*,e.revision,e.day,e.member_id,e.kind,e.start,e.duration,e.displaced,p.subscription_json,p.member_id AS owner,s.expires,m.name,m.active FROM wish_notification_jobs j JOIN wish_outcomes e ON e.id=j.event_id JOIN push_subscriptions p ON p.endpoint=j.endpoint JOIN sessions s ON s.token_hash=p.session_hash JOIN members m ON m.id=e.member_id WHERE j.sent=0 AND j.next_attempt<=? AND j.id=?").get(now().getTime(), queuedJob.id);
+      if (!job) continue;
       const valid = job.displaced
         ? true
         : job.kind === "wishConfirmed"

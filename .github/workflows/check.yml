@@ -16,7 +16,17 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
       - name: Check client workflows in Chromium
+        env:
+          BATHJUN_BROWSER_SCREENSHOTS: ${{ runner.temp }}/client-previews
         run: npm run test:browser
+      - name: Keep synthetic client previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-previews
+          path: ${{ runner.temp }}/client-previews/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Check mixed booking and item operations
         run: npm run test:sequences
       - name: Build the static client manual
