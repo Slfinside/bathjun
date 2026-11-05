@@ -270,7 +270,7 @@ internal sealed class DashboardForm : Form {
         var positive=new RectangleF(rect.X-152,rect.Y,148,rect.Height);ReportButton(g,entry,positive);
         Box(g,rect,Paper,Line,10);Write(g,"入っていない",13,Muted,new RectangleF(rect.X+8,rect.Y+10,rect.Width-12,28),true);missedAreas.Add(new KeyValuePair<RectangleF,DashboardEntry>(HitArea(rect),entry));
     }
-    Form ReportWindow(string title,int height){var form=new Form{Text=title,ClientSize=new Size(580,height),StartPosition=FormStartPosition.CenterParent,BackColor=Background,ForeColor=Ink,Font=Font,MinimizeBox=false,MaximizeBox=false,FormBorderStyle=FormBorderStyle.FixedDialog};form.AutoScaleDimensions=new SizeF(96,96);form.AutoScaleMode=AutoScaleMode.Dpi;return form;}
+    Form ReportWindow(string title,int height){var form=new Form{Text=title,ClientSize=new Size(580,height),StartPosition=FormStartPosition.CenterParent,BackColor=Background,ForeColor=Ink,Font=Font,MinimizeBox=false,MaximizeBox=false,FormBorderStyle=FormBorderStyle.FixedDialog};form.AutoScaleDimensions=new SizeF(96,96);form.AutoScaleMode=AutoScaleMode.Dpi;new TouchScroll(form);return form;}
     Button ReportChoice(string title,DialogResult result,int top){return new Button{Text=title,DialogResult=result,Location=new Point(22,top),Size=new Size(536,48),BackColor=Paper,ForeColor=Ink,FlatStyle=FlatStyle.Flat};}
     void ChooseReport(DashboardEntry entry){
         using(var form=ReportWindow("入浴の報告",300)){
