@@ -29,10 +29,10 @@ async function fixture(t,{onPush=null}={}){
   sql:fn=>{const db=new DatabaseSync(database);try{return fn(db)}finally{db.close()}}};
 }
 
-test('初期はクライアント報告を禁止し、通知は指定の4種類だけ有効にする',async t=>{
+test('初期はクライアント報告を禁止し、通知は指定の5種類だけ有効にする',async t=>{
  const f=await fixture(t);const state=await f.state();assert.equal(state.rewards.settings.clientReportEnabled,false);
  assert.deepEqual(state.notificationPreferences,DEFAULT_NOTIFICATION_PREFERENCES);
- assert.deepEqual(Object.entries(state.notificationPreferences).filter(([key,value])=>typeof value==='boolean'&&value).map(([key])=>key).sort(),['nudge','wishUnconfirmed','bathReminder','completionReminder'].sort());
+ assert.deepEqual(Object.entries(state.notificationPreferences).filter(([key,value])=>typeof value==='boolean'&&value).map(([key])=>key).sort(),['nudge','wishUnconfirmed','bathReminder','completionReminder','timeSelectionReminder'].sort());
  await f.api('notification-preferences',{wishConfirmed:true});await f.restart();assert.equal((await f.state()).notificationPreferences.wishConfirmed,true);
  await f.book();const booking=(await f.state()).bookings[0];f.time('2026-11-04T18:10:00');
  for(const source of [undefined,'dashboard'])assert.equal((await f.request('complete',{day:'2026-11-04',revision:booking.revision,source})).status,403);

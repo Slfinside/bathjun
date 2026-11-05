@@ -380,6 +380,7 @@ function notificationPreferencesForm() {
     ["reservationTurn", "予約の順番が回ってきた"],
     ["nudge", "つつかれた"],
     ["bathReminder", "入浴開始前のお知らせ"],
+    ["timeSelectionReminder", "開始時刻を決めるお願い"],
     ["completionReminder", "予約終了時の完了報告のお知らせ"],
   ]
     .filter(([key]) => itemsEnabled() || key !== "bookingDisplaced")
@@ -502,6 +503,7 @@ document
         "nudge",
         "bathReminder",
         "completionReminder",
+        "timeSelectionReminder",
       ])
         settings[key] =
           key === "bookingDisplaced" && !itemsEnabled()
@@ -686,6 +688,7 @@ async function refreshOnce(force) {
       data.unreportedBooking,
       data.standbyWarning,
       data.ignoreLowerPriorityWishes,
+      data.nightPlanning?.nightDeadline,
       Math.floor(new Date(data.now).getTime() / 60000),
     ]);
     if (data.me.id !== account.id) resetNavigation();
@@ -822,7 +825,7 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
   else if (booking)
     content = `${icon("check")}<div><span class="eyebrow">YOUR BATH TIME</span><h3>${time(booking.start)} <span>〜</span> ${time(booking.start + booking.duration)}</h3><p>${booking.automatic ? "自動予約" : booking.autoConfirmed ? "希望から自動確定" : "あなたの予約"} · ${booking.duration}分</p></div>${canEdit ? `<button class="primary" data-action="book" aria-label="自分の予約を変更">${icon("edit")}予約を変更</button>` : ""}`;
   else if (yourTurn)
-    content = `${icon("bath")}<div><h3>${escapeHTML(me.name)}さん、選ぶ番です。</h3>${isDeferred() ? "<p>末尾の順番が回ってきました。希望するなら予約できます。</p>" : ""}</div>`;
+    content = `${icon("bath")}<div><h3>${escapeHTML(me.name)}さん、選ぶ番です。</h3>${ownWish()?.start===null?`<p>${ownWish().duration}分・時刻未定</p>`:""}${isDeferred() ? "<p>末尾の順番が回ってきました。希望するなら予約できます。</p>" : ""}</div>`;
   else if (isDeferred())
     content = `${icon("clock")}<div><h3>入らない/様子見 · 順番は最後へ</h3><p>入らないと確定した扱いではありません。順番が来たら予約できます。</p>${state.standbyWarning ? `<p class="notice">${escapeHTML(state.standbyWarning.message)}</p>` : ""}</div>`;
   else
@@ -836,7 +839,7 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
     serverNow().getTime() <=
       slotDate(booking.start + booking.duration).getTime() +
         (state.rewards.settings.clientReportMinutes ?? 3) * 60000;
-  return `<section class="booking-banner ${yourTurn ? "is-turn" : ""}">${content}${beforeTurn ? `<div class="preference-action"><h3>事前希望</h3>${ownWish() ? `<p>${time(ownWish().start)}〜${time(ownWish().start + ownWish().duration)}</p>` : ""}<button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div>` : ""}${completion ? '<button class="primary" data-action="complete-bath">完了を報告</button>' : booking?.completedAt ? "<p>入浴済み・完了報告済み</p>" : ""}${booking && state.unreportedBooking?.revision === booking.revision ? '<button class="primary" data-action="rebook">予約を取り直す</button>' : ""}${yourTurn ? `<button class="primary" data-action="book">時間を選ぶ${icon("arrow")}</button>` : ""}${!expired && (!booking || canEdit) ? `<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button>` : ""}</section>`;
+  return `<section class="booking-banner ${yourTurn ? "is-turn" : ""}">${content}${beforeTurn ? `<div class="preference-action"><h3>事前希望</h3>${ownWish() ? `<p>${ownWish().start===null ? `${ownWish().duration}分・時刻未定` : `${time(ownWish().start)}〜${time(ownWish().start + ownWish().duration)}`}</p>` : ""}<button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div>` : ""}${completion ? '<button class="primary" data-action="complete-bath">完了を報告</button>' : booking?.completedAt ? "<p>入浴済み・完了報告済み</p>" : ""}${booking && state.unreportedBooking?.revision === booking.revision ? '<button class="primary" data-action="rebook">予約を取り直す</button>' : ""}${yourTurn ? `<button class="primary" data-action="book">時間を選ぶ${icon("arrow")}</button>` : ""}${!expired && (!booking || canEdit) ? `<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button>` : ""}</section>`;
 }
 function renderWishes() {
   return `<section class="wishes-card"><div class="card-title"><h2>みんなの希望</h2></div>${state.wishes.map(renderWish).join("")}${state.skips
@@ -850,6 +853,7 @@ function renderWishes() {
     )}${!state.wishes.length && !state.skips.length ? '<p class="empty-wish">まだ希望はありません。</p>' : ""}</section>`;
 }
 function renderWish(w) {
+  if(w.start===null)return `<article class="wish-item untimed-wish"><div class="wish-person">${avatar(w.memberId,true)}<strong>${escapeHTML(memberName(w.memberId))}</strong><span>希望・未確定</span></div><div class="wish-time">${w.duration}分<small>時刻未定</small></div>${w.note?`<p class="booking-note">${escapeHTML(w.note)}</p>`:""}</article>`;
   const conflict =
     state.bookings.some(
       (b) => b.start < w.start + w.duration && b.start + b.duration > w.start,
@@ -857,6 +861,7 @@ function renderWish(w) {
     state.wishes.some(
       (other) =>
         other.memberId !== w.memberId &&
+        other.start !== null &&
         other.start < w.start + w.duration &&
         other.start + other.duration > w.start,
     );
@@ -866,7 +871,7 @@ const scheduleEnd = () =>
   Math.max(
     state.settings.bathEnd,
     ...state.bookings.map((b) => b.start + b.duration),
-    ...state.wishes.map((w) => w.start + w.duration),
+    ...state.wishes.filter(w=>w.start!==null).map((w) => w.start + w.duration),
   );
 function renderSchedule() {
   const ruler = (segment) =>
@@ -885,8 +890,10 @@ function renderSchedule() {
     scheduleEnd(),
     state.wishes,
   );
-  return (
-    (!state.bookings.length && !state.wishes.length
+  const untimed=state.wishes.filter(w=>w.start===null);
+  const untimedSummary=untimed.length?`<div class="untimed-plans"><strong>時刻未定</strong>${untimed.map(w=>`<span>${escapeHTML(memberName(w.memberId))} · ${w.duration}分</span>`).join("")}</div>`:"";
+  return untimedSummary + (
+    (!state.bookings.length && !state.wishes.some(w=>w.start!==null)
       ? '<p class="schedule-empty-hint">まだ予約はありません。</p>'
       : "") +
     segments
@@ -945,6 +952,7 @@ function openBooking(mode = "booking") {
   const originalBooking = ownBooking();
   const booking = isRebooking ? null : originalBooking, wish = isRebooking ? null : ownWish();
   const entry = isRebooking ? originalBooking : isWish ? wish : booking || wish;
+  const canShareDuration=!booking&&!isRebooking;
   if (isRebooking) dialog.dataset.rebookRevision = originalBooking.revision;
   else delete dialog.dataset.rebookRevision;
   const extra =
@@ -969,14 +977,15 @@ function openBooking(mode = "booking") {
   const initialDuration =
     (durations.includes(entry?.duration) ? entry.duration : null) || (durations.includes(30) ? 30 : durations[0]);
   dialog.dataset.mode = mode;
-  dialog.innerHTML = `<div class="sheet-handle" aria-hidden="true"></div><div class="sheet-heading"><div><div class="eyebrow">${isWish ? "LET YOUR FAMILY KNOW" : "YOUR LITTLE BREAK"}</div><h2 id="booking-title">${isWish ? "先に、希望を伝えよう。" : isRebooking ? "おふろを予約し直す" : booking ? "おふろの時間を変更" : "何時に、あたたまる？"}</h2></div><button class="icon-button" data-action="close" aria-label="閉じる">${icon("close")}</button></div><p class="muted">${dateLabel(state.day)} · ${isWish ? "希望は家族みんなに共有されます。順番が来て重なりがなければ自動で確定します。" : "脱衣所に入る時刻を選んでください。"}</p>${
+  dialog.innerHTML = `<div class="sheet-handle" aria-hidden="true"></div><div class="sheet-heading"><div><div class="eyebrow">${isWish ? "LET YOUR FAMILY KNOW" : "YOUR LITTLE BREAK"}</div><h2 id="booking-title">${isWish ? "先に、希望を伝えよう。" : isRebooking ? "おふろを予約し直す" : booking ? "おふろの時間を変更" : "何時に、あたたまる？"}</h2></div><button class="icon-button" data-action="close" aria-label="閉じる">${icon("close")}</button></div><p class="muted">${dateLabel(state.day)} · ${isWish ? "希望は家族みんなに共有されます。時刻を指定した希望は、順番が来て重なりがなければ自動で確定します。" : "脱衣所に入る時刻を選んでください。"}</p>${
     !isWish && state.wishes.some((w) => w.memberId !== me.id)
       ? `<details class="other-wishes"><summary>ほかの人の希望を確認する</summary>${state.wishes
           .filter((w) => w.memberId !== me.id)
           .map((w) => renderWish(w))
           .join("")}</details>`
       : ""
-  }${isRebooking && itemsEnabled() && originalBooking?.ticket ? '<p class="fine-print">元の予約で使ったアイテムは戻りません。新しい予約に使う場合は、別のアイテムが必要です。</p>' : ""}${itemsEnabled() && pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}${ticketLimits(pendingItem || booking?.ticket)}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish ? "希望する開始時刻" : "脱衣所に入る時刻"}</label><select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${(isRebooking ? entry?.noNegotiation : booking?.noNegotiation) ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "重なっている時間にも希望を出せます。重なりがある間は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish ? `<button type="button" class="skip-button" data-action="wish-standby">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見を伝える"}</button>` : ""}${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
+  }${isRebooking && itemsEnabled() && originalBooking?.ticket ? '<p class="fine-print">元の予約で使ったアイテムは戻りません。新しい予約に使う場合は、別のアイテムが必要です。</p>' : ""}${itemsEnabled() && pendingItem ? `<p class="selected-ticket">${escapeHTML(itemName(pendingItem))}を使用${pendingItem === "skip" ? "：重なる予約は事前希望に戻ります。" : ""}</p>` : ""}<form id="booking-form">${ticketSelect()}${ticketLimits(pendingItem || booking?.ticket)}<fieldset class="duration-fieldset"><legend>おふろに使う時間</legend><div class="duration-options">${durations.length > 12 ? `<select name="duration" aria-label="おふろに使う時間">${durations.map((d) => `<option value="${d}" ${initialDuration === d ? "selected" : ""}>${d}分</option>`).join("")}</select>` : durations.map((d) => `<label><input type="radio" name="duration" value="${d}" ${initialDuration === d ? "checked" : ""}><span>${d}<small>分</small></span></label>`).join("")}</div></fieldset><label for="start">${isWish||canShareDuration ? "希望する開始時刻" : "脱衣所に入る時刻"}</label>${canShareDuration?`<label class="checkbox-label untimed-choice"><input type="checkbox" name="untimed" ${entry?.start===null?"checked":""}><span>時刻は決めない</span></label>`:""}<select id="start" name="start" required></select><div class="end-summary">${icon("clock")}<span>出る時刻</span><strong id="end-time"></strong></div><p class="fine-print">着替えの時間も含めてください。</p><label for="booking-note">${isWish ? "希望の理由" : "備考"} <span class="optional">任意・300文字まで</span></label><textarea id="booking-note" name="note" maxlength="300" rows="3" placeholder="例：明日は出張で早起きなので、この時間に入りたいです。">${escapeHTML(entry?.note || "")}</textarea>${isWish ? "" : `<label class="checkbox-label negotiation-choice"><input type="checkbox" name="noNegotiation" ${(isRebooking ? entry?.noNegotiation : booking?.noNegotiation) ? "checked" : ""}><span>時間変更不可</span></label>`}<p class="fine-print">${isWish ? "時刻付きの希望は、重なっている時間にも出せます。時刻未定の希望は自動確定しません。" : "備考と選択内容は、家族みんなに表示されます。"}</p><p class="form-error" id="booking-error" role="alert"></p><button type="submit" class="primary" id="save-booking">${isWish ? "この希望を家族に共有する" : booking ? "この時間に変更する" : "この時間で予約する"}${icon("check")}</button>${isWish ? `<button type="button" class="skip-button" data-action="wish-standby">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見を伝える"}</button>` : ""}${isWish && wish ? '<button type="button" class="cancel-booking" data-action="cancel-wish">希望を取り消す</button>' : !isWish && booking ? '<button type="button" class="cancel-booking" data-action="cancel">この予約を取り消す</button>' : ""}</form>`;
+  dialog.querySelector("#save-booking").dataset.timedLabel=dialog.querySelector("#save-booking").textContent.trim();
   updateSlots(entry?.start);
   applyMemberColors(dialog);
   dialog.showModal();
@@ -1040,6 +1049,14 @@ function ticketLimits(kind) {
 function updateSlots(preferred) {
   const select = document.querySelector("#start");
   const duration = selectedDuration();
+  const untimed=!!dialog.querySelector('[name="untimed"]:checked');
+  select.required=!untimed;
+  select.hidden=untimed;
+  dialog.querySelector('.end-summary').hidden=untimed;
+  const negotiation=dialog.querySelector('.negotiation-choice');if(negotiation)negotiation.hidden=untimed;
+  const save=dialog.querySelector('#save-booking');
+  save.innerHTML=(untimed?'使う時間を共有する':save.dataset.timedLabel)+icon('check');
+  if(untimed){select.disabled=true;save.disabled=false;return;}
   const previous = preferred ?? Number(select.value);
   let html = "",
     values = [];
@@ -1345,6 +1362,7 @@ dialog.addEventListener("click", (event) => {
     void handleRewardsAction(action, event);
 });
 dialog.addEventListener("change", (event) => {
+  if(event.target.name==='untimed'){updateSlots();return;}
   if (event.target.name === "ticket") {
     pendingItem = event.target.value || null;
     const mode = dialog.dataset.mode,
@@ -1358,6 +1376,8 @@ dialog.addEventListener("change", (event) => {
     if (duration) duration.checked = true;
     const durationSelect = dialog.querySelector('select[name="duration"]');
     if (durationSelect && [...durationSelect.options].some(option => option.value === values.get("duration"))) durationSelect.value = values.get("duration");
+    const untimed = dialog.querySelector('[name="untimed"]');
+    if(untimed)untimed.checked=values.has('untimed');
     const negotiation = dialog.querySelector('[name="noNegotiation"]');
     if (negotiation) negotiation.checked = values.has("noNegotiation");
     updateSlots(Number(values.get("start")));
@@ -1374,9 +1394,10 @@ dialog.addEventListener("submit", async (event) => {
     button = dialog.querySelector("#save-booking");
   button.disabled = true;
   try {
-    const result = await api(dialog.dataset.mode === "wish" ? "wish" : "book", {
+    const untimed=form.has('untimed');
+    const result = await api(untimed||dialog.dataset.mode === "wish" ? "wish" : "book", {
       day: state.day,
-      start: Number(form.get("start")),
+      start: untimed?null:Number(form.get("start")),
       duration: Number(form.get("duration")),
       note: String(form.get("note") || ""),
       noNegotiation: form.get("noNegotiation") === "on",
@@ -1386,7 +1407,7 @@ dialog.addEventListener("submit", async (event) => {
     dialog.close();
     pendingItem = null;
     notify(
-      dialog.dataset.mode === "wish"
+      untimed ? "使う時間を共有しました。" : dialog.dataset.mode === "wish"
         ? result.autoConfirmed
           ? "希望が自動で確定しました。"
           : "希望を共有しました。"

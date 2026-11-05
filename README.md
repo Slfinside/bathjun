@@ -10,6 +10,10 @@
 
 [変更点と確認範囲](docs/release-notes.md)、[使い方ガイド](docs/client-help.md)、[消灯処理と実機確認の範囲](docs/screen-off-investigation.md)をご確認ください。
 
+## v2.1.0向けの開発中の機能
+
+開始時刻をまだ決めずに、所要時間だけ共有できる希望を追加しています。[通知の条件・計算例・設定方法](docs/duration-only-wishes.md)をご覧ください。以下のv2.0.0配布物には含まれません。
+
 ## 安定版のダウンロード
 
 **[GitHub Releases](https://github.com/Slfinside/bathjun/releases/latest)** から取得してください。

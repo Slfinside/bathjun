@@ -11,6 +11,7 @@ export function createWishNotifications({
   currentTurn,
 }) {
   function record(wish, kind) {
+    if(wish.start===null)return;
     const id = wish.revision + "-" + kind;
     let queued = false;
     const displaced = !!db

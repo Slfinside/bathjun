@@ -63,7 +63,7 @@ public sealed class PanelOutbox : IDisposable {
 }
 public sealed class Member {public int id;public string name;public bool active;}
 public sealed class Schedule {public int bookingCutoff=420;public int lotteryStart,lotteryEnd,minDuration,maxDuration,step;public bool lotteryTimeRestricted;public string orderMode;public int[] fixedOrder;}
-public sealed class Settings {public Member[] members;public Schedule current,upcoming;public string effectiveDay;public bool ignoreLowerPriorityWishes;}
+public sealed class Settings {public int nightDeadline=120;public Member[] members;public Schedule current,upcoming;public string effectiveDay;public bool ignoreLowerPriorityWishes;}
 public sealed class ServerState {public string phase,detail,url;public int pid;public bool serverPowerHeld;}
 public sealed class SecurityMember {public int id;public string name;public bool passwordSet;}
 public sealed class SecurityInfo {public bool familyConfigured;public SecurityMember[] members;}
@@ -111,7 +111,7 @@ internal sealed class PanelForm : Form {
     DisplaySchedulePreferences displaySchedule=DisplaySchedulePreferences.Read();
     readonly CheckBox dashboardFixed=new CheckBox();
     readonly NumericUpDown dashboardMinutes=new NumericUpDown{Minimum=1,Maximum=60,Value=1,Width=85};
-    readonly DateTimePicker bookingCutoff=Clock(),drawStart=Clock(),drawEnd=Clock();
+    readonly DateTimePicker bookingCutoff=Clock(),drawStart=Clock(),drawEnd=Clock(),nightDeadline=Clock();
     readonly CheckBox drawRestricted=new CheckBox(),ignoreLowerPriorityWishes=new CheckBox();
     readonly NumericUpDown minimum=Number(),maximum=Number();readonly ComboBox step=new ComboBox(),orderMode=new ComboBox();
     readonly ComboBox passwordTarget=new ComboBox();
@@ -322,6 +322,8 @@ internal sealed class PanelForm : Form {
         box.Controls.Add(TextLabel("この設定は保存後すぐ反映します。確定済みの予約とは重ねません。終了時刻と次の開始時刻が同じ場合は重複になりません。",64));
         var boundaryRow=new FlowLayoutPanel{Width=550,AutoSize=true};boundaryRow.Controls.Add(new Label{Text="予約・スタンプの区切り",AutoSize=true,Margin=new Padding(0,7,15,0)});boundaryRow.Controls.Add(bookingCutoff);box.Controls.Add(boundaryRow);
         box.Controls.Add(TextLabel("「今日」は0:00で切り替わります。区切りが7:00なら、今日の予約は今日7:00〜翌7:00です。抽選・予約はその日の0:00から始められます。",64));
+        var nightRow=new FlowLayoutPanel{Width=550,AutoSize=true};nightRow.Controls.Add(new Label{Text="夜の締め切り（翌日）",AutoSize=true,Margin=new Padding(0,7,15,0)});nightRow.Controls.Add(nightDeadline);box.Controls.Add(nightRow);
+        box.Controls.Add(TextLabel("時刻未定の希望へ、開始時刻を決める通知を送るための目安です。この時刻以降に始まる予定は夜の計算から除きます。保存後すぐ反映し、予約・スタンプの区切りは変更しません。",82));
         drawRestricted.Text="抽選できる時間帯を制限する";drawRestricted.AutoSize=true;drawRestricted.CheckedChanged+=delegate{UpdateDrawControls();};box.Controls.Add(drawRestricted);
         var drawRow=new FlowLayoutPanel{Width=550,AutoSize=true};drawRow.Controls.Add(new Label{Text="抽選",AutoSize=true,Margin=new Padding(0,7,15,0)});drawRow.Controls.Add(drawStart);drawRow.Controls.Add(new Label{Text="〜",AutoSize=true});drawRow.Controls.Add(drawEnd);box.Controls.Add(drawRow);
         var durationRow=new FlowLayoutPanel{Width=550,AutoSize=true};durationRow.Controls.Add(new Label{Text="1回の時間：最小",AutoSize=true,Margin=new Padding(0,7,5,0)});durationRow.Controls.Add(minimum);durationRow.Controls.Add(new Label{Text="〜最大",AutoSize=true});durationRow.Controls.Add(maximum);durationRow.Controls.Add(new Label{Text="分",AutoSize=true});box.Controls.Add(durationRow);
@@ -382,6 +384,7 @@ internal sealed class PanelForm : Form {
         members.Rows.Clear();foreach(var member in settings.members)members.Rows.Add(member.id,member.name,member.active);
         settingsLoaded=true;newMemberName.Enabled=addMember.Enabled=true;
         ignoreLowerPriorityWishes.Checked=settings.ignoreLowerPriorityWishes;
+        nightDeadline.Value=ToClock(settings.nightDeadline);
         rewardExtension.Increment=settings.current.step;
         var rule=settings.upcoming;drawRestricted.Checked=rule.lotteryTimeRestricted;orderMode.SelectedIndex=rule.orderMode=="fixed"?1:0;bookingCutoff.Value=ToClock(rule.bookingCutoff);drawStart.Value=ToClock(rule.lotteryStart);drawEnd.Value=ToClock(rule.lotteryEnd);minimum.Value=rule.minDuration;maximum.Value=rule.maxDuration;step.SelectedItem=rule.step;
         saveState.Text="時間の設定は "+settings.effectiveDay+" 分から反映します。今日の予約・時間設定は変えません。追加メンバーは次の順番決定から参加します。";save.Enabled=true;
@@ -416,7 +419,7 @@ internal sealed class PanelForm : Form {
         var rows=new List<object>();
         foreach(DataGridViewRow row in members.Rows){if(row.IsNewRow)continue;string name=Convert.ToString(row.Cells["Name"].Value);int id=row.Cells["Id"].Value==null?0:Convert.ToInt32(row.Cells["Id"].Value);if(id==0 && string.IsNullOrWhiteSpace(name))continue;rows.Add(new{id=id,name=name,active=Convert.ToBoolean(row.Cells["Active"].Value)});}
         var schedule=new Schedule{bookingCutoff=Minutes(bookingCutoff),lotteryTimeRestricted=drawRestricted.Checked,lotteryStart=Minutes(drawStart),lotteryEnd=Minutes(drawEnd),minDuration=(int)minimum.Value,maxDuration=(int)maximum.Value,step=step.SelectedItem==null?15:(int)step.SelectedItem,orderMode=orderMode.SelectedIndex==1?"fixed":"random"};
-        if(pendingSecurity!=null)return;save.Enabled=false;saveState.Text="保存しています…";pendingSave=Send("settings/save",new{members=rows,schedule=schedule,ignoreLowerPriorityWishes=ignoreLowerPriorityWishes.Checked});if(pendingSave!=null)saveTimeout.Start();else save.Enabled=true;
+        if(pendingSecurity!=null)return;save.Enabled=false;saveState.Text="保存しています…";pendingSave=Send("settings/save",new{members=rows,schedule=schedule,ignoreLowerPriorityWishes=ignoreLowerPriorityWishes.Checked,nightDeadline=Minutes(nightDeadline)});if(pendingSave!=null)saveTimeout.Start();else save.Enabled=true;
     }
     string Send(string command,object payload) {
         string id=Interlocked.Increment(ref sequence).ToString();

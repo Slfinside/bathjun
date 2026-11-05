@@ -10,8 +10,10 @@ using System.Windows.Forms;
 public sealed class DashboardOverlap { public int memberId,start,end; }
 public sealed class DashboardEntry { public DashboardOverlap[] overlaps; public int memberId,start,duration,automatic; public string name,kind,startsAt,endsAt,emoji,color,revision,completedAt,day,ticket; }
 public sealed class DashboardMember { public int id; public string name,status,emoji,color; public bool deferred; }
+public sealed class DashboardUntimedWish { public int memberId,duration; public string name; }
 public sealed class DashboardData {
     public string day,now,phase,shareUrl; public int bathStart,bathEnd,reportMinutes=1;
+    public DashboardUntimedWish[] untimedWishes;
     public DashboardEntry current,next,afterNext; public DashboardEntry[] entries; public DashboardMember[] members; public string[] qr;
 }
 public sealed class DashboardPreferences {
@@ -320,13 +322,20 @@ internal sealed class DashboardForm : Form {
     void DrawVerticalSchedule(Graphics g,RectangleF rect,Color fg,double age) {
         Write(g,"スケジュール",16,fg,new RectangleF(rect.X,rect.Y,rect.Width,30),true);
         if(data==null||age>20){Write(g,"更新待ち",13,Muted,new RectangleF(rect.X,rect.Y+42,rect.Width,28));return;}
+        var untimed=data.untimedWishes??new DashboardUntimedWish[0];float untimedHeight=0;
+        if(untimed.Length>0){
+            Write(g,"時刻未定（使う時間）",11,Muted,new RectangleF(rect.X,rect.Y+29,rect.Width,20));
+            int shown=Math.Min(6,untimed.Length);
+            for(int i=0;i<shown;i+=2){string text=untimed[i].name+" · "+untimed[i].duration+"分";if(i+1<shown)text+=" ／ "+untimed[i+1].name+" · "+untimed[i+1].duration+"分";if(i+2>=shown&&untimed.Length>shown)text+=" ほか"+(untimed.Length-shown)+"人";Write(g,text,11,Muted,new RectangleF(rect.X,rect.Y+49+(i/2)*21,rect.Width,22));}
+            untimedHeight=28+((shown+1)/2)*21;
+        }
         var entries=new List<DashboardEntry>(data.entries??new DashboardEntry[0]);entries.Sort((a,b)=>a.start.CompareTo(b.start));
-        if(entries.Count==0){Write(g,"予約・希望はまだありません",12,Muted,new RectangleF(rect.X,rect.Y+42,rect.Width,28));return;}
+        if(entries.Count==0){Write(g,untimed.Length>0?"時刻が決まった予定はまだありません":"予約・希望はまだありません",12,Muted,new RectangleF(rect.X,rect.Y+42+untimedHeight,rect.Width,28));return;}
         var parts=new List<ChartPart>();int end=entries[0].start;
         foreach(var entry in entries){if(entry.start>end){parts.Add(new ChartPart{start=end,end=entry.start,weight=Math.Min(entry.start-end,60)});end=entry.start;}
             int to=entry.start+entry.duration;if(to>end){parts.Add(new ChartPart{start=end,end=to,weight=to-end});end=to;}}
         var laneEnds=new List<int>();var lanes=new List<int>();foreach(var entry in entries){int lane=0;while(lane<laneEnds.Count&&laneEnds[lane]>entry.start)lane++;if(lane==laneEnds.Count)laneEnds.Add(0);laneEnds[lane]=entry.start+entry.duration;lanes.Add(lane);}
-        float chartTop=rect.Y+43,chartHeight=Math.Max(1,rect.Height-64),trackX=rect.X+70,trackWidth=rect.Width-70,laneWidth=trackWidth/Math.Max(1,laneEnds.Count);
+        float chartTop=rect.Y+43+untimedHeight,chartHeight=Math.Max(1,rect.Height-64-untimedHeight),trackX=rect.X+70,trackWidth=rect.Width-70,laneWidth=trackWidth/Math.Max(1,laneEnds.Count);
         var ticks=new SortedSet<int>();foreach(var entry in entries){ticks.Add(entry.start);ticks.Add(entry.start+entry.duration);for(int minute=(entry.start/15+1)*15;minute<entry.start+entry.duration;minute+=15)ticks.Add(minute);}
         float last=-100;foreach(int tick in ticks){float lineY=ChartY(tick,parts,chartTop,chartHeight);if(lineY-last>=16){Write(g,Time(tick),11,Muted,new RectangleF(rect.X,lineY-8,68,22));last=lineY;using(var pen=new Pen(Line,1))g.DrawLine(pen,trackX,lineY,rect.Right,lineY);}}
         for(int i=0;i<entries.Count;i++) {

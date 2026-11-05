@@ -21,7 +21,7 @@ export function dashboardView(snapshot) {
   const confirmed = bookings.map((b) => timed(b, "予約"));
   const entries = [
     ...confirmed,
-    ...wishes.map((w) => timed(w, "希望・未確定")),
+    ...wishes.filter(w=>w.start!==null).map((w) => timed(w, "希望・未確定")),
   ].sort((a, b) => a.start - b.start || a.memberId - b.memberId);
   for (const entry of entries) entry.overlaps = overlapDetails(entry, entries);
   const upcoming = confirmed
@@ -31,6 +31,7 @@ export function dashboardView(snapshot) {
     day,
     now,
     reportMinutes: snapshot.reportMinutes ?? 1,
+    untimedWishes: wishes.filter(w=>w.start===null).map(w=>({memberId:w.memberId,duration:w.duration,name:members.find(m=>m.id===w.memberId)?.name||"利用停止メンバー"})),
     bathStart: settings.bathStart,
     bathEnd: settings.bathEnd,
     current:

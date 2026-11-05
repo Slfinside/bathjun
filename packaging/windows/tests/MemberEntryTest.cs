@@ -19,12 +19,13 @@ internal static class MemberEntryTest {
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
         var first=Create(new Member[0]);
         try {
+            var night=(DateTimePicker)Field(first,"nightDeadline");Check(night.Value.Hour==2&&night.Value.Minute==0,"night deadline default is not next 02:00");night.Value=DateTime.Today.AddHours(3);
             var cutoff=(DateTimePicker)Field(first,"bookingCutoff");Check(cutoff.Value.Hour==7&&cutoff.Value.Minute==0,"booking cutoff default is not 07:00");cutoff.Value=DateTime.Today.AddHours(9);Check(((CheckBox)Field(first,"ignoreLowerPriorityWishes")).Checked,"priority policy not loaded");((CheckBox)Field(first,"ignoreLowerPriorityWishes")).Checked=false;
             var grid=(DataGridView)Field(first,"members");var input=(TextBox)Field(first,"newMemberName");var add=(Button)Field(first,"addMember");
             Check(grid.Rows.Count==0&&!grid.AllowUserToAddRows,"empty setup still depends on a hidden placeholder row");Check(add.Enabled&&input.Enabled,"add controls not ready");
             input.Text="  メンバーA  ";typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(add,new object[]{EventArgs.Empty});Check(grid.Rows.Count==1,"new row missing");Check((string)grid.Rows[0].Cells["Name"].Value=="メンバーA","name not trimmed");Check((bool)grid.Rows[0].Cells["Active"].Value,"new member inactive");Check(input.Text=="","name input not cleared");
             // Saving directly must also include the name still waiting in the dedicated input.
-            input.Text="メンバーB";Save(first,Path.Combine(args[0],"empty-household.json"));Check(grid.Rows.Count==2,"pending name omitted from save");Check(File.ReadAllText(Path.Combine(args[0],"empty-household.json")).Contains("\"bookingCutoff\":540"),"booking cutoff picker not saved");Check(File.ReadAllText(Path.Combine(args[0],"empty-household.json")).Contains("\"ignoreLowerPriorityWishes\":false"),"priority policy not saved");
+            input.Text="メンバーB";Save(first,Path.Combine(args[0],"empty-household.json"));Check(grid.Rows.Count==2,"pending name omitted from save");Check(File.ReadAllText(Path.Combine(args[0],"empty-household.json")).Contains("\"nightDeadline\":180"),"night deadline picker not saved");Check(File.ReadAllText(Path.Combine(args[0],"empty-household.json")).Contains("\"bookingCutoff\":540"),"booking cutoff picker not saved");Check(File.ReadAllText(Path.Combine(args[0],"empty-household.json")).Contains("\"ignoreLowerPriorityWishes\":false"),"priority policy not saved");
         }finally{Dispose(first);}
         var second=Create(new[]{new Member{id=1,name="既存メンバー",active=false}});
         try {

@@ -32,6 +32,28 @@ async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1'}={}){
  }finally{await context.close();await new Promise(r=>server.close(r));app.close();rmSync(directory,{recursive:true,force:true})}
 }
 try {
+ await scenario('duration-only',async({page,url,state,screenshot})=>{
+  await page.goto(url);await page.locator('[data-action="book"]').click();
+  const modal=page.locator('#booking-dialog');await modal.locator('[name="untimed"]').check();
+  assert.equal(await modal.locator('#start').isVisible(),false);
+  assert.equal(await modal.locator('.end-summary').isVisible(),false);
+  assert.equal(await modal.locator('.negotiation-choice').isVisible(),false);
+  await modal.locator('[name="duration"][value="45"]').check();await modal.locator('[name="note"]').fill('今日は少しゆっくり');
+  await screenshot('form');await modal.getByRole('button',{name:'使う時間を共有する'}).click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});
+  let data=await state();assert.equal(data.bookings.length,0);assert.equal(data.wishes[0].start,null);assert.equal(data.wishes[0].duration,45);
+  await page.reload();await page.locator('.untimed-plans').waitFor();await screenshot('shared');
+  assert.ok((await page.locator('.untimed-plans').innerText()).includes('45分'));
+  for(const width of [320,1200]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
+  await page.locator('[data-action="book"]').click();assert.equal(await modal.locator('[name="untimed"]').isChecked(),true);
+  await modal.locator('[name="untimed"]').uncheck();await modal.locator('#start').selectOption('1080');await modal.locator('#save-booking').click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});
+  data=await state();assert.equal(data.wishes.length,0);assert.equal(data.bookings[0].start,1080);assert.equal(data.bookings[0].duration,45);
+ });
+ await scenario('duration-only-before-turn',async({page,url,api,state})=>{
+  await api('logout',{});await api('register',{memberId:2,password:'test-only'});
+  await page.goto(url);await page.locator('[data-action="wish"]').click();const modal=page.locator('#booking-dialog');
+  await modal.locator('[name="untimed"]').check();await modal.locator('#save-booking').click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});
+  assert.equal((await state()).wishes[0].start,null);await page.locator('[data-action="wish"]').click();assert.equal(await modal.locator('[name="untimed"]').isChecked(),true);
+ });
  await scenario('rebooking',async({app,page,context,url,api,state,time,screenshot})=>{
   assert.equal(app.getRewardsAdmin().settings.clientReportEnabled,false);
   await api('book',{day:'2026-11-04',start:1080,duration:30});const original=(await state()).bookings[0];

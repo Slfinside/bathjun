@@ -21,7 +21,7 @@ export function createWishStarts({
   function pending() {
     return db
       .prepare(
-        "SELECT w.* FROM wishes w JOIN members m ON m.id=w.member_id WHERE m.active=1 AND w.day>=? AND w.day<=? AND NOT EXISTS(SELECT 1 FROM wish_start_attempts a WHERE a.revision=w.revision) ORDER BY w.day,w.start,w.member_id",
+        "SELECT w.* FROM wishes w JOIN members m ON m.id=w.member_id WHERE m.active=1 AND w.start IS NOT NULL AND w.day>=? AND w.day<=? AND NOT EXISTS(SELECT 1 FROM wish_start_attempts a WHERE a.revision=w.revision) ORDER BY w.day,w.start,w.member_id",
       )
       .all(
         shiftDay(bathCalendar(now()).today, -2),
@@ -57,7 +57,7 @@ export function createWishStarts({
       to = slotDate(wish.day, wish.start + wish.duration).getTime();
     for (const row of db
       .prepare(
-        "SELECT day,start,duration FROM bookings WHERE day>=? AND day<=? UNION ALL SELECT w.day,w.start,w.duration FROM wishes w JOIN members m ON m.id=w.member_id WHERE m.active=1 AND w.revision!=? AND w.day>=? AND w.day<=?",
+        "SELECT day,start,duration FROM bookings WHERE day>=? AND day<=? UNION ALL SELECT w.day,w.start,w.duration FROM wishes w JOIN members m ON m.id=w.member_id WHERE m.active=1 AND w.start IS NOT NULL AND w.revision!=? AND w.day>=? AND w.day<=?",
       )
       .all(
         shiftDay(wish.day, -2),

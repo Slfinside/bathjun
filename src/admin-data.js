@@ -102,6 +102,8 @@ export function createAdminData({
     db.exec("BEGIN IMMEDIATE");
     try {
       for (const table of [
+        "time_selection_jobs",
+        "time_selection_receipts",
         "rebooking_prompts",
         "rebooking_history",
         "completion_notice_receipts",
@@ -147,7 +149,7 @@ export function createAdminData({
       db.prepare(
         "INSERT INTO family_config(id,access_token,vapid_public,vapid_private) VALUES(1,?,?,?)",
       ).run(accessToken, keys.publicKey, keys.privateKey);
-      db.prepare("INSERT INTO reservation_policy VALUES(1,1)").run();
+      db.prepare("INSERT INTO reservation_policy(id,ignore_lower_priority_wishes) VALUES(1,1)").run();
       db.prepare("INSERT INTO schedule_settings VALUES(?,?)").run(
         "0000-01-01",
         JSON.stringify(DEFAULT_SCHEDULE),

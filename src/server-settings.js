@@ -144,6 +144,9 @@ export function createServerSettings(db, now) {
       "utf8",
     ),
   );
+  if (!db.prepare('PRAGMA table_info(reservation_policy)').all().some(column=>column.name==='night_deadline'))
+    db.exec('ALTER TABLE reservation_policy ADD COLUMN night_deadline INTEGER NOT NULL DEFAULT 120 CHECK(night_deadline BETWEEN 0 AND 1439)');
+  const nightDeadline = () => db.prepare('SELECT night_deadline FROM reservation_policy WHERE id=1').get().night_deadline;
   const ignoreLowerPriorityWishes = () =>
     !!db
       .prepare(
@@ -252,6 +255,7 @@ export function createServerSettings(db, now) {
       upcoming,
       effectiveDay,
       ignoreLowerPriorityWishes: ignoreLowerPriorityWishes(),
+      nightDeadline: nightDeadline(),
     };
   }
   function save(payload) {
@@ -267,6 +271,9 @@ export function createServerSettings(db, now) {
         : payload.ignoreLowerPriorityWishes;
     if (typeof priorityPolicy !== "boolean")
       throw new Error("下位の希望を許容する設定は有効・無効で選んでください。");
+    const deadline = payload.nightDeadline ?? nightDeadline();
+    if (!Number.isInteger(deadline) || deadline < 0 || deadline >= 1440)
+      throw new Error("夜の締め切りは翌日0:00〜23:59の時刻で設定してください。");
     const schedule = validateSchedule(payload.schedule),
       existing = db.prepare("SELECT id,active FROM members").all();
     const members = payload.members.map((member) => {
@@ -305,8 +312,8 @@ export function createServerSettings(db, now) {
     db.exec("BEGIN IMMEDIATE");
     try {
       db.prepare(
-        "UPDATE reservation_policy SET ignore_lower_priority_wishes=? WHERE id=1",
-      ).run(priorityPolicy ? 1 : 0);
+        "UPDATE reservation_policy SET ignore_lower_priority_wishes=?,night_deadline=? WHERE id=1",
+      ).run(priorityPolicy ? 1 : 0,deadline);
       const temporary = "__bathjun_" + randomBytes(16).toString("hex") + "_";
       for (const member of members)
         if (member.id)
@@ -347,5 +354,5 @@ export function createServerSettings(db, now) {
     }
     return get();
   }
-  return { scheduleForDay, get, save, ignoreLowerPriorityWishes };
+  return { scheduleForDay, get, save, ignoreLowerPriorityWishes, nightDeadline };
 }
