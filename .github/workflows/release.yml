@@ -8,7 +8,7 @@ on:
         description: 'Existing version tag (vX.Y.Z)'
         required: true
 permissions:
-  contents: write
+  contents: read
 jobs:
   dashboard-windows:
     runs-on: windows-latest
@@ -16,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
@@ -73,12 +74,15 @@ jobs:
           & .\native-test\bin\AutomaticUpdateTest.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   release:
+    permissions:
+      contents: write
     needs: dashboard-windows
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
