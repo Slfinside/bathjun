@@ -38,7 +38,8 @@ try{
  await command('show');await delay(300);
  // UI existence is checked in PowerShell against the real child process/window.
  const getWindow=()=>JSON.parse(execFileSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',`$p = Get-Process -Name Bathjun-Server -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:BATHJUN_EXPECTED_UI -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1; if ($p) { @{id=$p.Id; title=$p.MainWindowTitle} | ConvertTo-Json -Compress } else { 'null' }`],{encoding:'utf8',env:{...process.env,BATHJUN_EXPECTED_UI:join(root,'bin/Bathjun-Server.exe')}}));
- const firstWindow=getWindow();assert.ok(firstWindow?.title,'Management window is missing');
+ let firstWindow;for(let n=0;n<12;n++){firstWindow=getWindow();if(firstWindow?.title)break;await delay(500);}
+ assert.ok(firstWindow?.title,'Management window is missing.\n'+output);
  // Kill only this fixture's GUI: reservations must remain accessible and the UI must reopen.
  execFileSync('taskkill.exe',['/PID',String(firstWindow.id),'/F'],{stdio:'pipe'});
  let restored;

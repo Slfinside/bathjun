@@ -301,7 +301,8 @@ export async function startWindowsPanel(handlers) {
         fileURLToPath(new URL("../../bin/Bathjun-Server.exe", import.meta.url)),
         [name,token,...(handlers.mode === "public" ? ["--public"] : []),
           ...(process.env.BATHJUN_AUTOSTART === "1" && !show ? ["--minimized"] : [])],
-        {stdio:["ignore","pipe","pipe"],windowsHide:true},
+        // This is a GUI executable. SW_HIDE can hide its first WinForms window.
+        {stdio:["ignore","pipe","pipe"],windowsHide:false},
       );
       child=current;
       current.stdout.on("data",data=>process.stdout.write(data));
