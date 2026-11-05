@@ -1799,11 +1799,12 @@ async function maybeShowAnnouncement(){
   try{
     const {showAnnouncement}=await import('./announcements.js');
     const data=await api('announcements?id='+encodeURIComponent(entry.id));
+    if(data.memberId!==memberId)return;
     if(data.seen){if(generation===accountGeneration)state.announcements=state.announcements.filter(a=>a.id!==entry.id);return;}
     if(generation!==accountGeneration||me?.id!==memberId||pageView!=='home'||document.querySelector('dialog[open]'))return;
     const skipped=await showAnnouncement(data);
     if(skipped===null||generation!==accountGeneration||me?.id!==memberId)return;
-    await api('announcements/seen',{id:entry.id,skipped});
+    await api('announcements/seen',{id:entry.id,skipped,memberId});
     if(generation!==accountGeneration||me?.id!==memberId)return;
     state.announcements=state.announcements.filter(a=>a.id!==entry.id);
   }catch(error){notify(error.message);}finally{announcementBusy=false;}

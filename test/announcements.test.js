@@ -82,3 +82,8 @@ test('auto-update readiness is blocked during bathing and ten minutes before it'
  const f=await fixture(t);await f.book();assert.equal(f.app.getUpdateStatus().busy,false);f.time('2026-11-04T17:50:00');assert.equal(f.app.getUpdateStatus().busy,true);f.time('2026-11-04T18:15:00');assert.equal(f.app.getUpdateStatus().busy,true);
  const booking=(await f.state()).bookings[0];f.app.completeBath({memberId:1,day:'2026-11-04',revision:booking.revision});assert.equal(f.app.getUpdateStatus().busy,false);
 });
+
+test('invalid receipt IDs fail cleanly and a changed shared-device account cannot mark another member read',async t=>{
+ const f=await fixture(t),id=publish(f).entries[0].id;for(const body of [{},{id:7,skipped:false},{id:'wrong',skipped:true}])assert.equal((await f.request('announcements/seen',body)).status,400);
+ assert.equal((await f.request('announcements/seen',{id,skipped:true,memberId:1},2)).status,409);assert.equal((await f.api('state',undefined,2)).announcements.length,1);
+});
