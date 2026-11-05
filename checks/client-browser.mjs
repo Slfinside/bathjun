@@ -169,7 +169,7 @@ try {
   await modal.getByRole('button',{name:'効果を有効にする',exact:true}).click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});
   result=(await state()).rewards;assert.equal(result.wallet.find(x=>x.kind==='boost').quantity,0);assert.equal(result.boostRemaining,6);
  });
- await scenario('passkey-after-expiry',async({page,context,url,api,state,navigate})=>{
+ const passkeyExpiry=async({page,context,url,api,state,navigate},deferList=false,switchAccount=false)=>{
   await api('register',{memberId:2,password:'synthetic-member-b'});await api('login',{memberId:1,password:'test-only'});
   const cdp=await context.newCDPSession(page);await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
@@ -177,15 +177,32 @@ try {
   await page.locator('[data-action="passkey-register"]').click();
   await page.getByText('パスキーを登録しました。次回から合い言葉や名前の入力を省略できます。',{exact:true}).waitFor();
   assert.equal((await state()).passkeyCount,1);
-  await page.locator('[data-action="passkey-manage"]').click();await page.locator('.passkey-list li').waitFor();
-  await context.request.post(url+'/api/logout',{data:{}});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
-  await page.locator('[data-member="2"]').click();await page.locator('#password').fill('synthetic-member-b');
-  await page.locator('#login-form button[type="submit"]').click();await page.locator('.date-bar').waitFor();
+  let releaseList,seenList;
+  if(deferList){
+   const held=new Promise(r=>releaseList=r);seenList=new Promise(resolve=>{
+    void page.route('**/api/passkey/list',async route=>{const response=await route.fetch();resolve();await held;await route.fulfill({response});});
+   });
+  }
+  await page.locator('[data-action="passkey-manage"]').click();
+  if(deferList)await seenList;else await page.locator('.passkey-list li').waitFor();
+  if(switchAccount){
+   await api('login',{memberId:2,password:'synthetic-member-b'});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+   await page.locator('.profile-name').filter({hasText:'利用者B'}).waitFor();
+  }else{
+   await context.request.post(url+'/api/logout',{data:{}});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+   await page.locator('[data-member="2"]').waitFor();
+   if(deferList){const response=page.waitForResponse(r=>r.url().endsWith('/api/passkey/list'));releaseList();await response;await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));}
+   await page.locator('[data-member="2"]').click();await page.locator('#password').fill('synthetic-member-b');
+   await page.locator('#login-form button[type="submit"]').click();await page.locator('.date-bar').waitFor();
+  }
   await navigate('設定','#auto-wishes-form');assert.equal(await page.locator('.passkey-list li').count(),0);
   // Authenticate with the first member's actual virtual passkey after logging out B.
   await page.locator('[data-action="logout"]').click();await page.locator('[data-action="passkey-login"]').click();
   await page.locator('.date-bar').waitFor();assert.equal((await state()).me.id,1);
- },{hostname:'localhost'});
+ };
+ await scenario('passkey-after-expiry',f=>passkeyExpiry(f),{hostname:'localhost'});
+ await scenario('passkey-list-inflight-expiry',f=>passkeyExpiry(f,true),{hostname:'localhost'});
+ await scenario('passkey-shared-session-switch',f=>passkeyExpiry(f,false,true),{hostname:'localhost'});
  await scenario('unresponsive-server',async({page,url})=>{
   await page.addInitScript(()=>{
    const originalFetch=window.fetch;

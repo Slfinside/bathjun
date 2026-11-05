@@ -24,6 +24,7 @@ let pageView = "home",
   celebrationWeek = null;
 const celebrating = new Set();
 let guidePending = false;
+let accountGeneration = 0;
 let checkRebookingOnOpen = true, rebookingQuestion = null, rebookingFlow = false;
 async function openClientGuide(topic, onboarding = false) {
   if (guidePending) return;
@@ -214,6 +215,7 @@ function notify(message) {
   notify.timer = setTimeout(() => toast.classList.remove("show"), 4500);
 }
 async function api(path, data) {
+  const generation = accountGeneration;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
   const timeoutError = () => new Error("サーバーの応答に時間がかかっています。接続を確認し、もう一度お試しください。");
@@ -232,7 +234,7 @@ async function api(path, data) {
       if (controller.signal.aborted) throw timeoutError();
       throw new Error("サーバーに接続できません。接続を確認してください。");
     }
-    if (response.status === 401 && !["login", "register", "family/login", "passkey/auth/verify"].includes(path)) {
+    if (response.status === 401 && generation === accountGeneration && !["login", "register", "family/login", "passkey/auth/verify"].includes(path)) {
       me = null; state = null; resetNavigation(); selectedMember = null; void init();
     }
     let result;
@@ -686,6 +688,7 @@ async function refreshOnce(force) {
       data.ignoreLowerPriorityWishes,
       Math.floor(new Date(data.now).getTime() / 60000),
     ]);
+    if (data.me.id !== account.id) resetNavigation();
     const before = previousTurn;
     const previousDay = state?.day;
     const itemsWereEnabled = itemsEnabled();
@@ -1121,19 +1124,26 @@ document
         )
       )
         return;
+      const accountId = me?.id, generation = accountGeneration;
+      const stillSameAccount = () => accountId === me?.id && generation === accountGeneration;
       busy = true;
       try {
         if (action === "passkey-login") await loginWithPasskey();
         if (action === "passkey-register") await registerPasskey();
         if (action === "passkey-manage") {
-          passkeyList = (await api("passkey/list")).credentials;
+          const credentials = (await api("passkey/list")).credentials;
+          if (!stillSameAccount()) return;
+          passkeyList = credentials;
           renderDashboard();
         }
         if (action === "passkey-remove") {
           await api("passkey/remove", {
             id: event.target.closest("[data-credential]").dataset.credential,
           });
-          passkeyList = (await api("passkey/list")).credentials;
+          if (!stillSameAccount()) return;
+          const credentials = (await api("passkey/list")).credentials;
+          if (!stillSameAccount()) return;
+          passkeyList = credentials;
           await refresh(true);
         }
       } catch (error) {
@@ -1854,6 +1864,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 function resetNavigation() {
+  accountGeneration++;
   passkeyList = null;
   previousTurn = null;
   notificationStatus = "未設定";
