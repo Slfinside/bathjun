@@ -50,6 +50,24 @@ internal static class DashboardTest {
     static object Get(object target,string name){return target.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).GetValue(target);}
     static void Call(object target,string name,params object[] values){target.GetType().GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic).Invoke(target,values);}
     static bool ClickSave(Control root){foreach(Control control in root.Controls){if(control is Button&&control.Text=="表示設定を保存"){typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(control,new object[]{EventArgs.Empty});return true;}if(ClickSave(control))return true;}return false;}
+    static void SaveSettingsSection(Control section,string path) {
+        // A page hidden by TabControl otherwise produces a blank bitmap.
+        // Reparent only its controls to a plain host: never show PanelForm,
+        // whose Load handler would start live IPC and display power services.
+        var parent=section.Parent;int index=parent.Controls.GetChildIndex(section);
+        var dock=section.Dock;var location=section.Location;var size=section.Size;
+        using(var host=new Form{Font=section.Font,AutoScaleMode=AutoScaleMode.None,FormBorderStyle=FormBorderStyle.None,ShowInTaskbar=false,StartPosition=FormStartPosition.Manual,Location=new Point(-32000,-32000)}) {
+            try {
+                parent.Controls.Remove(section);host.Controls.Add(section);section.Dock=DockStyle.None;section.Location=Point.Empty;section.Width=560;section.PerformLayout();
+                host.ClientSize=new Size(section.Width,Math.Min(1000,section.Height));host.Show();Application.DoEvents();section.CreateControl();section.PerformLayout();
+                using(var image=new Bitmap(section.Width,section.Height)) {
+                    section.DrawToBitmap(image,new Rectangle(Point.Empty,section.Size));int different=0;int background=image.GetPixel(0,0).ToArgb();
+                    for(int y=0;y<image.Height;y+=3)for(int x=0;x<image.Width;x+=3)if(image.GetPixel(x,y).ToArgb()!=background)different++;
+                    if(different<100)throw new Exception("Settings preview is blank: "+Path.GetFileName(path));image.Save(path);
+                }
+            } finally {host.Controls.Remove(section);parent.Controls.Add(section);parent.Controls.SetChildIndex(section,index);section.Dock=dock;section.Location=location;section.Size=size;host.Close();}
+        }
+    }
     static void Preferences(string screenshots){
         string previous=Environment.GetEnvironmentVariable("BATHJUN_DATA_DIR"),folder=Path.Combine(Path.GetTempPath(),"bathjun-display-test-"+Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("BATHJUN_DATA_DIR",folder);
@@ -75,8 +93,7 @@ internal static class DashboardTest {
                 ((CheckBox)Get(panel,"extensionBlocked")).Checked=false;
                 if(((DateTimePicker)Get(panel,"extensionBlockedStart")).Enabled)throw new Exception("Disabled limits still editable");
                 ((CheckBox)Get(panel,"extensionBlocked")).Checked=true;
-                panel.PerformLayout();foreach(Control control in panel.Controls)if(control is TabControl){var section=((TabControl)control).TabPages[2].Controls[0];section.Dock=DockStyle.None;section.Width=560;section.PerformLayout();using(var image=new Bitmap(section.Width,section.Height)){section.DrawToBitmap(image,new Rectangle(Point.Empty,section.Size));image.Save(Path.Combine(screenshots,"admin-display-schedule.png"));}}
-                panel.PerformLayout();foreach(Control control in panel.Controls)if(control is TabControl){var tabs=(TabControl)control;var section=tabs.TabPages[3].Controls[0];section.Dock=DockStyle.None;section.Width=560;section.PerformLayout();using(var image=new Bitmap(section.Width,section.Height)){section.DrawToBitmap(image,new Rectangle(Point.Empty,section.Size));image.Save(Path.Combine(screenshots,"admin-items.png"));}}
+                panel.PerformLayout();foreach(Control control in panel.Controls)if(control is TabControl){var tabs=(TabControl)control;SaveSettingsSection(tabs.TabPages[2].Controls[0],Path.Combine(screenshots,"admin-display-schedule.png"));SaveSettingsSection(tabs.TabPages[3].Controls[0],Path.Combine(screenshots,"admin-items.png"));}
                 var targets=(CheckedListBox)Get(panel,"giftTargets");var kinds=(CheckedListBox)Get(panel,"giftKinds");targets.SetItemChecked(0,true);kinds.SetItemChecked(0,true);kinds.SetItemChecked(3,true);kinds.SetItemChecked(4,true);kinds.SetItemChecked(5,true);((NumericUpDown)Get(panel,"giftQuantity")).Value=2;
                 string outgoing=null;using(var done=new ManualResetEvent(false)){var outbox=new PanelOutbox(line=>{outgoing=line;done.Set();},error=>{throw error;});Set(panel,"outbox",outbox);typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(Get(panel,"distributeItems"),new object[]{EventArgs.Empty});if(!done.WaitOne(2000)||!outgoing.Contains("items/distribute")||!outgoing.Contains("\"quantity\":2")||!outgoing.Contains("guard")||!outgoing.Contains("skip")||!outgoing.Contains("bathStamp")||!outgoing.Contains("stampInk"))throw new Exception("Item distribution did not serialize checked targets, kinds and quantity");outbox.Dispose();Set(panel,"outbox",null);}
                 ((CheckBox)Get(panel,"itemsEnabled")).Checked=false;
