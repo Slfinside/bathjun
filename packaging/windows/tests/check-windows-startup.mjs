@@ -1,7 +1,7 @@
 // Exercise the actual shipped EXE, configuration and bundled Node together.
 // All data belongs to this synthetic fixture, never the runner's real profile.
 import assert from 'node:assert/strict';
-import {spawn,execFileSync} from 'node:child_process';
+import {spawn,spawnSync,execFileSync} from 'node:child_process';
 import {connect} from 'node:net';
 import {mkdirSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
@@ -46,6 +46,10 @@ try{
  assert.ok(restored?.title&&restored.id!==firstWindow.id,'Management window did not automatically reopen.\n'+output);
  assert.equal((await command('status')).state.pid,state.pid,'Server restarted after a GUI failure');
  assert.equal((await fetch(state.url)).status,200);
+ const reopen=spawnSync(process.env.ComSpec||'cmd.exe',['/d','/s','/c',`""${entry}""`],{cwd:root,windowsVerbatimArguments:true,encoding:'utf8',timeout:15000,env:{...process.env,LOCALAPPDATA:profile,BATHJUN_NO_BROWSER:'1',PORT:'0'}});
+ assert.equal(reopen.error,undefined);assert.equal(reopen.status,0,reopen.stderr);
+ assert.equal((await command('status')).state.pid,state.pid,'Second shortcut launched another server');
+ assert.equal(getWindow()?.id,restored.id,'Second shortcut duplicated the management UI');
  assert.match(output,/更新のお知らせを読み込めませんでした/);
  assert.match(output,new RegExp('ふろじゅん v'+JSON.parse(readFileSync(join(root,'app/package.json'),'utf8')).version.replaceAll('.','\\.')));
  console.log(output);

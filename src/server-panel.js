@@ -283,7 +283,7 @@ export async function startWindowsPanel(handlers) {
     path: pipePath(name),
     token,
     // A second shortcut invocation can restore the UI of the existing server.
-    onShow: () => launch(),
+    onShow: () => launch(true),
   });
   const closeController=controller.close;
   controller.close=async()=>{
@@ -292,7 +292,7 @@ export async function startWindowsPanel(handlers) {
     await closeController();
     child?.kill();
   };
-  function launch(){
+  function launch(show=false){
     if(closing||child?.exitCode===null&&!child.killed)return Promise.resolve();
     if(launching)return launching;
     clearTimeout(restartTimer);
@@ -300,7 +300,7 @@ export async function startWindowsPanel(handlers) {
       const current=spawn(
         fileURLToPath(new URL("../../bin/Bathjun-Server.exe", import.meta.url)),
         [name,token,...(handlers.mode === "public" ? ["--public"] : []),
-          ...(process.env.BATHJUN_AUTOSTART === "1" ? ["--minimized"] : [])],
+          ...(process.env.BATHJUN_AUTOSTART === "1" && !show ? ["--minimized"] : [])],
         {stdio:["ignore","pipe","pipe"],windowsHide:true},
       );
       child=current;
