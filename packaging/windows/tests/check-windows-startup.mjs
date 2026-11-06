@@ -13,7 +13,12 @@ const data=join(profile,portable?'BathjunTestData':'BathjunData');
 assert.equal(process.platform,'win32');
 mkdirSync(data,{recursive:true});process.env.BATHJUN_DATA_DIR=data;
 const {openApplication}=await import(pathToFileURL(join(root,'app/src/runtime.js')));
-const app=openApplication();await app.setFamilyPassword('synthetic-startup-only');app.close();
+const app=openApplication();await app.setFamilyPassword('synthetic-startup-only');
+// Exercise non-empty replies; an empty announcements array cannot expose the Windows BooleanConverter crash.
+const {DEFAULT_SCHEDULE}=await import(pathToFileURL(join(root,'app/src/server-settings.js')));
+app.saveServerSettings({members:[{name:'起動テストA',active:true},{name:'起動テストB',active:false}],schedule:DEFAULT_SCHEDULE});
+app.saveAnnouncement({label:'管理画面の起動確認',state:'published',pages:[{title:'画像なし',text:'本文'},{title:'画像あり',text:'本文',imagePath:join(root,'app/release-announcements/items.png')}]});
+app.close();
 // Reproduce an interrupted update: optional activation metadata must not abort boot.
 writeFileSync(join(root,'installed-update.json'),JSON.stringify({version:'0.0.0',previousVersion:'0.0.0'}));
 writeFileSync(join(data,'server-mode.json'),JSON.stringify({mode:'local'}));
@@ -40,6 +45,8 @@ try{
  const getWindow=()=>JSON.parse(execFileSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',`$p = Get-Process -Name Bathjun-Server -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:BATHJUN_EXPECTED_UI -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1; if ($p) { @{id=$p.Id; title=$p.MainWindowTitle} | ConvertTo-Json -Compress } else { 'null' }`],{encoding:'utf8',env:{...process.env,BATHJUN_EXPECTED_UI:join(root,'bin/Bathjun-Server.exe')}}));
  let firstWindow;for(let n=0;n<12;n++){firstWindow=getWindow();if(firstWindow?.title)break;await delay(500);}
  assert.ok(firstWindow?.title,'Management window is missing.\n'+output);
+ assert.doesNotMatch(output,/FormatException|管理画面の接続処理でエラー/);
+ const notices=await command('announcements/get');assert.deepEqual(notices.announcements.entries[0].pages.map(p=>p.hasImage),[false,true]);
  // Kill only this fixture's GUI: reservations must remain accessible and the UI must reopen.
  execFileSync('taskkill.exe',['/PID',String(firstWindow.id),'/F'],{stdio:'pipe'});
  let restored;
@@ -51,6 +58,7 @@ try{
  assert.equal(reopen.error,undefined);assert.equal(reopen.status,0,reopen.stderr);
  assert.equal((await command('status')).state.pid,state.pid,'Second shortcut launched another server');
  assert.equal(getWindow()?.id,restored.id,'Second shortcut duplicated the management UI');
+ assert.doesNotMatch(output,/FormatException|管理画面の接続処理でエラー/);
  assert.match(output,/更新のお知らせを読み込めませんでした/);
  assert.match(output,new RegExp('ふろじゅん v'+JSON.parse(readFileSync(join(root,'app/package.json'),'utf8')).version.replaceAll('.','\\.')));
  console.log(output);

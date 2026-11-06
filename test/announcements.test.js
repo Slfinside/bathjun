@@ -51,7 +51,7 @@ test('draft editing, immutable published history, archive and validation',async 
 });
 test('image bytes are session gated and SVG/oversize uploads are refused',async t=>{
  const f=await fixture(t),dir=mkdtempSync(join(tmpdir(),'bathjun-test-image-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));const path=join(dir,'image.png');writeFileSync(path,png);
- const result=publish(f,{state:'draft',pages:[{title:'画像',text:'説明',imagePath:path}]}),entry=result.entries[0];assert.equal(entry.pages[0].hasImage,1);
+ const result=publish(f,{state:'draft',pages:[{title:'画像',text:'説明',imagePath:path}]}),entry=result.entries[0];assert.equal(entry.pages[0].hasImage,true);
  publish(f,{id:entry.id,pages:[{...entry.pages[0],text:'編集後'}]});const detail=await f.api('announcements?id='+entry.id);assert.ok(detail.pages[0].imageUrl);
  const response=await f.image(detail.pages[0].imageUrl);assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'image/png');assert.deepEqual(Buffer.from(await response.arrayBuffer()),png);assert.equal((await f.image(detail.pages[0].imageUrl,99)).status,401);
  writeFileSync(path,'<svg onload="alert(1)"></svg>');assert.throws(()=>publish(f,{pages:[{title:'x',text:'',imagePath:path}]}));writeFileSync(path,Buffer.alloc(2*1024*1024+1));assert.throws(()=>publish(f,{pages:[{title:'x',text:'',imagePath:path}]}));
@@ -97,4 +97,11 @@ test('installed beta announcements activate once and allow beta-to-beta and stab
  assert.equal(f.app.getAnnouncementsAdmin().entries.length,3);
  for(const invalidVersion of ['../2.1.0-beta1','2.1.0-nightly','2.1.0-beta1/extra'])assert.throws(()=>activate(invalidVersion,'2.0.2'));
  assert.throws(()=>activate('2.1.0-beta1','2.1.0-beta1'));
+});
+
+test('announcement image flags are JSON booleans for the Windows management reader',async t=>{
+ const f=await fixture(t),folder=mkdtempSync(join(tmpdir(),'bathjun-image-flags-'));t.after(()=>rmSync(folder,{recursive:true,force:true}));const imagePath=join(folder,'image.png');writeFileSync(imagePath,png);
+ const saved=publish(f,{pages:[{title:'画像なし',text:'本文'},{title:'画像あり',text:'本文',imagePath}]}),id=saved.entries[0].id;
+ for(const value of [saved.entries[0],f.app.getAnnouncementsAdmin().entries[0],await f.api('announcements?id='+id)])assert.deepEqual(value.pages.map(p=>p.hasImage),[false,true]);
+ await f.restart();assert.deepEqual(f.app.getAnnouncementsAdmin().entries[0].pages.map(p=>p.hasImage),[false,true]);
 });

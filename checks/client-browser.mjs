@@ -37,9 +37,20 @@ try {
   await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();await modal.locator('img').evaluate(img=>img.decode());
   assert.equal(await modal.locator('.announcement-counter').innerText(),'1 / 3');assert.equal(await modal.locator('img').isVisible(),true);
   const names=await modal.evaluate(el=>[...el.children].map(child=>child.tagName));assert.deepEqual(names,['SPAN','H2','IMG','P','BUTTON','BUTTON']);
-  await screenshot('first');for(const width of [320,1200]){await page.setViewportSize({width,height:844});assert.ok(await modal.evaluate(el=>el.scrollWidth<=el.clientWidth));}
+  await screenshot('first');for(const size of [{width:320,height:568},{width:390,height:844},{width:844,height:390},{width:1280,height:800}]){
+   await page.setViewportSize(size);await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+   assert.ok(await modal.evaluate(el=>el.scrollWidth<=el.clientWidth));const rect=await modal.boundingBox();assert.ok(Math.abs(rect.x+rect.width/2-size.width/2)<=2,'Notice must be horizontally centered');assert.ok(Math.abs(rect.y+rect.height/2-size.height/2)<=2,'Notice must be vertically centered');
+   await screenshot('center-'+size.width+'x'+size.height);
+  }
   await modal.getByRole('button',{name:'次へ',exact:true}).click();await modal.getByRole('heading',{name:'<script>テキストです</script>',exact:true}).waitFor();assert.equal(await modal.locator('script').count(),0);assert.equal(await modal.locator('img').isVisible(),false);assert.equal(await modal.locator('.announcement-counter').innerText(),'2 / 3');
   await modal.getByRole('button',{name:'次へ',exact:true}).click();await modal.getByRole('heading',{name:'最後のページ'}).waitFor();await screenshot('last');const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'閉じる',exact:true}).click();await ack;assert.equal((await state()).announcements.length,0);await page.reload();await page.locator('.date-bar').waitFor();assert.equal(await page.locator('.announcement-dialog[open]').count(),0);
+ });
+ await scenario('announcement-long-centered',async({app,page,url,state,screenshot})=>{
+  await page.setViewportSize({width:320,height:480});app.saveAnnouncement({label:'長いお知らせ',state:'published',pages:[{title:'長いお知らせも中央に表示',text:'お知らせの本文を、枠の中でスクロールして確認できます。'.repeat(50)}]});
+  await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();await page.evaluate(()=>window.scrollTo(0,1000));
+  const rect=await modal.boundingBox();assert.ok(Math.abs(rect.x+rect.width/2-160)<=2);assert.ok(Math.abs(rect.y+rect.height/2-240)<=2);
+  assert.ok(rect.height<=432.5);assert.ok(await modal.evaluate(el=>el.scrollHeight>el.clientHeight));await screenshot('mobile');
+  const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'閉じる',exact:true}).click();await ack;assert.equal((await state()).announcements.length,0);
  });
  await scenario('announcement-skip-logout',async({app,page,url,api,state})=>{
   app.saveAnnouncement({label:'スキップ',state:'published',pages:[{title:'最初',text:'最初です'},{title:'次',text:'次です'}]});await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'スキップする'}).click();await ack;assert.equal((await state()).announcements.length,0);
