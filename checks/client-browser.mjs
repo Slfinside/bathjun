@@ -134,6 +134,12 @@ try {
   for(const title of ['プロフィール・ログイン','通知','自動予約','アカウント'])await page.getByRole('heading',{name:title,exact:true}).waitFor();
   await navigate('ヘルプ','.help-page');await page.getByRole('button',{name:'予約と事前希望',exact:true}).click();await page.locator('.guide-dialog[open]').waitFor();await page.getByRole('button',{name:'ガイドを閉じる'}).click();await navigate('ホーム','.date-bar');
  });
+ await scenario('secondary-gift-flow',async({app,page,url,navigate,state,screenshot})=>{
+  app.distributeItems({recipients:[1],kinds:['guard'],quantity:1,requestId:'lazy-gift-flow'});await page.goto(url);await page.locator('.gift-callout').click();await page.locator('.gift-page').waitFor();
+  const description=page.locator('.gift-description');assert.equal(await description.getAttribute('open'),null);await description.locator('summary').click();await page.getByRole('button',{name:'受け取る',exact:true}).click();await page.getByText('受け取れるプレゼントはありません。',{exact:true}).waitFor();
+  await page.locator('[data-action="nav-history"]').click();await page.getByText('受取済み',{exact:true}).waitFor();await screenshot('history');assert.equal((await state()).rewards.wallet.find(x=>x.kind==='guard').quantity,1);
+  await navigate('持ち物','.inventory-page');await page.getByRole('button',{name:/順番抜かしガード/}).click();await page.locator('#booking-dialog[open]').getByRole('heading',{name:'順番抜かしガード',exact:true}).waitFor();await page.locator('#booking-dialog[open] [data-action="close"]').click();await navigate('ホーム','.date-bar');
+ });
  await scenario('unreserved-disabled' ,async({page,url,navigate})=>{
   await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('入浴の報告','.reports-page');assert.equal(await page.getByRole('button',{name:'予約外の入浴を報告する',exact:true}).isDisabled(),true);
  });
