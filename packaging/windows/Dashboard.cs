@@ -423,7 +423,7 @@ internal sealed class DashboardForm : Form {
             if(conflict&&bar.Height>=26)using(var brush=new SolidBrush(Paper))g.FillRectangle(brush,new RectangleF(bar.X+3,bar.Y+2,Math.Max(1,bar.Width-6),24));
             if(entry.unreserved&&bar.Height>=18){
                 WriteFit(g,entry.name,Mix(11,14),10,Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),20),true);
-                if(bar.Height>=34)WriteFit(g,"予約外・入浴済み",10,8,Green,new RectangleF(bar.X+4,bar.Y+21,Math.Max(1,bar.Width-8),16));
+                if(bar.Height>=34)WriteFit(g,"予約外・入浴済み",10,8,Green,new RectangleF(bar.X+4,bar.Y+21,Math.Max(1,bar.Width-8),16),false);
             }else if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+(entry.notBathedAt!=null?"入っていない · ":entry.completedAt!=null?"完了 · ":"")+entry.name+(entry.automatic!=0&&bar.Height<44?" · 自動予約":""),Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
             if(entry.automatic!=0&&bar.Height>=44)Write(g,"自動予約",10,wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+27,Math.Max(1,bar.Width-8),18));
         }
