@@ -704,6 +704,9 @@ async function refreshOnce(force) {
     const previousDay = state?.day;
     const itemsWereEnabled = itemsEnabled();
     state = data;
+    if(previousDay&&previousDay!==data.day&&dialog.open&&["booking","wish","rebook"].includes(dialog.dataset.mode)){
+      dialog.close();pendingItem=null;notify("表示日が変わりました。予約・希望は開き直してください。");
+    }
     if (
       itemsWereEnabled &&
       !itemsEnabled() &&
@@ -958,6 +961,9 @@ function openBooking(mode = "booking") {
   const originalBooking = ownBooking();
   const booking = isRebooking ? null : originalBooking, wish = isRebooking ? null : ownWish();
   const entry = isRebooking ? originalBooking : isWish ? wish : booking || wish;
+  dialog.dataset.bookingDay=state.day;
+  if(originalBooking)dialog.dataset.bookingRevision=originalBooking.revision;else delete dialog.dataset.bookingRevision;
+  if(wish)dialog.dataset.wishRevision=wish.revision;else delete dialog.dataset.wishRevision;
   const canShareDuration=!booking&&!isRebooking;
   if (isRebooking) dialog.dataset.rebookRevision = originalBooking.revision;
   else delete dialog.dataset.rebookRevision;
@@ -1339,7 +1345,7 @@ dialog.addEventListener("click", async (event) => {
   if (action === "cancel-wish" && !busy) {
     busy = true;
     try {
-      await api("wish/cancel", { day: state.day });
+      await api("wish/cancel", { day: dialog.dataset.bookingDay, revision:dialog.dataset.wishRevision??null });
       dialog.close();
       notify("希望を取り消しました。");
       await refresh(true);
@@ -1357,7 +1363,7 @@ dialog.addEventListener("click", async (event) => {
   ) {
     busy = true;
     try {
-      await api("cancel", { day: state.day });
+      await api("cancel", { day: dialog.dataset.bookingDay, revision:dialog.dataset.bookingRevision??null });
       dialog.close();
       notify("予約を取り消しました。");
       await refresh(true);
@@ -1379,8 +1385,10 @@ dialog.addEventListener("change", (event) => {
     pendingItem = event.target.value || null;
     const mode = dialog.dataset.mode,
       values = new FormData(dialog.querySelector("form"));
+    const identity=Object.fromEntries(['bookingDay','bookingRevision','wishRevision','rebookRevision'].map(key=>[key,dialog.dataset[key]]));
     dialog.close();
     openBooking(mode);
+    for(const [key,value] of Object.entries(identity)){if(value===undefined)delete dialog.dataset[key];else dialog.dataset[key]=value;}
     dialog.querySelector("[name=note]").value = values.get("note") || "";
     const duration = dialog.querySelector(
       `[name=duration][value="${values.get("duration")}"]`,
@@ -1408,7 +1416,7 @@ dialog.addEventListener("submit", async (event) => {
   try {
     const untimed=form.has('untimed');
     const result = await api(untimed||dialog.dataset.mode === "wish" ? "wish" : "book", {
-      day: state.day,
+      day: dialog.dataset.bookingDay,
       start: untimed?null:Number(form.get("start")),
       duration: Number(form.get("duration")),
       note: String(form.get("note") || ""),
@@ -1658,8 +1666,10 @@ async function openStampPicker(preferredWeek = null) {
   const stampable = card.days.filter(
     (d) => d.status !== "stamp" && d.day <= state.today,
   );
+  const {stampPickerMarkup}=await import('./stamp-picker.js');
+  if(!currentRequest())return;
   dialog.dataset.mode = "stamp-ink";
-  dialog.innerHTML = `<div class="sheet-heading"><h2 id="booking-title">おふろスタンプを押す</h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><div class="gift-tabs"><button data-action="stamp-week" data-stamp-week="${previousWeek}" aria-pressed="${card.week === previousWeek}">先週</button><button data-action="stamp-week" data-stamp-week="${current.card.week}" aria-pressed="${card.week === current.card.week}">今週</button></div><p>今日までの「−」または「×」の日を選んでください。インクを1個使って成功にします。</p><p class="muted">${card.week}からの7日間 · インク ${current.wallet.find((x) => x.kind === "stampInk").quantity}個</p><div class="stamp-repair-days">${stampable.map((d) => `<button class="stamp-repair-day" data-action="apply-stamp" data-stamp-day="${d.day}" data-request-id="${crypto.randomUUID()}"><span>${d.day.slice(5).replace("-", "/")}（${"日月火水木金土"[new Date(d.day + "T12:00:00Z").getUTCDay()]}）</span><strong aria-hidden="true">${d.status === "failed" ? "×" : "−"}</strong><span>スタンプを押す</span></button>`).join("")}</div>${stampable.length ? "" : '<p class="notice">この週はスタンプを押せる日がありません。</p>'}`;
+  dialog.innerHTML=stampPickerMarkup({card,previousWeek,currentWeek:current.card.week,stampable,ink:current.wallet.find(x=>x.kind==='stampInk').quantity});
   if (!dialog.open) dialog.showModal();
 }
 async function handleRewardsAction(action, event) {

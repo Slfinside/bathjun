@@ -53,6 +53,21 @@ try {
   assert.ok(rect.height<=432.5);assert.ok(await modal.evaluate(el=>el.scrollHeight>el.clientHeight));await screenshot('mobile');
   const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'閉じる',exact:true}).click();await ack;assert.equal((await state()).announcements.length,0);
  });
+ await scenario('cancel-changed-booking',async({page,url,api,state})=>{
+  await api('book',{day:'2026-11-04',start:1080,duration:30});await page.goto(url);await page.getByRole('button',{name:'自分の予約を変更',exact:true}).click();
+  await api('book',{day:'2026-11-04',start:1140,duration:30});const saved=(await state()).bookings[0];
+  const fresh=page.waitForResponse(r=>r.url().includes('/api/state'));await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await fresh;
+  await page.locator('#booking-dialog select[name="ticket"]').selectOption('');
+  page.once('dialog',d=>d.accept());const response=page.waitForResponse(r=>r.url().endsWith('/api/cancel'));await page.locator('#booking-dialog [data-action="cancel"]').click();assert.equal((await response).status(),409);
+  assert.equal((await state()).bookings[0].revision,saved.revision);
+ });
+ await scenario('booking-form-day-rollover',async({page,url,api,state,time})=>{
+  time('2026-11-04T06:00:00');await page.goto(url);await page.locator('[data-day="2026-11-03"]').click();await page.waitForFunction(()=>document.querySelector('.date-bar h2')?.textContent.includes('11月3日'));
+  await page.locator('[data-action="book"]').click();const modal=page.locator('#booking-dialog[open]');await modal.locator('#start').selectOption('1815');
+  time('2026-11-05T00:00:00');await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await page.waitForFunction(()=>document.querySelector('.date-bar h2')?.textContent.includes('11月5日'));
+  await modal.waitFor({state:'hidden'});assert.ok((await page.locator('#toast').innerText()).includes('表示日が変わりました'));
+  assert.equal((await state('2026-11-05')).bookings.length,0,'An expired form must not reserve a different day');
+ });
  await scenario('stamp-picker-apply',async({app,page,url,api,state})=>{
   app.distributeItems({recipients:[1],kinds:['bathStamp','stampInk'],quantity:1,requestId:'picker-apply'});for(const gift of (await state()).rewards.gifts)await api('gifts/receive',{id:gift.id});
   await page.goto(url);await page.locator('[data-action="stamp-card-use"]').click();const modal=page.locator('#booking-dialog[open]');await modal.getByRole('heading',{name:'おふろスタンプを押す'}).waitFor();

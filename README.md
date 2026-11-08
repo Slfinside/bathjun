@@ -13,11 +13,11 @@
 
 [変更点と確認範囲](docs/release-notes.md)、[使い方ガイド](docs/client-help.md)、[消灯処理と実機確認の範囲](docs/screen-off-investigation.md)をご確認ください。
 
-## v2.1.0-beta2（ベータ版）
+## v2.1.0-beta3（ベータ版）
 
-beta1で起きていた、お知らせデータの変換エラーで管理画面が閉じる問題と、お知らせの中央配置を修正しました。時刻未定の希望・期限なしの入浴報告など、beta1の新機能とv2.0.2の起動修正も含みます。
+共有端末のログイン切り替え中のスタンプ表示、別端末で更新した予約・希望の取り消し、日付が変わった入力画面の不具合を修正しました。beta2までの管理画面・お知らせの修正と、時刻未定の希望・期限なしの入浴報告も含みます。
 
-**[ベータ版のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.1.0-beta2)** · [ベータ版インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.1.0-beta2/Bathjun-Setup-x64.exe) · [ベータ版ZIP](https://github.com/Slfinside/bathjun/releases/download/v2.1.0-beta2/Bathjun-Portable-x64.zip)
+**[ベータ版のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.1.0-beta3)** · [ベータ版インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.1.0-beta3/Bathjun-Setup-x64.exe) · [ベータ版ZIP](https://github.com/Slfinside/bathjun/releases/download/v2.1.0-beta3/Bathjun-Portable-x64.zip)
 
 [時刻未定の希望と通知の条件](docs/duration-only-wishes.md)、[入浴報告と取り直し](docs/bath-reports.md)をご確認ください。安定版の自動更新ではベータ版を取得しません。試す場合は手動でインストールしてください。
 

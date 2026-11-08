@@ -809,7 +809,7 @@ export function createApp({
             .map((row) => row.member_id),
           wishes: db
             .prepare(
-              "SELECT member_id AS memberId,start,duration,note,ticket,displaced,automatic FROM wishes WHERE day=? ORDER BY start,member_id",
+              "SELECT member_id AS memberId,start,duration,note,ticket,displaced,automatic,revision FROM wishes WHERE day=? ORDER BY start,member_id",
             )
             .all(day),
           bookings: db
@@ -944,6 +944,8 @@ export function createApp({
       }
       if (req.method === "POST" && url.pathname === "/api/wish/cancel") {
         const day = validDay(body.day,true), previous=currentTurn(day);
+        const wish=db.prepare('SELECT revision FROM wishes WHERE day=? AND member_id=?').get(day,me.id);
+        if(body.revision!==undefined&&(typeof body.revision!=='string'||wish?.revision!==body.revision))fail(409,'希望が変更・確定されました。読み込み直して現在の予定を確認してください。');
         autoWishes.suppress(day,me.id);
         db.prepare("DELETE FROM wishes WHERE day=? AND member_id=?").run(
           day,
@@ -1013,6 +1015,7 @@ export function createApp({
           .prepare("SELECT * FROM bookings WHERE day=? AND member_id=?")
           .get(day, me.id);
         if (!booking) fail(404, "予約はありません。");
+        if(body.revision!==undefined&&(typeof body.revision!=='string'||booking.revision!==body.revision))fail(409,'予約が変更されました。読み込み直して現在の予定を確認してください。');
         if (slotDate(day, booking.start) <= now())
           fail(409, "開始済みの予約は取り消せません。");
         const previousTurn = currentTurn(day);

@@ -82,3 +82,15 @@ test('an earlier completion never marks a displaced and newly booked reservation
  await f.book(1080,60);const old=(await f.state()).bookings[0];f.time('2026-11-04T18:10:00');f.app.completeBath({memberId:1,day:DAY,revision:old.revision});await f.book(1095,30,2,{ticket:'skip'});await f.book(1200,30,1);f.time('2026-11-04T20:10:00');
  const state=await f.state(),current=state.bookings.find(b=>b.memberId===1);assert.equal(current.completedAt,null);assert.notEqual(current.revision,old.revision);assert.equal(state.nightPlanning.minutes,20);assert.equal(f.app.getUpdateStatus().busy,true);assert.ok((await f.api('bath-reports')).reports.some(b=>b.revision===current.revision));
 });
+
+test('a stale cancellation cannot remove a reservation changed on another device',async t=>{
+ const f=await fixture(t);await f.book();const old=(await f.state()).bookings[0];await f.book(1140);const updated=(await f.state()).bookings[0];assert.notEqual(updated.revision,old.revision);
+ assert.equal((await f.request('cancel',{day:DAY,revision:old.revision})).status,409);assert.equal((await f.state()).bookings[0].revision,updated.revision);
+ await f.api('cancel',{day:DAY,revision:updated.revision});assert.equal((await f.state()).bookings.length,0);
+});
+test('a stale wish cancellation preserves a newer wish and one already confirmed as a booking',async t=>{
+ const f=await fixture(t);await f.api('wish',{day:DAY,start:null,duration:30});const old=f.sql(db=>db.prepare('SELECT revision FROM wishes WHERE member_id=1').get().revision);
+ await f.api('wish',{day:DAY,start:null,duration:45});const current=f.sql(db=>db.prepare('SELECT revision FROM wishes WHERE member_id=1').get().revision);
+ assert.equal((await f.request('wish/cancel',{day:DAY,revision:old})).status,409);assert.equal((await f.state()).wishes[0].duration,45);
+ await f.api('wish/cancel',{day:DAY,revision:current});await f.book();assert.equal((await f.request('wish/cancel',{day:DAY,revision:current})).status,409);assert.equal((await f.state()).bookings.length,1);
+});
