@@ -12,6 +12,7 @@ const browser=await chromium.launch({executablePath,headless:true,args:['--no-sa
 const output=process.env.BATHJUN_BROWSER_SCREENSHOTS;
 if(output)mkdirSync(output,{recursive:true});
 async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1'}={}){
+ if(process.env.BATHJUN_BROWSER_SCENARIOS&&!process.env.BATHJUN_BROWSER_SCENARIOS.split(',').includes(name))return;
  const directory=mkdtempSync(join(tmpdir(),'bathjun-browser-'));
  let clock=new Date('2026-11-02T08:00:00+09:00');
  const app=createApp({database:join(directory,'test.sqlite'),requireFamily:false,now:()=>clock,deliverPush:async()=>{}});
@@ -51,6 +52,23 @@ try {
   const rect=await modal.boundingBox();assert.ok(Math.abs(rect.x+rect.width/2-160)<=2);assert.ok(Math.abs(rect.y+rect.height/2-240)<=2);
   assert.ok(rect.height<=432.5);assert.ok(await modal.evaluate(el=>el.scrollHeight>el.clientHeight));await screenshot('mobile');
   const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'閉じる',exact:true}).click();await ack;assert.equal((await state()).announcements.length,0);
+ });
+ await scenario('stamp-picker-apply',async({app,page,url,api,state})=>{
+  app.distributeItems({recipients:[1],kinds:['bathStamp','stampInk'],quantity:1,requestId:'picker-apply'});for(const gift of (await state()).rewards.gifts)await api('gifts/receive',{id:gift.id});
+  await page.goto(url);await page.locator('[data-action="stamp-card-use"]').click();const modal=page.locator('#booking-dialog[open]');await modal.getByRole('heading',{name:'おふろスタンプを押す'}).waitFor();
+  const saved=page.waitForResponse(r=>r.url().endsWith('/api/items/stamp'));await modal.locator('[data-stamp-day="2026-11-04"]').click();assert.equal((await saved).status(),200);await modal.waitFor({state:'hidden'});
+  const rewards=(await state()).rewards;assert.equal(rewards.wallet.find(x=>x.kind==='stampInk').quantity,0);assert.equal(rewards.wallet.find(x=>x.kind==='bathStamp').quantity,1);assert.equal(rewards.card.days.find(x=>x.day==='2026-11-04').status,'stamp');
+ });
+ await scenario('stamp-picker-account-change',async({app,page,url,api,state})=>{
+  app.distributeItems({recipients:[1],kinds:['bathStamp','stampInk'],quantity:1,requestId:'picker-account-change'});for(const gift of (await state()).rewards.gifts)await api('gifts/receive',{id:gift.id});
+  await page.goto(url);await page.locator('[data-action="stamp-card-use"]').waitFor();
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);
+  await page.route('**/api/rewards?week=*',async route=>{const response=await route.fetch();seen();await held;await route.fulfill({response});});
+  await page.locator('[data-action="stamp-card-use"]').click();await requested;
+  await api('register',{memberId:2,password:'test-other'});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForFunction(()=>document.querySelector('#header-account')?.textContent.includes('利用者B'));
+  const late=page.waitForResponse(r=>r.url().includes('/api/rewards?week='));release();await late;await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  assert.equal(await page.locator('#booking-dialog[open]').count(),0,'An old account must not reopen its stamp picker');
  });
  await scenario('announcement-skip-logout',async({app,page,url,api,state})=>{
   app.saveAnnouncement({label:'スキップ',state:'published',pages:[{title:'最初',text:'最初です'},{title:'次',text:'次です'}]});await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'スキップする'}).click();await ack;assert.equal((await state()).announcements.length,0);

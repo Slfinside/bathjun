@@ -1643,13 +1643,17 @@ function showItem(kind) {
   dialog.showModal();
 }
 async function openStampPicker(preferredWeek = null) {
-  const current = await api("rewards?day=" + encodeURIComponent(state.today));
+  const generation=accountGeneration,view=pageView,day=selectedDay,today=state.today,wasOpen=dialog.open,mode=dialog.dataset.mode;
+  const currentRequest=()=>generation===accountGeneration&&view===pageView&&day===selectedDay&&today===state?.today&&itemsEnabled()&&(!wasOpen||dialog.open)&&mode===dialog.dataset.mode;
+  const current = await api("rewards?day=" + encodeURIComponent(today));
+  if(!currentRequest())return;
   const previousWeek = new Date(
     Date.parse(current.card.week + "T12:00:00Z") - 7 * 86400000,
   )
     .toISOString()
     .slice(0, 10);
   const previous = await api("rewards?week=" + previousWeek);
+  if(!currentRequest())return;
   const card = preferredWeek === previousWeek ? previous.card : current.card;
   const stampable = card.days.filter(
     (d) => d.status !== "stamp" && d.day <= state.today,
