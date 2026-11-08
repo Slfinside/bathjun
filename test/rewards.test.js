@@ -312,7 +312,7 @@ test("土曜分は日曜朝まで受付し、達成特典を自動送付・お�
     await f.book(1, i === 6 ? 1830 : 1080, 30, null, day);
     const state = await f.api("state?day=" + day),
       b = state.bookings.find((b) => b.memberId === 1);
-    f.time(i === 6 ? "2026-11-01T07:02:00" : day + "T18:15:00");
+    f.time(i === 6 ? "2026-11-01T06:59:59" : day + "T18:15:00");
     await f.api("complete", { day, revision: b.revision });
   }
   const card = (await f.api("rewards?week=2026-10-25")).card;

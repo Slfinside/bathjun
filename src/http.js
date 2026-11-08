@@ -20,6 +20,8 @@ const assets = {
     ),
   ),
   "/fonts/web.css": ["fonts/web.css", "text/css; charset=utf-8"],
+  "/secondary-layouts.js": ["secondary-layouts.js", "text/javascript; charset=utf-8"],
+  "/unreserved-report.js": ["unreserved-report.js", "text/javascript; charset=utf-8"],
   "/stamp-picker.js": ["stamp-picker.js", "text/javascript; charset=utf-8"],
   "/bath-reports.js": ["bath-reports.js", "text/javascript; charset=utf-8"],
   "/announcements.js": ["announcements.js", "text/javascript; charset=utf-8"],

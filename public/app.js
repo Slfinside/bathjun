@@ -25,7 +25,8 @@ let pageView = "home",
 const celebrating = new Set();
 let guidePending = false;
 let announcementBusy=false;
-let reportingBooking=null, reportList=[];
+let secondaryLayouts=null;
+let reportingBooking=null,reportList=[],bathReportUI=null,reportContext={reportDays:[],visits:[]};
 let accountGeneration = 0;
 let checkRebookingOnOpen = true, rebookingQuestion = null, rebookingFlow = false;
 async function openClientGuide(topic, onboarding = false) {
@@ -156,10 +157,10 @@ function renderHeaderAccount() {
     ? `<details class="account-menu" ${menuOpen ? "open" : ""}><summary class="profile-button" aria-label="${menuOpen ? "メニューを閉じる" : "メニューを開く"}">${avatar(me.id, true)}<span class="profile-identity"><span class="profile-name">${escapeHTML(me.name)}</span><small>メニュー <span class="menu-glyph"><span class="menu-icon" aria-hidden="true"><span class="menu-line"></span><span class="menu-line"></span></span>${itemsEnabled() && state?.rewards?.pendingGifts ? '<span class="menu-notice" aria-label="未受取のプレゼントがあります">*</span>' : ""}</span></small></span></summary><nav aria-label="メニュー">${[
         ["home", "ホーム"],
         ["reserve", "おふろを予約する"],
+        ["reports", "入浴の報告"],
         ["gifts", "プレゼントボックス"],
         ["inventory", "持ち物"],
         ["stamps", "スタンプカード"],
-        ["reports", "入浴の報告"],
         ["settings", "設定"],
         ["help", "ヘルプ"],
       ]
@@ -671,7 +672,8 @@ async function refreshOnce(force) {
       if (!currentRequest() || pageView !== "stamps" || stampWeek !== requestedWeek) return;
       data.rewards.card = card;
     }
-    if(pageView==='reports'){const result=await api('bath-reports');if(!currentRequest())return;reportList=result.reports;}
+    if(['settings','help','gifts','history'].includes(pageView)){const view=pageView,ui=await import('./secondary-layouts.js');if(!currentRequest()||view!==pageView)return;secondaryLayouts=ui;}
+    if(pageView==='reports'){const [result,ui]=await Promise.all([api('bath-reports'),import('./bath-reports.js')]);if(!currentRequest()||pageView!=='reports')return;reportList=result.reports;reportContext=result;bathReportUI=ui;}
     const signature = JSON.stringify([
       data.day,
       data.today,
@@ -692,6 +694,7 @@ async function refreshOnce(force) {
       data.rewards,
       data.unreportedBooking,
       data.bookingHistory,
+      data.unreservedBaths,
       reportList,
       data.announcements,
       data.standbyWarning,
@@ -825,6 +828,7 @@ function renderNudge(id) {
         : "通知を有効にしてもらってください。";
   return `<button class="nudge-button" data-action="nudge" data-nudge-member="${id}" aria-label="${escapeHTML(memberName(id) + "さん：" + label + (value.reason === "cooldown" ? `、あと${minutes}分` : ""))}" title="${escapeHTML(title)}" ${value.canNudge ? "" : "disabled"}>${label}${value.reason === "cooldown" ? `<small>あと${minutes}分</small>` : ""}</button>`;
 }
+function canCompleteBath(booking){return state.rewards.settings.clientReportEnabled===true&&(!booking?.clientReportUntil||serverNow()<new Date(booking.clientReportUntil));}
 function renderBookingBanner(booking, turn, expired, canEdit) {
   if (state.day > state.today)
     return `<section class="booking-banner"><div><h3>事前希望</h3><button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div><div><h3>${state.day === state.tomorrow ? "明日" : "明後日"}の夜の予定</h3><p>希望は抽選前から出せます。抽選・予約は当日からです。日付は${time(state.dayRollover)}に切り替わります。</p>${isDeferred() ? "<p>入らない/様子見を共有済みです。</p>" : ""}<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button></div></section>`;
@@ -843,7 +847,7 @@ function renderBookingBanner(booking, turn, expired, canEdit) {
     content = `${icon("clock")}<div><h3>${!state.draw ? "まずは、今日の順番を抽選。" : !state.draw.order.includes(me.id) ? "次回の順番決定から参加できます。" : !turn ? "この日の予約がそろいました。" : `${escapeHTML(memberName(turn))}さんが選ぶ番です。`}</h3><p>予約や順番の変更は自動で更新されます。</p></div>`;
   const beforeTurn = !expired && !booking && !yourTurn;
   const completion =
-    state.rewards.settings.clientReportEnabled === true &&
+    canCompleteBath(booking) &&
     booking &&
     !booking.completedAt &&
     slotDate(booking.start) <= serverNow() &&
@@ -879,7 +883,7 @@ function renderWish(w) {
 const scheduleEnd = () =>
   Math.max(
     state.settings.bathEnd,
-    ...[...state.bookings,...(state.bookingHistory||[])].map((b) => b.start + b.duration),
+    ...[...state.bookings,...(state.bookingHistory||[]),...(state.unreservedBaths||[])].map((b) => b.start + b.duration),
     ...state.wishes.filter(w=>w.start!==null).map((w) => w.start + w.duration),
   );
 function renderSchedule() {
@@ -894,7 +898,7 @@ function renderSchedule() {
       )
       .join("")}</div>`;
   const segments = scheduleSegments(
-    [...state.bookings,...(state.bookingHistory||[])],
+    [...state.bookings,...(state.bookingHistory||[]),...(state.unreservedBaths||[])],
     state.settings.bathStart,
     scheduleEnd(),
     state.wishes,
@@ -902,7 +906,7 @@ function renderSchedule() {
   const untimed=state.wishes.filter(w=>w.start===null);
   const untimedSummary=untimed.length?`<div class="untimed-plans"><strong>時刻未定</strong>${untimed.map(w=>`<span>${escapeHTML(memberName(w.memberId))} · ${w.duration}分</span>`).join("")}</div>`:"";
   return untimedSummary + (
-    (!state.bookings.length && !state.wishes.some(w=>w.start!==null)
+    (!state.bookings.length && !state.unreservedBaths.length && !state.wishes.some(w=>w.start!==null)
       ? '<p class="schedule-empty-hint">まだ予約はありません。</p>'
       : "") +
     segments
@@ -929,14 +933,14 @@ function renderSchedule() {
             slotDate(b.start + b.duration) > serverNow();
           const ended =
             !!b.completedAt || slotDate(b.start + b.duration) <= serverNow();
-          return `<article class="reservation ${b.completedAt?"completed":""} ${b.notBathedAt?"not-bathed":""} ${wish ? "tentative" : ""} ${overlaps.length ? "has-overlap" : ""} ${ended ? "ended" : ""}" data-tint-member="${b.memberId}" ${!wish&&!b.archived&&!b.completedAt&&!b.notBathedAt&&b.memberId===me.id&&slotDate(b.start)<=serverNow()?`role="button" tabindex="0" data-action="report-entry" data-report-revision="${b.revision}" aria-label="${time(b.start)}からの予約の入浴を報告"`:""}><div class="reservation-top"><span class="reservation-time">${time(b.start)}<span> — </span>${time(b.start + b.duration)}</span><span class="duration">${b.duration}分</span></div><div class="reservation-person">${avatar(b.memberId, true)}<strong>${escapeHTML(memberName(b.memberId))}</strong>${b.memberId === me.id ? '<span class="you">あなた</span>' : ""}${b.automatic ? '<span class="automatic-label">自動予約</span>' : ""}${wish ? '<span class="tentative-label">希望・未確定</span>' : b.notBathedAt?'<span class="outcome-label">入っていない</span>':b.completedAt?'<span class="outcome-label">完了</span>': b.autoConfirmed && !b.automatic ? '<span class="auto-confirmed-label">希望から自動確定</span>' : current ? '<span class="bathing">入浴の時間</span>' : ended ? '<span class="bathing">未報告</span>' : ""}</div>${overlaps.length ? `<p class="schedule-conflict"><strong>重なりあり</strong>${overlaps.map((o) => `${escapeHTML(memberName(o.memberId))} · ${time(o.start)}〜${time(o.end)}`).join("<br>")}</p>` : ""}${itemsEnabled() && b.ticket ? `<span class="ticket-label">${escapeHTML(itemName(b.ticket))}</span>` : ""}${b.note ? `<p class="booking-note">${escapeHTML(b.note)}</p>` : ""}${!wish && b.noNegotiation ? '<div class="no-negotiation">時間変更不可</div>' : ""}</article>`;
+          return `<article class="reservation ${b.completedAt?"completed":""} ${b.unreserved?"unreserved-bath":""} ${b.notBathedAt?"not-bathed":""} ${wish ? "tentative" : ""} ${overlaps.length ? "has-overlap" : ""} ${ended ? "ended" : ""}" data-tint-member="${b.memberId}" ${!wish&&!b.archived&&!b.completedAt&&!b.notBathedAt&&b.memberId===me.id&&slotDate(b.start)<=serverNow()?`role="button" tabindex="0" data-action="report-entry" data-report-revision="${b.revision}" aria-label="${time(b.start)}からの予約の入浴を報告"`:""}><div class="reservation-top"><span class="reservation-time">${time(b.start)}<span> — </span>${time(b.start + b.duration)}</span><span class="duration">${b.duration}分</span></div><div class="reservation-person">${avatar(b.memberId, true)}<strong>${escapeHTML(memberName(b.memberId))}</strong>${b.memberId === me.id ? '<span class="you">あなた</span>' : ""}${b.automatic ? '<span class="automatic-label">自動予約</span>' : ""}${wish ? '<span class="tentative-label">希望・未確定</span>' : b.unreserved?'<span class="outcome-label">予約外・入浴済み</span>':b.notBathedAt?'<span class="outcome-label">入っていない</span>':b.completedAt?'<span class="outcome-label">完了</span>': b.autoConfirmed && !b.automatic ? '<span class="auto-confirmed-label">希望から自動確定</span>' : current ? '<span class="bathing">入浴の時間</span>' : ended ? '<span class="bathing">未報告</span>' : ""}</div>${overlaps.length ? `<p class="schedule-conflict"><strong>重なりあり</strong>${overlaps.map((o) => `${escapeHTML(memberName(o.memberId))} · ${time(o.start)}〜${time(o.end)}`).join("<br>")}</p>` : ""}${itemsEnabled() && b.ticket ? `<span class="ticket-label">${escapeHTML(itemName(b.ticket))}</span>` : ""}${b.note ? `<p class="booking-note">${escapeHTML(b.note)}</p>` : ""}${!wish && b.noNegotiation ? '<div class="no-negotiation">時間変更不可</div>' : ""}</article>`;
         };
         const entries = segment.entries || [segment];
         const overview =
           entries.length > 1
             ? `<div class="overlap-overview"><div class="overlap-axis"><span>${time(segment.start)}</span><span>${time(segment.end)}</span></div>${entries.map((e) => `<div class="overlap-row"><span>${escapeHTML(memberName(e.booking.memberId))}</span><div class="overlap-track"><span class="overlap-bar ${e.kind === "wish" ? "wish-bar" : ""}" data-left="${((e.start - segment.start) / (segment.end - segment.start)) * 100}" data-width="${((e.end - e.start) / (segment.end - segment.start)) * 100}"></span></div></div>`).join("")}</div>`
             : "";
-        return `<div class="timeline-segment ${segment.kind === "overlap" ? "overlapping-plans" : ""}" data-min-height="${height}">${ruler(segment)}<div class="plan-cards">${entries.length > 1 ? `<p class="overlap-caption">${entries.some(e=>e.booking.notBathedAt||e.booking.archived)?'取り直し前の予約を含む予定':'時間帯が重なる予約・希望'}</p>` : ""}${overview}${entries.map(card).join("")}</div></div>`;
+        return `<div class="timeline-segment ${segment.kind === "overlap" ? "overlapping-plans" : ""}" data-min-height="${height}">${ruler(segment)}<div class="plan-cards">${entries.length > 1 ? `<p class="overlap-caption">${entries.some(e=>e.booking.notBathedAt)?'取り直し前の予約を含む予定':entries.some(e=>e.booking.unreserved)?'予約と入浴の記録':'時間帯が重なる予約・希望'}</p>` : ""}${overview}${entries.map(card).join("")}</div></div>`;
       })
       .join("")
   );
@@ -1118,6 +1122,12 @@ document
     }
     const action = event.target.closest("[data-action]")?.dataset.action;
     if (busy) return;
+    if(action==='unreserved-bath'){
+      const generation=accountGeneration;dialog.dataset.mode='unreserved-report';
+      const {openUnreservedReport}=await import('./unreserved-report.js');
+      if(generation!==accountGeneration||pageView!=='reports'||dialog.dataset.mode!=='unreserved-report')return;
+      openUnreservedReport({dialog,days:reportContext.reportDays,now:serverNow(),api,isCurrent:()=>generation===accountGeneration&&pageView==='reports',setBusy:value=>busy=value,onSaved:async()=>{dialog.close();await refresh(true);notify('予約外の入浴を記録しました。');}});return;
+    }
     if(action==='not-bathed'){openNotBathedConfirmation({...ownBooking(),day:state.day});return;}
     if(action==='report-entry'){
       const revision=event.target.closest('[data-report-revision]').dataset.reportRevision;
@@ -1331,6 +1341,7 @@ root.addEventListener("submit", async (event) => {
   }
 });
 dialog.addEventListener("change", (event) => {
+  if(!event.target.closest("#booking-form"))return;
   if (event.target.name === "duration") updateSlots();
   if (event.target.name === "start") updateEndTime();
 });
@@ -1407,6 +1418,7 @@ dialog.addEventListener("cancel", (event) => {
   if (busy) event.preventDefault();
 });
 dialog.addEventListener("submit", async (event) => {
+  if(event.target.id!=='booking-form')return;
   event.preventDefault();
   if (busy) return;
   busy = true;
@@ -1605,19 +1617,13 @@ function renderSecondaryPage() {
   );
   renderHeaderAccount();
   let html = "";
-  if(pageView==='reports')html=`<section class="reports-page"><h2>入浴の報告</h2><p class="muted">過去の予約も、ここから報告できます。</p>${reportList.length?reportList.map(b=>`<article class="report-history-entry"><h3>${escapeHTML(b.day)}分</h3><p>${time(b.start)}〜${time(b.start+b.duration)}</p><button class="primary" data-action="report-entry" data-report-revision="${b.revision}">入浴を報告する</button></article>`).join(''):'<p>未報告の予約はありません。</p>'}</section>`;
+  if(pageView==='reports')html=bathReportUI?.reportsPage({reports:reportList,visits:reportContext.visits,enabled:state.rewards.settings.clientReportEnabled===true,now:serverNow(),time,escapeHTML})||'';
   if (pageView === "stamps") html = renderStampCard(false);
-  if (pageView === "help")
-    html = `<section class="help-page"><h2>ヘルプ</h2><p class="muted">知りたいことから、ひとつずつ。</p><div class="help-topics"><button data-guide="booking">予約と事前希望</button><button data-guide="items">アイテムの使い方</button><button data-guide="stamps">スタンプカード</button><button data-guide="automation">自動予約の使い方</button></div><a class="help-manual" href="https://slfinside.github.io/bathjun/" target="_blank" rel="noopener noreferrer">オンラインの使い方ガイド ↗</a><a class="help-manual muted" href="/help/" target="_blank" rel="noopener noreferrer">このアプリで説明書を読む ↗</a></section>`;
-  if (pageView === "settings")
-    html = `<section class="settings-page"><h2>設定</h2><button class="notification-button" data-action="profile-edit">アイコンを変更</button>${passkeyCard(true)}${notificationCard(true)}${notificationPreferencesForm()}${autoWishesForm()}<button class="cancel-booking" data-action="logout">ログアウト</button></section>`;
+  if (pageView === "help") html=secondaryLayouts?.helpPage()||'';
+  if (pageView === "settings") html=secondaryLayouts?.settingsPage({passkeys:passkeyCard(true),notifications:notificationCard(true),preferences:notificationPreferencesForm(),automation:autoWishesForm()})||'';
   if (pageView === "inventory")
     html = `<section class="inventory-page"><div class="guide-heading">${helpButton("items", "アイテムの使い方")}<h2>持ち物</h2></div><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}${itemUnit(x.kind)}</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
-  if (["gifts", "history"].includes(pageView)) {
-    const history = pageView === "history",
-      gifts = state.rewards.gifts.filter((g) => history || !g.receivedAt);
-    html = `<section class="gift-page"><h2>プレゼントボックス</h2>${!itemsEnabled() ? '<p class="notice">アイテム機能が無効に設定されています。</p>' : ""}<div class="gift-tabs"><button data-action="nav-gifts" aria-pressed="${!history}">プレゼントボックス ${giftBadge()}</button><button data-action="nav-history" aria-pressed="${history}">配布履歴</button></div>${gifts.length ? gifts.map((g) => `<article class="gift-entry"><span class="item-icon">${g.rewardWeek && !g.receivedAt ? "🎁" : itemIcon(g.kind)}</span><div><strong>${g.rewardWeek && !g.receivedAt ? "週間達成特典" : itemName(g.kind) + " × " + g.quantity}</strong><p>${new Date(g.createdAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}</p><details class="gift-description" data-gift-description="${g.id}" ${expandedGifts.has(g.id) ? "open" : ""}><summary>説明を見る</summary>${g.rewardWeek && !g.receivedAt ? `<p><strong>${itemName(g.kind)}</strong></p>` : ""}<p>${itemDescription(g.kind)}</p>${ticketLimits(g.kind)}</details>${g.receivedAt ? "<span>受取済み</span>" : !itemsEnabled() ? "<span>未受取</span>" : `<button class="primary" data-action="receive-gift" data-gift="${g.id}">受け取る</button>`}</div></article>`).join("") : '<p class="muted">' + (history ? "配布履歴はありません。" : "受け取れるプレゼントはありません。") + "</p>"}</section>`;
-  }
+  if (["gifts", "history"].includes(pageView)) html=secondaryLayouts?.giftPage({state,pageView,expandedGifts,enabled:itemsEnabled(),giftBadge,itemName,itemIcon,itemDescription,ticketLimits})||'';
   root.innerHTML = `<button class="back-home" data-action="nav-home">← ホーム</button>${html}`;
   applyMemberColors(root);
 }
@@ -1892,11 +1898,11 @@ function maybeCelebrate() {
       wheel.style.transform = `rotate(${1440 - (rouletteKinds.indexOf(pending.kind) + 0.5) * sector}deg)`;
   });
 }
-dialog.addEventListener("click", (event) => {
+dialog.addEventListener("click", async (event) => {
   if (event.target.closest('[data-action="celebration-gifts"]')) {
     dialog.close();
     pageView = "gifts";
-    renderDashboard();
+    await refresh(true);
   }
 });
 dialog.addEventListener("close", () => {
@@ -1930,7 +1936,7 @@ function resetNavigation() {
   checkRebookingOnOpen = true;
   rebookingQuestion = null;
   rebookingFlow = false;
-  reportingBooking=null;reportList=[];
+  reportingBooking=null;reportList=[];reportContext={reportDays:[],visits:[]};
   autoEditDirty = false;
   stampWeek = null;
   celebrationWeek = null;
@@ -1951,7 +1957,7 @@ async function paintBathReport(booking,confirm){
   try{
     const {bathReportMarkup}=await import('./bath-reports.js');
     if(generation!==accountGeneration||reportingBooking!==booking||view!==pageView||day!==selectedDay||dialog.dataset.mode!==mode||(wasOpen&&!dialog.open))return;
-    dialog.innerHTML=bathReportMarkup({day:escapeHTML(booking.day),start:time(booking.start),end:time(booking.start+booking.duration),canComplete:state.rewards.settings.clientReportEnabled===true,confirm});
+    dialog.innerHTML=bathReportMarkup({day:escapeHTML(booking.day),start:time(booking.start),end:time(booking.start+booking.duration),canComplete:canCompleteBath(booking),expired:!!booking.clientReportUntil&&serverNow()>=new Date(booking.clientReportUntil),confirm});
     if(!dialog.open)dialog.showModal();
   }catch(error){notify(error.message);}
 }

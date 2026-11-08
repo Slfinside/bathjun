@@ -98,14 +98,44 @@ try {
   await page.locator('[data-action="not-bathed"]').click();const done=page.waitForResponse(r=>r.url().endsWith('/api/not-bathed'));await modal.getByRole('button',{name:'入っていないと確定',exact:true}).click();await done;await page.locator('.reservation.not-bathed').waitFor();await screenshot('missed');
   await page.locator('[data-action="rebook"]').click();await modal.getByRole('heading',{name:'おふろを予約し直す'}).waitFor();await modal.locator('#start').selectOption('1095');await modal.locator('#save-booking').click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});assert.equal(await page.locator('.reservation.not-bathed').count(),1);assert.equal(await page.locator('.reservation').count(),2);assert.equal((await state()).bookingHistory.length,1);await page.locator('.reservation.not-bathed').scrollIntoViewIfNeeded();await screenshot('rebooked');
  });
- await scenario('late-bath-report',async({app,page,url,api,navigate,state,time,screenshot})=>{
-  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});await api('book',{day:'2026-11-04',start:1080,duration:30});time('2026-11-10T12:00:00');await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('入浴の報告','.reports-page');await page.getByRole('button',{name:'入浴を報告する',exact:true}).click();const modal=page.locator('#booking-dialog');await modal.getByRole('button',{name:'完了を報告',exact:true}).click();await page.getByText('未報告の予約はありません。',{exact:true}).waitFor();await screenshot('reported');
+ await scenario('late-bath-report',async({app,page,url,api,navigate,time,screenshot,context})=>{
+  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});await api('book',{day:'2026-11-04',start:1080,duration:30});const revision=(await (await context.request.get(url+'/api/state?day=2026-11-04')).json()).bookings[0].revision;
+  time('2026-11-10T12:00:00');await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('入浴の報告','.reports-page');await page.locator('.past-reports summary').click();await page.getByRole('button',{name:'記録を確認',exact:true}).click();
+  const modal=page.locator('#booking-dialog');assert.equal(await modal.getByRole('button',{name:'完了を報告',exact:true}).count(),0);await modal.getByText('この日分の完了報告は受付を終了しました。必要な場合はダッシュボードから報告してください。',{exact:true}).waitFor();await screenshot('expired');
+  assert.equal((await context.request.post(url+'/api/complete',{data:{day:'2026-11-04',revision}})).status(),409);
  });
- await scenario('report-during-lazy-load',async({app,page,url,api,navigate,time,state})=>{
-  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});await api('book',{day:'2026-11-04',start:1080,duration:30});time('2026-11-05T08:00:00');await api('book',{day:'2026-11-05',start:1080,duration:60});time('2026-11-05T18:10:00');await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('入浴の報告','.reports-page');
-  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);await page.route('**/bath-reports.js',async route=>{seen();await held;await route.continue();});
-  const entries=page.locator('.report-history-entry');await entries.nth(0).getByRole('button',{name:'入浴を報告する'}).click();await requested;await entries.nth(1).getByRole('button',{name:'入浴を報告する'}).click();release();
-  const modal=page.locator('#booking-dialog');await modal.getByRole('heading',{name:'入浴の報告',exact:true}).waitFor();assert.match(await modal.innerText(),/2026-11-04分/);await modal.getByRole('button',{name:'完了を報告',exact:true}).click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});assert.ok((await state('2026-11-04')).bookings[0].completedAt);assert.equal((await state('2026-11-05')).bookings[0].completedAt,null);
+ await scenario('report-during-lazy-load',async({app,page,url,api,time,state})=>{
+  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});await api('book',{day:'2026-11-04',start:1080,duration:30});time('2026-11-05T08:00:00');await api('book',{day:'2026-11-05',start:1080,duration:60});time('2026-11-05T18:10:00');
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);await page.route('**/bath-reports.js',async route=>{seen();await held;await route.continue();});await page.goto(url);await page.locator('.date-bar').waitFor();
+  await page.locator('[data-action="report-entry"]').first().click();await requested;await page.locator('[data-day="2026-11-04"]').click();await page.waitForFunction(()=>document.querySelector('.date-bar h2')?.textContent.includes('11月4日'));await page.locator('[data-action="report-entry"]').first().click();release();
+  const modal=page.locator('#booking-dialog');await modal.getByRole('heading',{name:'入浴の報告',exact:true}).waitFor();assert.match(await modal.innerText(),/2026-11-04分/);assert.equal(await modal.getByRole('button',{name:'完了を報告',exact:true}).count(),0);await modal.getByRole('button',{name:'閉じる',exact:true}).click();
+  await page.locator('[data-day="2026-11-05"]').click();await page.waitForFunction(()=>document.querySelector('.date-bar h2')?.textContent.includes('11月5日'));await page.locator('[data-action="report-entry"]').first().click();await modal.getByRole('button',{name:'完了を報告',exact:true}).click();await page.locator('#booking-dialog[open]').waitFor({state:'hidden'});assert.equal((await state('2026-11-04')).bookings[0].completedAt,null);assert.ok((await state('2026-11-05')).bookings[0].completedAt);
+ });
+ await scenario('unreserved-report-sharing',async({app,page,url,api,navigate,state,time,screenshot})=>{
+  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});time('2026-11-04T18:45:00');await api('book',{day:'2026-11-04',start:1140,duration:30});await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('入浴の報告','.reports-page');
+  await page.getByRole('button',{name:'予約外の入浴を報告する',exact:true}).click();const modal=page.locator('#booking-dialog[open]');await modal.getByRole('heading',{name:'予約外の入浴を報告',exact:true}).waitFor();await modal.locator('[name=start]').fill('18:00');await modal.locator('[name=end]').fill('18:30');await modal.locator('[name=note]').fill('実際に入った記録');await screenshot('form');
+  for(const size of [{width:320,height:568},{width:844,height:390},{width:1280,height:800}]){await page.setViewportSize(size);assert.ok(await modal.evaluate(el=>el.scrollWidth<=el.clientWidth),'Actual bath sheet must not overflow horizontally');await screenshot('form-'+size.width);}
+  await page.setViewportSize({width:390,height:844});
+  const saved=page.waitForResponse(r=>r.url().endsWith('/api/unreserved-bath'));await modal.getByRole('button',{name:'入ったことを報告する',exact:true}).click();assert.equal((await saved).status(),200);await modal.waitFor({state:'hidden'});
+  await page.getByText('予約外・入浴済み',{exact:true}).waitFor();const data=await state();assert.equal(data.unreservedBaths.length,1);assert.equal(data.bookings[0].completedAt,null);assert.equal(data.rewards.card.days.find(d=>d.day==='2026-11-04').status,'stamp');
+  await navigate('ホーム','.date-bar');await page.locator('.reservation.unreserved-bath').scrollIntoViewIfNeeded();await screenshot('schedule');
+  for(const width of [320,768,1200]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.locator('.reservation.unreserved-bath').scrollIntoViewIfNeeded();await screenshot('schedule-'+width);}
+  await api('register',{memberId:2,password:'other-test'});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await page.waitForFunction(()=>document.querySelector('#header-account')?.textContent.includes('利用者B'));assert.equal(await page.locator('.reservation.unreserved-bath').count(),1);
+ });
+ await scenario('unreserved-sheet-account-change',async({app,page,url,api,navigate,time,state})=>{
+  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});time('2026-11-04T18:45:00');await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('入浴の報告','.reports-page');
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);await page.route('**/unreserved-report.js',async route=>{seen();await held;await route.continue();});
+  await page.getByRole('button',{name:'予約外の入浴を報告する',exact:true}).click();await requested;await api('register',{memberId:2,password:'other-test'});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await page.waitForFunction(()=>document.querySelector('#header-account')?.textContent.includes('利用者B'));release();
+  await page.evaluate(()=>new Promise(r=>setTimeout(r,100)));assert.equal(await page.locator('#booking-dialog[open]').count(),0);assert.equal((await state()).unreservedBaths.length,0);
+ });
+ await scenario('organized-settings',async({page,url,navigate,screenshot})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','.settings-page');
+  for(const width of [320,390,768,1200]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await screenshot('settings-'+width);}
+  for(const title of ['プロフィール・ログイン','通知','自動予約','アカウント'])await page.getByRole('heading',{name:title,exact:true}).waitFor();
+  await navigate('ヘルプ','.help-page');await page.getByRole('button',{name:'予約と事前希望',exact:true}).click();await page.locator('.guide-dialog[open]').waitFor();await page.getByRole('button',{name:'ガイドを閉じる'}).click();await navigate('ホーム','.date-bar');
+ });
+ await scenario('unreserved-disabled' ,async({page,url,navigate})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('入浴の報告','.reports-page');assert.equal(await page.getByRole('button',{name:'予約外の入浴を報告する',exact:true}).isDisabled(),true);
  });
  await scenario('duration-only',async({page,url,state,screenshot})=>{
   await page.goto(url);await page.locator('[data-action="book"]').click();

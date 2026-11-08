@@ -21,6 +21,7 @@ export function dashboardView(snapshot) {
   const confirmed = bookings.map((b) => timed(b, "予約"));
   const entries = [
     ...confirmed,
+    ...(snapshot.unreservedBaths||[]).map(b=>timed(b,"予約外・入浴済み")),
     ...(snapshot.bookingHistory||[]).map(b=>timed(b,"予約")),
     ...wishes.filter(w=>w.start!==null).map((w) => timed(w, "希望・未確定")),
   ].sort((a, b) => a.start - b.start || a.memberId - b.memberId);
@@ -31,6 +32,7 @@ export function dashboardView(snapshot) {
   return {
     day,
     now,
+    reportDays:snapshot.reportDays||[],
     pendingReports:(snapshot.pendingReports||[]).map(b=>({...b,kind:"予約",startsAt:slotDate(b.day,b.start).toISOString(),endsAt:slotDate(b.day,b.start+b.duration).toISOString()})),
     reportMinutes: snapshot.reportMinutes ?? 1,
     untimedWishes: wishes.filter(w=>w.start===null).map(w=>({memberId:w.memberId,duration:w.duration,name:members.find(m=>m.id===w.memberId)?.name||"利用停止メンバー"})),

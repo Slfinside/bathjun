@@ -2771,3 +2771,17 @@ footer .site-credit {
 
 .reservation.completed { opacity: 1; }
 .reservation.completed .outcome-label { color: var(--green); font-weight: 700; }
+
+.settings-group,.report-section{margin:24px 0;padding:22px 0;border-top:1px solid var(--line);}
+.settings-group>h3,.report-section>h3{margin:0 0 16px;font-size:18px;}
+.settings-group .preferences-card{margin-top:16px;}
+.report-section>.primary{width:100%;}
+.past-reports{margin-top:24px;border-top:1px solid var(--line);padding-top:18px;}
+.past-reports>summary{cursor:pointer;line-height:1.7;}
+
+.visit-times{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+#unreserved-form input,#unreserved-form select,#unreserved-form textarea{width:100%;min-width:0;box-sizing:border-box;min-height:48px;font:inherit;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--paper);color:var(--ink);}
+#unreserved-form label{display:block;margin:18px 0 10px;line-height:1.7;}
+#unreserved-form>.primary{width:100%;}
+.reservation.unreserved-bath{border-style:dashed;}
+@media(max-width:360px){.visit-times{grid-template-columns:1fr;gap:0;}}

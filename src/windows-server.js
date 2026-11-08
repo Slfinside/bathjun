@@ -54,6 +54,7 @@ try {
         adminCall((app) => app.distributeItems(payload)),
       onCompleteBath: (payload) =>
         adminCall((app) => app.completeBath(payload)),
+      onUnreservedBath:payload=>adminCall(app=>app.reportUnreservedBath(payload)),
       onNotBathed:payload=>adminCall(app=>app.notBathed(payload)),
       onGetDashboard: () => adminCall((app) => app.getDashboard()),
       onGetSettings: () => adminCall((app) => app.getServerSettings()),

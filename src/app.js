@@ -1,10 +1,11 @@
+import {createUnreservedBaths} from './unreserved-baths.js';
 import {bookingHistory,pendingBathReports} from './bath-outcomes.js';
 import {migrateDurationOnlyWishes} from './duration-only-wishes.js';
 import {createTimeSelectionNotifications} from './time-selection-notifications.js';
 
 import {createAnnouncements} from './announcements.js';
 import { createRebooking } from "./rebooking.js";
-import { notificationReportMinutes, clientReportsAllowed, lastReportMinutes } from "./completion-policy.js";
+import { clientReportDeadline, notificationReportMinutes, clientReportsAllowed, lastReportMinutes } from "./completion-policy.js";
 import { createCompletionReminders } from './completion-reminders.js';
 import {createRewards} from './rewards.js';
 import {createNudges} from './nudges.js';
@@ -374,6 +375,7 @@ export function createApp({
   const timeSelection=createTimeSelectionNotifications({db,now,scheduleForDay,nightDeadline:serverSettings.nightDeadline,deliverPush,familyConfig,isClosed:()=>closed});
 
   const announcements=createAnnouncements({db,now,onChanged:onNotificationQueued});
+  const unreserved=createUnreservedBaths({db,now,scheduleForDay,transaction:rewards.transaction,onCompleted:rewards.recordUnreservedSuccess,clientReportsAllowed:()=>clientReportsAllowed(rewards.settings())});
   const rebooking=createRebooking({db,now,scheduleForDay,rewardSettings:rewards.settings});
   const wishStarts=createWishStarts({db,now,scheduleForDay,rewards,notifications:wishNotifications,currentTurn,prepareDay:day=>ensureFixedDraw(day),onSettled:(day,previous)=>enqueueTurn(day,previous)});
   function processAutoWishes() {
@@ -649,6 +651,7 @@ export function createApp({
       if(req.method==='POST'&&url.pathname==='/api/items/boost')return send(200,rewards.activate(me.id,body?.requestId));
       if(req.method==='POST'&&url.pathname==='/api/rewards/celebrate')return send(200,rewards.celebrate(me.id,body?.week));
       if(req.method==='POST'&&url.pathname==='/api/rewards/claim')return send(200,rewards.claim(me.id,body?.week));
+      if(req.method==='POST'&&url.pathname==='/api/unreserved-bath'){const result=unreserved.report(me.id,body);timeSelection.sync();onNotificationQueued();return send(200,result);}
       if(req.method==='POST'&&url.pathname==='/api/complete'){const result=rewards.complete(me.id,body);completionReminders.syncDay(body.day);timeSelection.sync();onNotificationQueued();return send(200,result);}
       if(req.method==="POST"&&url.pathname==="/api/auto-standby") {
         if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||typeof body.enabled!=='boolean')fail(400,'自動で様子見にする設定を確認してください。');
@@ -749,7 +752,10 @@ export function createApp({
         onNotificationQueued();
         return send(200, { ok: true });
       }
-      if(req.method==='GET'&&url.pathname==='/api/bath-reports')return send(200,{reports:pendingBathReports(db,now(),me.id)});
+      if(req.method==='GET'&&url.pathname==='/api/bath-reports'){
+        const calendar=currentTime();
+        return send(200,{reports:pendingBathReports(db,now(),me.id).map(b=>({...b,clientReportUntil:clientReportDeadline(b.day,b,scheduleForDay(b.day)).toISOString()})),reportDays:[calendar.yesterday,calendar.today].map(day=>({day,...scheduleForDay(day)})),visits:db.prepare('SELECT id,day,start,duration,note,reported_at AS completedAt FROM unreserved_baths WHERE member_id=? ORDER BY day DESC,start DESC LIMIT 50').all(me.id)});
+      }
       if(req.method==='POST'&&url.pathname==='/api/not-bathed'){
         const result=rewards.notBathed(me.id,body);enqueueTurn(body.day,currentTurn(body.day));return send(200,result);
       }
@@ -769,6 +775,7 @@ export function createApp({
           me,
           rewards:rewards.view(me.id,day),
           unreportedBooking:rebooking.offer(me.id),
+          unreservedBaths:unreserved.list(day),
           standbyWarning:rewards.standbyWarning(me.id,day),
           notificationPreferences:getNotificationPreferences(db,me.id),
           autoStandby:autoStandby.enabled(me.id),
@@ -816,7 +823,7 @@ export function createApp({
             .prepare(
               "SELECT member_id AS memberId,start,duration,note,no_negotiation AS noNegotiation,auto_confirmed AS autoConfirmed,automatic,ticket,ticket_extension AS ticketExtension,revision,(SELECT reported_at FROM bath_completions c WHERE c.revision=bookings.revision) AS completedAt,(SELECT reported_at FROM bath_noncompletions n WHERE n.revision=bookings.revision) AS notBathedAt FROM bookings WHERE day=? ORDER BY start",
             )
-            .all(day),
+            .all(day).map(b=>({...b,clientReportUntil:clientReportDeadline(day,b,scheduleForDay(day)).toISOString()})),
         });
       }
       if (req.method === "POST" && url.pathname === "/api/logout") {
@@ -1056,7 +1063,7 @@ export function createApp({
       for(const candidate of [shiftDay(time.today,-2),time.yesterday]) {
         if(db.prepare('SELECT b.start,b.duration FROM active_booking_slots b WHERE b.day=? AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.revision=b.revision)').all(candidate).some(b=>slotDate(candidate,b.start)<=now()&&now().getTime()<=slotDate(candidate,b.start+b.duration).getTime()+rewards.settings().dashboardReportMinutes*60000)){day=candidate;break;}
       }
-      return {day,now:now().toISOString(),bookingHistory:bookingHistory(db,day),pendingReports:pendingBathReports(db,now()),reportMinutes:rewards.settings().dashboardReportMinutes,settings:scheduleForDay(day),members:allMembers(false).map(({id,name,active,emoji,color})=>({id,name,active,emoji,color})),
+      return {day,now:now().toISOString(),unreservedBaths:unreserved.list(day),reportDays:[time.yesterday,time.today].map(day=>({day,...scheduleForDay(day)})),bookingHistory:bookingHistory(db,day),pendingReports:pendingBathReports(db,now()),reportMinutes:rewards.settings().dashboardReportMinutes,settings:scheduleForDay(day),members:allMembers(false).map(({id,name,active,emoji,color})=>({id,name,active,emoji,color})),
         bookings:db.prepare("SELECT member_id AS memberId,start,duration,automatic,ticket,revision,(SELECT reported_at FROM bath_completions c WHERE c.revision=bookings.revision) AS completedAt,(SELECT reported_at FROM bath_noncompletions n WHERE n.revision=bookings.revision) AS notBathedAt FROM bookings WHERE day=? ORDER BY start").all(day),
         wishes:db.prepare("SELECT member_id AS memberId,start,duration,automatic FROM wishes WHERE day=? ORDER BY start,member_id").all(day),
         skips:db.prepare("SELECT member_id FROM bath_skips WHERE day=?").all(day).map(r=>r.member_id)};
@@ -1069,6 +1076,7 @@ export function createApp({
     getRewardsAdmin:rewards.admin,
     distributeItems:rewards.distribute,
     saveRewardSettings:value=>{const result=rewards.saveSettings(value);completionReminders.restore();return result;},
+    reportUnreservedBath:payload=>{if(!Number.isInteger(payload?.memberId))fail(400,"報告するメンバーを確認してください。");return unreserved.report(payload.memberId,payload,"dashboard");},
     notBathed:payload=>{if(!Number.isInteger(payload?.memberId))fail(400,'報告するメンバーを確認してください。');const result=rewards.notBathed(payload.memberId,payload,'dashboard');enqueueTurn(payload.day,currentTurn(payload.day));return result;},
     completeBath:payload=>{if(!Number.isInteger(payload?.memberId))fail(400,'報告するメンバーを確認してください。');const result=rewards.complete(payload.memberId,payload,'dashboard');completionReminders.syncDay(payload.day);timeSelection.sync();onNotificationQueued();return result;},
     getServerSettings: serverSettings.get,
