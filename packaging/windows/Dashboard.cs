@@ -305,14 +305,15 @@ internal sealed class DashboardForm : Form {
     }
     void ChooseUnreservedReport(){
         if(ReportUnreserved==null||data==null||data.reportDays==null||data.reportDays.Length==0||data.members==null||data.members.Length==0)return;
-        var days=data.reportDays;var now=ServerNow;var jst=now.AddHours(9);
+        var days=data.reportDays;var now=ServerNow;
         using(var form=ReportWindow("予約外の入浴を報告",520)){
             form.Controls.Add(new Label{Text="実際に入った時間を共有します。予約や希望は変更しません。",Location=new Point(22,14),Size=new Size(536,36)});
             var member=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(22,78),Width=536};foreach(var item in data.members)member.Items.Add(item);member.SelectedIndex=0;
             var day=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(22,136),Width=536};foreach(var item in days)day.Items.Add(item);
             var active=Array.Find(days,d=>Instant(d.day+"T00:00:00+09:00").AddMinutes(d.bathStart)<=now&&now<Instant(d.day+"T00:00:00+09:00").AddMinutes(d.bathEnd));day.SelectedIndex=active==null?days.Length-1:Array.IndexOf(days,active);
-            var from=new DateTimePicker{Format=DateTimePickerFormat.Custom,CustomFormat="HH:mm",ShowUpDown=true,Location=new Point(22,196),Width=255,Value=DateTime.Today.AddMinutes((jst.Hour*60+jst.Minute+1440-30)%1440)};
-            var to=new DateTimePicker{Format=DateTimePickerFormat.Custom,CustomFormat="HH:mm",ShowUpDown=true,Location=new Point(300,196),Width=258,Value=DateTime.Today.AddMinutes(jst.Hour*60+jst.Minute)};
+            var selectedDay=(DashboardReportDay)day.SelectedItem;int currentMinute=(int)Math.Floor((now-Instant(selectedDay.day+"T00:00:00+09:00")).TotalMinutes),endMinute=Math.Min(currentMinute,selectedDay.bathEnd),startMinute=Math.Max(selectedDay.bathStart,endMinute-30);
+            var from=new DateTimePicker{Format=DateTimePickerFormat.Custom,CustomFormat="HH:mm",ShowUpDown=true,Location=new Point(22,196),Width=255,Value=DateTime.Today.AddMinutes(startMinute%1440)};
+            var to=new DateTimePicker{Format=DateTimePickerFormat.Custom,CustomFormat="HH:mm",ShowUpDown=true,Location=new Point(300,196),Width=258,Value=DateTime.Today.AddMinutes(endMinute%1440)};
             var note=new TextBox{Multiline=true,MaxLength=300,Location=new Point(22,254),Size=new Size(536,72)};
             foreach(var label in new[]{new Label{Text="メンバー",Location=new Point(22,52),AutoSize=true},new Label{Text="どの日分に記録しますか",Location=new Point(22,112),AutoSize=true},new Label{Text="入った時刻",Location=new Point(22,172),AutoSize=true},new Label{Text="上がった時刻",Location=new Point(300,172),AutoSize=true},new Label{Text="備考（任意・300文字まで）",Location=new Point(22,230),AutoSize=true}})form.Controls.Add(label);
             form.Controls.Add(new Label{Text="日付の区切りより前の朝の入浴は、前日分です。時刻を確認してから報告してください。",Location=new Point(22,336),Size=new Size(536,46)});
@@ -420,7 +421,10 @@ internal sealed class DashboardForm : Form {
             if(age<=20&&entry.kind=="予約"&&!entry.archived&&entry.completedAt==null&&entry.notBathedAt==null&&entry.revision!=null&&Instant(entry.startsAt)<=ServerNow)scheduleReportAreas.Add(new KeyValuePair<RectangleF,DashboardEntry>(HitArea(bar),entry));
             if(conflict)foreach(var overlap in entry.overlaps){float a=ChartY(overlap.start,parts,chartTop,chartHeight),b=ChartY(overlap.end,parts,chartTop,chartHeight);using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Orange,Color.Transparent))g.FillRectangle(brush,bar.X,a,bar.Width,Math.Max(1,b-a));}
             if(conflict&&bar.Height>=26)using(var brush=new SolidBrush(Paper))g.FillRectangle(brush,new RectangleF(bar.X+3,bar.Y+2,Math.Max(1,bar.Width-6),24));
-            if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+(entry.unreserved?"予約外・入浴済み · ":entry.notBathedAt!=null?"入っていない · ":entry.completedAt!=null?"完了 · ":"")+entry.name+(entry.automatic!=0&&bar.Height<44?" · 自動予約":""),Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
+            if(entry.unreserved&&bar.Height>=18){
+                WriteFit(g,entry.name,Mix(11,14),10,Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),20),true);
+                if(bar.Height>=34)WriteFit(g,"予約外・入浴済み",10,8,Green,new RectangleF(bar.X+4,bar.Y+21,Math.Max(1,bar.Width-8),16));
+            }else if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+(entry.notBathedAt!=null?"入っていない · ":entry.completedAt!=null?"完了 · ":"")+entry.name+(entry.automatic!=0&&bar.Height<44?" · 自動予約":""),Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
             if(entry.automatic!=0&&bar.Height>=44)Write(g,"自動予約",10,wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+27,Math.Max(1,bar.Width-8),18));
         }
         foreach(var part in parts)if(part.end-part.start>=120&&part.weight==60){float y=ChartY((part.start+part.end)/2,parts,chartTop,chartHeight);Write(g,"〜",16,Muted,new RectangleF(trackX,y-10,trackWidth,24));}

@@ -23,8 +23,8 @@ export function createUnreservedBaths({db,now,scheduleForDay,transaction,onCompl
    // Time inputs have minute precision; a bath crossing the day boundary can be recorded in its ending minute.
    const until=slotDate(day,Math.max(rule.bathEnd,start+duration+1));
    if(source!=='dashboard'&&instant>=until)fail('この日分の入浴報告の受付は終了しました。',409);
-   const existing=db.prepare('SELECT id FROM unreserved_baths WHERE day=? AND member_id=? AND start=? AND duration=?').get(day,member,start,duration);
-   if(existing)return {ok:true,id:existing.id};
+   const existing=db.prepare('SELECT id,note FROM unreserved_baths WHERE day=? AND member_id=? AND start=? AND duration=?').get(day,member,start,duration);
+   if(existing){if(existing.note!==note.trim())fail('同じ時間の入浴は記録済みです。記録の備考を確認してください。',409);return {ok:true,id:existing.id};}
    const id=randomBytes(16).toString('hex');
    db.prepare('INSERT INTO unreserved_baths VALUES(?,?,?,?,?,?,?,?,?)').run(id,requestId,day,member,start,duration,note.trim(),instant.toISOString(),source);
    onCompleted(member,day);

@@ -32,7 +32,7 @@ test('unreserved reports check the client toggle, real elapsed times and day bou
 test('retries and repeated actual intervals do not duplicate unreserved records or ink refunds',async t=>{
  const f=await fixture(t);f.enable();f.app.distributeItems({recipients:[1],kinds:['bathStamp','stampInk'],quantity:1,requestId:'visit-ink-gift'});for(const gift of (await f.state()).rewards.gifts)await f.api('gifts/receive',{id:gift.id});await f.api('items/stamp',{day:visit.day,requestId:'visit-ink-use'});f.time('2026-11-04T18:45:00');
  const first=await f.api('unreserved-bath',visit);assert.equal((await f.api('unreserved-bath',visit)).id,first.id);assert.equal((await f.api('unreserved-bath',{...visit,requestId:'unreserved-test-2'})).id,first.id);
- assert.equal((await f.request('unreserved-bath',{...visit,duration:45})).status,409);assert.equal((await f.state()).unreservedBaths.length,1);assert.equal((await f.state()).rewards.gifts.filter(g=>g.kind==='stampInk'&&!g.receivedAt).length,1);
+ assert.equal((await f.request('unreserved-bath',{...visit,duration:45})).status,409);assert.equal((await f.request('unreserved-bath',{...visit,note:'変更した備考',requestId:'duplicate-other-note'})).status,409);assert.equal((await f.state()).unreservedBaths.length,1);assert.equal((await f.state()).rewards.gifts.filter(g=>g.kind==='stampInk'&&!g.receivedAt).length,1);
 });
 test('morning visits belong to the night of their start and dashboard corrections can be late',async t=>{
  const f=await fixture(t);f.enable();f.time('2026-11-04T06:30:00');await f.api('unreserved-bath',{day:'2026-11-03',start:1800,duration:15,requestId:'morning-visit-1'});assert.equal((await f.state('2026-11-03')).unreservedBaths.length,1);

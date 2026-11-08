@@ -695,7 +695,7 @@ async function refreshOnce(force) {
       data.unreportedBooking,
       data.bookingHistory,
       data.unreservedBaths,
-      reportList,
+      reportContext,
       data.announcements,
       data.standbyWarning,
       data.ignoreLowerPriorityWishes,
