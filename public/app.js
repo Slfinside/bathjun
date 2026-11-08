@@ -1653,23 +1653,12 @@ function showItem(kind) {
 async function openStampPicker(preferredWeek = null) {
   const generation=accountGeneration,view=pageView,day=selectedDay,today=state.today,wasOpen=dialog.open,mode=dialog.dataset.mode;
   const currentRequest=()=>generation===accountGeneration&&view===pageView&&day===selectedDay&&today===state?.today&&itemsEnabled()&&(!wasOpen||dialog.open)&&mode===dialog.dataset.mode;
-  const current = await api("rewards?day=" + encodeURIComponent(today));
+  const {loadStampPicker}=await import('./stamp-picker.js');
   if(!currentRequest())return;
-  const previousWeek = new Date(
-    Date.parse(current.card.week + "T12:00:00Z") - 7 * 86400000,
-  )
-    .toISOString()
-    .slice(0, 10);
-  const previous = await api("rewards?week=" + previousWeek);
-  if(!currentRequest())return;
-  const card = preferredWeek === previousWeek ? previous.card : current.card;
-  const stampable = card.days.filter(
-    (d) => d.status !== "stamp" && d.day <= state.today,
-  );
-  const {stampPickerMarkup}=await import('./stamp-picker.js');
-  if(!currentRequest())return;
+  const markup=await loadStampPicker({api,today,preferredWeek,currentRequest});
+  if(!markup||!currentRequest())return;
   dialog.dataset.mode = "stamp-ink";
-  dialog.innerHTML=stampPickerMarkup({card,previousWeek,currentWeek:current.card.week,stampable,ink:current.wallet.find(x=>x.kind==='stampInk').quantity});
+  dialog.innerHTML=markup;
   if (!dialog.open) dialog.showModal();
 }
 async function handleRewardsAction(action, event) {
