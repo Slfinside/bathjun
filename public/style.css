@@ -904,12 +904,18 @@ footer span {
   transform: translate(-50%, 0);
 }
 dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  overflow-y: auto;
   color: var(--ink);
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 24px;
   width: calc(100% - 32px);
   max-width: 460px;
+  max-height: 90vh;
   max-height: 90dvh;
   padding: 28px;
   box-shadow: 0 20px 100px #343d3430;
@@ -1232,20 +1238,9 @@ select {
 }
 @media (max-width: 520px) {
   dialog {
-    margin: auto 0 0;
-    width: 100%;
-    max-width: none;
-    border-radius: 25px 25px 0 0;
-    padding: 12px 25px calc(22px + env(safe-area-inset-bottom));
-    max-height: 94dvh;
-  }
-  .sheet-handle {
-    display: block;
-    width: 34px;
-    height: 4px;
-    border-radius: 3px;
-    background: #dadfce;
-    margin: 0 auto 23px;
+    width: calc(100% - 28px);
+    border-radius: 24px;
+    padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
   }
 }
 @media (max-width: 360px) {

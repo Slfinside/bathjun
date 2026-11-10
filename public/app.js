@@ -997,7 +997,7 @@ function openBooking(mode = "booking") {
   const initialDuration =
     (durations.includes(entry?.duration) ? entry.duration : null) || (durations.includes(30) ? 30 : durations[0]);
   dialog.dataset.mode = mode;
-  dialog.innerHTML = `<div class="sheet-handle" aria-hidden="true"></div><div class="sheet-heading"><div><div class="eyebrow">${isWish ? "LET YOUR FAMILY KNOW" : "YOUR LITTLE BREAK"}</div><h2 id="booking-title">${isWish ? "先に、希望を伝えよう。" : isRebooking ? "おふろを予約し直す" : booking ? "おふろの時間を変更" : "何時に、あたたまる？"}</h2></div><button class="icon-button" data-action="close" aria-label="閉じる">${icon("close")}</button></div><p class="muted">${dateLabel(state.day)} · ${isWish ? "希望は家族みんなに共有されます。時刻を指定した希望は、順番が来て重なりがなければ自動で確定します。" : canShareDuration ? "開始時刻と長さ、または長さだけを共有できます。" : "脱衣所に入る時刻を選んでください。"}</p>${
+  dialog.innerHTML = `<div class="sheet-handle" aria-hidden="true"></div><div class="sheet-heading"><div><h2 id="booking-title">${isWish ? "事前希望を入力" : isRebooking ? "おふろを予約し直す" : booking ? "おふろの時間を変更" : "おふろを予約する"}</h2></div><button class="icon-button" data-action="close" aria-label="閉じる">${icon("close")}</button></div><p class="muted">${dateLabel(state.day)} · ${isWish ? "希望は家族みんなに共有されます。時刻を指定した希望は、順番が来て重なりがなければ自動で確定します。" : canShareDuration ? "開始時刻と長さ、または長さだけを共有できます。" : "脱衣所に入る時刻を選んでください。"}</p>${
     !isWish && state.wishes.some((w) => w.memberId !== me.id)
       ? `<details class="other-wishes"><summary>ほかの人の希望を確認する</summary>${state.wishes
           .filter((w) => w.memberId !== me.id)
