@@ -11,13 +11,14 @@ assert.ok(executablePath,'Install Chrome/Chromium or set BATHJUN_BROWSER_PATH');
 const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox']});
 const output=process.env.BATHJUN_BROWSER_SCREENSHOTS;
 if(output)mkdirSync(output,{recursive:true});
-async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1'}={}){
+async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFamily=false}={}){
  if(process.env.BATHJUN_BROWSER_SCENARIOS&&!process.env.BATHJUN_BROWSER_SCENARIOS.split(',').includes(name))return;
  const directory=mkdtempSync(join(tmpdir(),'bathjun-browser-'));
  let clock=new Date('2026-11-02T08:00:00+09:00');
- const app=createApp({database:join(directory,'test.sqlite'),requireFamily:false,now:()=>clock,deliverPush:async()=>{}});
+ const app=createApp({database:join(directory,'test.sqlite'),requireFamily,now:()=>clock,deliverPush:async()=>{}});
  app.saveServerSettings({members:[{name:'利用者A',active:true},{name:'利用者B',active:true}],schedule:{...DEFAULT_SCHEDULE,orderMode:'fixed',maxDuration}});
  clock=new Date('2026-11-04T08:00:00+09:00');
+ if(requireFamily)await app.changePassword({target:'family',password:'synthetic-family'});
  const {server}=createHttpServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://${hostname}:${server.address().port}`;
  const context=await browser.newContext({viewport:{width:390,height:844},locale:'ja-JP'}),page=await context.newPage(),errors=[];
  page.on('pageerror',error=>errors.push(error.message));
@@ -25,6 +26,7 @@ async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1'}={}){
  const state=async(day='2026-11-04')=>(await context.request.get(url+'/api/state?day='+day)).json();
  const navigate=async(label,selector)=>{await page.locator('.account-menu > summary').click();await page.getByRole('navigation',{name:'メニュー'}).getByRole('button',{name:label,exact:true}).click();await page.locator(selector).waitFor()};
  try{
+  if(requireFamily)await api('family/login',{password:'synthetic-family'});
   await api('register',{memberId:1,password:'test-only'});await state();
   await fn({app,page,context,url,api,state,navigate,time:value=>clock=new Date(value+'+09:00'),
     screenshot:async suffix=>{if(output)await page.screenshot({path:join(output,name+'-'+suffix+'.png')});}
@@ -134,6 +136,39 @@ try {
   for(const title of ['プロフィール・ログイン','通知','自動予約','アカウント'])await page.getByRole('heading',{name:title,exact:true}).waitFor();
   await navigate('ヘルプ','.help-page');await page.getByRole('button',{name:'予約と事前希望',exact:true}).click();await page.locator('.guide-dialog[open]').waitFor();await page.getByRole('button',{name:'ガイドを閉じる'}).click();await navigate('ホーム','.date-bar');
  });
+ await scenario('notification-draft-refresh',async({page,url,navigate,state,time})=>{
+  await page.addInitScript(()=>{Object.defineProperty(Notification,'permission',{get:()=> 'default'});Notification.requestPermission=async()=> 'default';});
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','.settings-page');
+  const input=page.locator('[name="reminderMinutes"]');await input.fill('25');await page.locator('[name="bathReminder"]').uncheck();await page.getByRole('heading',{name:'設定',exact:true}).click();time('2026-11-04T08:02:00');
+  const updated=page.waitForResponse(r=>r.url().includes('/api/state'));await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await updated;await page.evaluate(()=>new Promise(r=>setTimeout(r,100)));
+  assert.equal(await input.inputValue(),'25');assert.equal(await page.locator('[name="bathReminder"]').isChecked(),false);
+  await page.locator('[data-action="enable-notifications"]').click();assert.equal(await input.inputValue(),'25');assert.equal(await page.locator('[name="bathReminder"]').isChecked(),false);
+  await page.getByRole('button',{name:'通知設定を保存' ,exact:true}).click();await page.getByText('通知設定を保存しました。',{exact:true}).waitFor();assert.equal((await state()).notificationPreferences.reminderMinutes,25);assert.equal((await state()).notificationPreferences.bathReminder,false);
+ });
+ await scenario('guide-account-change',async({page,url,navigate,api})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('ヘルプ','.help-page');
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);await page.route('**/help/content.json',async route=>{const response=await route.fetch();seen();await held;await route.fulfill({response});});
+  await page.getByRole('button',{name:'予約と事前希望',exact:true}).click();await requested;await api('logout',{});await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await page.locator('.member-button').first().waitFor();release();await page.evaluate(()=>new Promise(r=>setTimeout(r,100)));assert.equal(await page.locator('.guide-dialog[open]').count(),0);
+ });
+ await scenario('report-pending-controls',async({app,page,url,api,time,state})=>{
+  app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});await api('book',{day:'2026-11-04',start:1080,duration:30});time('2026-11-04T18:10:00');await page.goto(url);await page.locator('.reservation[data-action="report-entry"]').click();const modal=page.locator('#booking-dialog[open]');
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);await page.route('**/api/complete',async route=>{const response=await route.fetch();seen();await held;await route.fulfill({response});});
+  await modal.getByRole('button',{name:'完了を報告',exact:true}).click();await requested;assert.equal(await modal.getByRole('button',{name:'入っていない',exact:true}).isDisabled(),true);assert.equal(await modal.getByRole('button',{name:'完了を報告',exact:true}).isDisabled(),true);release();await modal.waitFor({state:'hidden'});assert.ok((await state()).bookings[0].completedAt);
+ });
+ await scenario('clarity-help-and-records',async({page,url,api,navigate,time,screenshot})=>{
+  await api('book',{day:'2026-11-04',start:1080,duration:30});time('2026-11-05T08:00:00');await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('ヘルプ','.help-page');
+  assert.equal(await page.getByText('知りたいことから、ひとつずつ。',{exact:true}).count(),0);
+  for(const width of [320,390,1280]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await screenshot('help-'+width);}
+  await navigate('入浴の報告','.reports-page');await page.locator('.past-reports summary').click();const button=page.getByRole('button',{name:'記録を確認',exact:true});await button.scrollIntoViewIfNeeded();assert.ok((await button.boundingBox()).height>=44);
+  for(const width of [320,390,1280]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await screenshot('reports-'+width);}
+ });
+ await scenario('clear-family-login',async({page,url,context,screenshot})=>{
+  await context.clearCookies();await page.goto(url);await page.getByRole('heading',{name:'家族認証',exact:true}).waitFor();
+  for(const width of [320,390,1280]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await screenshot('family-'+width);}
+  await page.locator('#family-password').fill('synthetic-family');await page.getByRole('button',{name:'認証する',exact:true}).click();await page.getByRole('heading',{name:'ログイン',exact:true}).waitFor();await page.locator('[data-member="1"]').click();await page.locator('#password').fill('test-only');
+  for(const width of [320,390,1280]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await screenshot('login-'+width);}
+  await page.getByRole('button',{name:'ログインする',exact:true}).click();await page.locator('.date-bar').waitFor();
+ },{requireFamily:true});
  await scenario('secondary-gift-flow',async({app,page,url,navigate,state,screenshot})=>{
   app.distributeItems({recipients:[1],kinds:['guard'],quantity:1,requestId:'lazy-gift-flow'});await page.goto(url);await page.locator('.gift-callout').click();await page.locator('.gift-page').waitFor();
   const description=page.locator('.gift-description');assert.equal(await description.getAttribute('open'),null);await description.locator('summary').click();await page.getByRole('button',{name:'受け取る',exact:true}).click();await page.getByText('受け取れるプレゼントはありません。',{exact:true}).waitFor();
@@ -309,7 +344,7 @@ try {
   await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
   await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','#auto-wishes-form');
   await page.locator('[data-action="passkey-register"]').click();
-  await page.getByText('パスキーを登録しました。次回から合い言葉や名前の入力を省略できます。',{exact:true}).waitFor();
+  await page.getByText('パスキーを登録しました。',{exact:true}).waitFor();
   assert.equal((await state()).passkeyCount,1);
   let releaseList,seenList;
   if(deferList){

@@ -7,7 +7,7 @@ const button = (label, className = "") => {
   node.className = className;
   return node;
 };
-export async function openGuide(topic, { onboarding = false, rules = {} } = {}) {
+export async function openGuide(topic, { onboarding = false, rules = {}, isCurrent = () => true } = {}) {
   contentPromise ||= fetch("/help/content.json")
     .then((response) => {
       if (!response.ok)
@@ -19,6 +19,7 @@ export async function openGuide(topic, { onboarding = false, rules = {} } = {}) 
       throw error;
     });
   const entry = (await contentPromise)[topic];
+  if(!isCurrent())return;
   if (!entry) throw Error("ガイドが見つかりません。");
   guide ||= Object.assign(document.createElement("dialog"), {
     className: "guide-dialog",

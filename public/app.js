@@ -32,9 +32,10 @@ let checkRebookingOnOpen = true, rebookingQuestion = null, rebookingFlow = false
 async function openClientGuide(topic, onboarding = false) {
   if (guidePending) return;
   guidePending = true;
+  const generation=accountGeneration,view=pageView;
   try {
     const { openGuide } = await import("./help.js");
-    await openGuide(topic, { onboarding, rules: state?.rewards?.settings });
+    await openGuide(topic, { onboarding, rules: state?.rewards?.settings,isCurrent:()=>generation===accountGeneration&&view===pageView&&!!me });
   } catch (error) {
     notify(error.message);
   } finally {
@@ -256,7 +257,7 @@ async function api(path, data) {
 function renderFamily(configured = true) {
   renderHeaderAccount();
   root.removeAttribute("aria-busy");
-  root.innerHTML = `<section class="welcome"><div class="eyebrow">JUST FOR OUR FAMILY</div><h1>おかえりなさい。<br>家族の合い言葉は？</h1><p>ここは、わが家専用のおふろ予約。</p></section><section class="login-card family-card"><h2>まずは、家族の確認。</h2>${passkeyLoginButton()}${configured ? `<form id="family-form" class="login-form"><label for="family-password">家族みんなで使う合い言葉</label><input id="family-password" name="password" type="password" autocomplete="current-password" maxlength="128" required placeholder="家族の合い言葉"><p class="form-error" id="family-error" role="alert"></p><button class="primary" type="submit">家族のおふろへ${icon("arrow")}</button></form>` : '<p class="muted">家族の合い言葉を準備中です。準備ができてから、もう一度開いてください。</p><button class="primary" data-action="retry">もう一度読み込む</button>'}</section>`;
+  root.innerHTML = `<section class="login-card family-card"><h2>家族認証</h2>${passkeyLoginButton()}${configured ? `<form id="family-form" class="login-form"><label for="family-password">家族の合い言葉</label><input id="family-password" name="password" type="password" autocomplete="current-password" maxlength="128" required><p class="form-error" id="family-error" role="alert"></p><button class="primary" type="submit">認証する${icon("arrow")}</button></form>` : '<p class="muted">家族の合い言葉が未設定です。管理者が設定してから、読み込み直してください。</p><button class="primary" data-action="retry">もう一度読み込む</button>'}</section>`;
 }
 const passkeysSupported = () =>
   window.isSecureContext &&
@@ -264,12 +265,12 @@ const passkeysSupported = () =>
   !!navigator.credentials;
 function passkeyLoginButton() {
   return passkeysSupported()
-    ? '<button class="primary passkey-login" data-action="passkey-login">パスキーでログイン</button><p class="fine-print">登録済みなら、名前や合い言葉の入力は不要です。初めての方は下から設定してください。</p>'
+    ? '<button class="primary passkey-login" data-action="passkey-login">パスキーでログイン</button>'
     : "";
 }
 function passkeyCard(showConfigured = false) {
   if (state.passkeyCount && !showConfigured) return "";
-  return `<aside class="passkey-card"><div><h3>${state.passkeyCount ? "パスキーで、かんたんログイン" : "次回からは、顔認証やPINで。"}</h3><p>${passkeysSupported() ? "初回だけ登録すれば、家族の合い言葉と個別パスワードの入力をまとめて省略できます。" : "パスキーはHTTPSの家族用リンクから登録できます。"}</p><small>${state.passkeyCount || 0}件のパスキーを登録済み</small></div>${passkeysSupported() ? '<button class="notification-button" data-action="passkey-register">パスキーを登録</button>' : ""}${state.passkeyCount ? '<button class="passkey-manage" data-action="passkey-manage">登録済みを確認・削除</button>' : ""}${passkeyList ? `<ul class="passkey-list">${passkeyList.map((p, i) => `<li><span>パスキー ${i + 1} · ${escapeHTML(p.createdAt.slice(0, 10))}</span><button data-action="passkey-remove" data-credential="${escapeHTML(p.id)}">削除</button></li>`).join("")}</ul>` : ""}</aside>`;
+  return `<aside class="passkey-card"><div><h3>パスキー</h3><p>${passkeysSupported() ? "登録すると、家族の合い言葉と個別パスワードの入力を省略できます。" : "パスキーはHTTPSの家族用リンクから登録できます。"}</p><small>${state.passkeyCount || 0}件のパスキーを登録済み</small></div>${passkeysSupported() ? '<button class="notification-button" data-action="passkey-register">パスキーを登録</button>' : ""}${state.passkeyCount ? '<button class="passkey-manage" data-action="passkey-manage">登録済みを確認・削除</button>' : ""}${passkeyList ? `<ul class="passkey-list">${passkeyList.map((p, i) => `<li><span>パスキー ${i + 1} · ${escapeHTML(p.createdAt.slice(0, 10))}</span><button data-action="passkey-remove" data-credential="${escapeHTML(p.id)}">削除</button></li>`).join("")}</ul>` : ""}</aside>`;
 }
 const fromBase64 = (value) =>
   Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) =>
@@ -320,7 +321,7 @@ async function registerPasskey() {
   passkeyList = null;
   await refresh(true);
   notify(
-    "パスキーを登録しました。次回から合い言葉や名前の入力を省略できます。",
+    "パスキーを登録しました。",
   );
 }
 async function loginWithPasskey() {
@@ -352,7 +353,7 @@ function notificationCard(showConfigured = false) {
   const standalone =
     matchMedia("(display-mode: standalone)").matches || navigator.standalone;
   let help =
-    "前の人が予約し終わると、この端末にお知らせします。希望の結果や、設定した分数前の入浴通知も受け取れます。";
+    "受け取る通知の種類と、入浴前に通知する分数を設定できます。";
   let action =
     '<button class="notification-button" data-action="enable-notifications">通知を受け取る</button>';
   if (ios && !standalone) {
@@ -374,7 +375,7 @@ function notificationCard(showConfigured = false) {
   } else if (notificationStatus === "有効")
     action =
       '<button class="notification-button" data-action="disable-notifications">通知を止める</button>';
-  return `<aside class="notification-card"><div><h3>おふろのお知らせ</h3><p>${help}</p><span id="notification-status">この端末：${notificationStatus}</span></div>${action}</aside>`;
+  return `<aside class="notification-card"><div><h3>この端末の通知</h3><p>${help}</p><span id="notification-status">この端末：${notificationStatus}</span></div>${action}</aside>`;
 }
 function notificationPreferencesForm() {
   const settings = state.notificationPreferences || {};
@@ -397,6 +398,7 @@ function notificationPreferencesForm() {
       "",
     )}<label class="reminder-minutes">入浴の何分前に通知するか<input type="number" name="reminderMinutes" min="1" max="180" step="1" required value="${Number(settings.reminderMinutes) || 10}"><span>分前</span></label><p class="muted">種類と分数は、自分の端末間で共通です。通知の許可は端末ごとに必要です。</p><button type="submit" class="primary">通知設定を保存</button><p class="form-error" role="alert"></p></form>`;
 }
+let notificationEditDirty = false;
 let autoEditWeekday = null,
   autoEditDirty = false;
 const autoMode = (day) =>
@@ -425,6 +427,7 @@ function autoWishesForm() {
     )}</tbody></table><form id="auto-wishes-form"><div class="auto-reservation-editor">${autoReservationEditor()}</div><button class="primary" type="submit">設定する</button><p class="form-error" role="alert"></p></form></section>`;
 }
 root.addEventListener("input", (event) => {
+  if(event.target.closest("#notification-preference-form"))notificationEditDirty=true;
   if (
     event.target.closest("#auto-wishes-form") &&
     event.target.name !== "weekday"
@@ -432,6 +435,7 @@ root.addEventListener("input", (event) => {
     autoEditDirty = true;
 });
 root.addEventListener("change", (event) => {
+  if(event.target.closest("#notification-preference-form"))notificationEditDirty=true;
   const form = event.target.closest("#auto-wishes-form");
   if (!form) return;
   if (event.target.name === "weekday") {
@@ -515,6 +519,7 @@ document
             ? state.notificationPreferences.bookingDisplaced
             : data.has(key);
       await api("notification-preferences", settings);
+      notificationEditDirty=false;
       await refresh(true);
       notify("通知設定を保存しました。");
     } catch (error) {
@@ -569,7 +574,7 @@ async function enableNotifications() {
   await api("push/subscribe", { subscription: subscription.toJSON() });
   notificationStatus = "有効";
   renderDashboard();
-  notify("この端末で、予約する番をお知らせします。");
+  notify("この端末の通知を有効にしました。");
 }
 async function disableNotifications() {
   const registration = await navigator.serviceWorker.getRegistration();
@@ -590,8 +595,7 @@ function renderLogin() {
   }
 
   root.removeAttribute("aria-busy");
-  root.innerHTML = `<section class="welcome"><div class="eyebrow">A LITTLE ROUTINE, A BETTER EVENING</div><h1>おふろの順番、<br>気持ちよく決めよう。</h1><p>くじで順番を決めて、好きな時間を予約。<br>家族みんなの「次、だれ？」をひとつに。</p><div class="welcome-bath" aria-hidden="true">${icon("bath")}<span class="bubble one"></span><span class="bubble two"></span></div></section>
-    <section class="login-card"><div class="section-label">はじめましょう<span>01 — WHO ARE YOU?</span></div><h2>あなたはだれ？</h2>${passkeyLoginButton()}<p class="muted">自分の名前を選んでください。</p><div class="member-grid">${activeMembers()
+  root.innerHTML = `<section class="login-card"><h2>ログイン</h2>${passkeyLoginButton()}<p class="muted">自分の名前を選んでください。</p><div class="member-grid">${activeMembers()
       .map(
         (m) =>
           `<button class="member-button ${selectedMember === m.id ? "selected" : ""}" data-member="${m.id}" aria-pressed="${selectedMember === m.id}">${avatar(m.id)}<strong>${escapeHTML(m.name)}</strong><span>${m.registered ? "ログイン" : "はじめて"}</span></button>`,
@@ -603,7 +607,7 @@ function renderLogin() {
 function renderLoginFields() {
   const m = members.find((m) => m.id === selectedMember);
   document.querySelector("#login-fields").innerHTML =
-    `<form id="login-form" class="login-form"><div class="notice">${m.registered ? `${escapeHTML(m.name)}さん、おかえりなさい。` : `${escapeHTML(m.name)}さん専用のパスワードを決めましょう。`}<small>${m.registered ? "" : "自分の名前だけ設定してください。4文字以上で設定できます。"}</small></div><label for="password">${m.registered ? "パスワード" : "新しいパスワード"}</label><input id="password" name="password" type="password" autocomplete="${m.registered ? "current-password" : "new-password"}" minlength="4" maxlength="128" required placeholder="4文字以上">${m.registered ? "" : '<label for="password-confirm">もう一度入力</label><input id="password-confirm" name="confirm" type="password" autocomplete="new-password" minlength="4" maxlength="128" required placeholder="確認用パスワード">'}${m.registered ? "" : renderProfilePicker(m)}<label class="checkbox-label"><input type="checkbox" id="show-password">パスワードを表示</label><p class="form-error" id="login-error" role="alert"></p><button type="submit" class="primary">${m.registered ? "ログインする" : "パスワードを設定して、はじめる"}${icon("arrow")}</button></form>`;
+    `<form id="login-form" class="login-form"><div class="notice">${escapeHTML(m.name)}${m.registered ? "" : "：初回登録"}<small>${m.registered ? "" : "自分のアカウントに、4文字以上のパスワードを設定してください。"}</small></div><label for="password">${m.registered ? "パスワード" : "新しいパスワード"}</label><input id="password" name="password" type="password" autocomplete="${m.registered ? "current-password" : "new-password"}" minlength="4" maxlength="128" required placeholder="4文字以上">${m.registered ? "" : '<label for="password-confirm">もう一度入力</label><input id="password-confirm" name="confirm" type="password" autocomplete="new-password" minlength="4" maxlength="128" required placeholder="確認用パスワード">'}${m.registered ? "" : renderProfilePicker(m)}<label class="checkbox-label"><input type="checkbox" id="show-password">パスワードを表示</label><p class="form-error" id="login-error" role="alert"></p><button type="submit" class="primary">${m.registered ? "ログインする" : "登録する"}${icon("arrow")}</button></form>`;
   if (!m.registered)
     initializeProfilePicker(document.querySelector("#login-fields"));
 }
@@ -737,7 +741,7 @@ async function refreshOnce(force) {
       before !== previousTurn &&
       previousTurn === data.me.id
     )
-      notify("予約する番です。好きな時間を選んでください。");
+      notify("予約する順番が回ってきました。");
     members = data.members;
     me = data.me;
     selectedDay = data.day;
@@ -788,7 +792,7 @@ function renderDashboard() {
       )}</ol>${state.settings.orderMode === "fixed" ? '<p class="fine-print">固定順は全端末で共通。「入らない/様子見」は末尾へ回ります。</p>' : ""}`
       : state.settings.orderMode === "fixed"
         ? '<h2>予約の順番</h2><p class="muted">固定順は当日に確定します。時刻の予約も当日からです。</p>'
-        : `<div class="draw-illustration" aria-hidden="true">${icon("shuffle")}<span>?</span></div><h2>この日の順番、くじで決めよう。</h2><p class="muted">${activeMembers().length}人の予約する順番をランダムに決定。<br>だれか1人が引けば、みんなに共有されます。</p><button class="primary" data-action="draw" ${state.lotteryOpen ? "" : "disabled"}>${icon("shuffle")}${state.lotteryOpen ? "この日の順番を抽選する" : "抽選できる時間を待ってね"}</button><p class="fine-print">${icon("clock")}${state.settings.lotteryTimeRestricted ? `抽選できる時間：当日 ${time(state.settings.lotteryStart)}〜${time(state.settings.lotteryEnd)}（締切）` : "当日分を抽選できます（対象日のおふろ終了まで）"}</p>${state.settings.lotteryTimeRestricted && !state.lotteryOpen && state.day === state.today && state.minute >= state.settings.lotteryEnd ? '<p class="form-error">今日は抽選時間が終了しました。次は明日の抽選時間に操作してください。</p>' : ""}`
+        : `<div class="draw-illustration" aria-hidden="true">${icon("shuffle")}<span>?</span></div><h2>予約順の抽選</h2><p class="muted">${activeMembers().length}人の予約順を抽選し、全端末で共有します。</p><button class="primary" data-action="draw" ${state.lotteryOpen ? "" : "disabled"}>${icon("shuffle")}${state.lotteryOpen ? "この日の順番を抽選する" : state.day > state.today ? "当日から抽選できます" : slotDate(state.settings.bathEnd) <= serverNow() ? "抽選受付終了" : "抽選時間外"}</button><p class="fine-print">${icon("clock")}${state.settings.lotteryTimeRestricted ? `抽選できる時間：当日 ${time(state.settings.lotteryStart)}〜${time(state.settings.lotteryEnd)}（締切）` : "当日分を抽選できます（対象日のおふろ終了まで）"}</p>${state.settings.lotteryTimeRestricted && !state.lotteryOpen && state.day === state.today && state.minute >= state.settings.lotteryEnd ? '<p class="form-error">今日は抽選時間が終了しました。次は明日の抽選時間に操作してください。</p>' : ""}`
   }</section>${renderWishes()}${renderStampCard()}
   <aside class="rules-card"><span class="rules-icon">♨</span><div><h3>わが家のおふろルール</h3><p>1回 <strong>${state.settings.minDuration}〜${state.settings.maxDuration}分</strong>、${state.settings.step}分刻みで予約。<br>脱衣所に入ってから、出るまでの時間です。<br>1人1枠。予約後も、開始前なら変更できます。</p></div></aside></div>
   <div class="right-column">${renderBookingBanner(booking, turn, expired, canEdit)}
@@ -831,20 +835,20 @@ function renderNudge(id) {
 function canCompleteBath(booking){return state.rewards.settings.clientReportEnabled===true&&(!booking?.clientReportUntil||serverNow()<new Date(booking.clientReportUntil));}
 function renderBookingBanner(booking, turn, expired, canEdit) {
   if (state.day > state.today)
-    return `<section class="booking-banner"><div><h3>事前希望</h3><button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div><div><h3>${state.day === state.tomorrow ? "明日" : "明後日"}の夜の予定</h3><p>希望は抽選前から出せます。抽選・予約は当日からです。日付は${time(state.dayRollover)}に切り替わります。</p>${isDeferred() ? "<p>入らない/様子見を共有済みです。</p>" : ""}<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button></div></section>`;
+    return `<section class="booking-banner"><div><h3>事前希望</h3><button class="primary" data-action="wish">${ownWish() ? "自分の希望を変更" : "希望を出す"}</button></div><div><h3>${state.day === state.tomorrow ? "明日" : "明後日"}の予定</h3><p>事前希望は入力できます。抽選・予約は当日からです。</p>${isDeferred() ? "<p>入らない/様子見を共有済みです。</p>" : ""}<button class="skip-button" data-action="toggle-skip">${isDeferred() ? "通常の順番に戻す" : "入らない/様子見"}</button></div></section>`;
   const yourTurn = turn === me.id && !expired;
   let content;
   if (expired)
     content =
-      '<span class="banner-symbol">☾</span><div><h3>この日のおふろは終了しました。</h3><p>今日のタブから次のおふろを確認できます。</p></div>';
+      '<span class="banner-symbol">☾</span><div><h3>この日分の受付は終了しました。</h3><p>「今日」から現在の予定を確認できます。</p></div>';
   else if (booking)
-    content = `${icon("check")}<div><span class="eyebrow">YOUR BATH TIME</span><h3>${time(booking.start)} <span>〜</span> ${time(booking.start + booking.duration)}</h3><p>${booking.automatic ? "自動予約" : booking.autoConfirmed ? "希望から自動確定" : "あなたの予約"} · ${booking.duration}分</p></div>${canEdit ? `<button class="primary" data-action="book" aria-label="自分の予約を変更">${icon("edit")}予約を変更</button>` : ""}`;
+    content = `${icon("check")}<div><span class="eyebrow">自分の予約</span><h3>${time(booking.start)} <span>〜</span> ${time(booking.start + booking.duration)}</h3><p>${booking.automatic ? "自動予約" : booking.autoConfirmed ? "希望から自動確定" : "あなたの予約"} · ${booking.duration}分</p></div>${canEdit ? `<button class="primary" data-action="book" aria-label="自分の予約を変更">${icon("edit")}予約を変更</button>` : ""}`;
   else if (yourTurn)
     content = `${icon("bath")}<div><h3>${escapeHTML(me.name)}さん、選ぶ番です。</h3>${ownWish()?.start===null?`<p>${ownWish().duration}分・時刻未定</p>`:""}${isDeferred() ? "<p>末尾の順番が回ってきました。希望するなら予約できます。</p>" : ""}</div>`;
   else if (isDeferred())
     content = `${icon("clock")}<div><h3>入らない/様子見 · 順番は最後へ</h3><p>入らないと確定した扱いではありません。順番が来たら予約できます。</p>${state.standbyWarning ? `<p class="notice">${escapeHTML(state.standbyWarning.message)}</p>` : ""}</div>`;
   else
-    content = `${icon("clock")}<div><h3>${!state.draw ? "まずは、今日の順番を抽選。" : !state.draw.order.includes(me.id) ? "次回の順番決定から参加できます。" : !turn ? "この日の予約がそろいました。" : `${escapeHTML(memberName(turn))}さんが選ぶ番です。`}</h3><p>予約や順番の変更は自動で更新されます。</p></div>`;
+    content = `${icon("clock")}<div><h3>${!state.draw ? "予約順は未抽選です。" : !state.draw.order.includes(me.id) ? "次回の順番決定から参加できます。" : !turn ? "この日の予約がそろいました。" : `${escapeHTML(memberName(turn))}さんが選ぶ番です。`}</h3></div>`;
   const beforeTurn = !expired && !booking && !yourTurn;
   const completion =
     canCompleteBath(booking) &&
@@ -1610,6 +1614,7 @@ function renderStampCard(compact = true) {
   return `<section class="stamp-card"><div class="card-title guide-heading">${helpButton("stamps", "スタンプカードの使い方")}<h2>スタンプカード</h2></div>${compact ? `<p class="muted">${period}</p>` : `<div class="week-navigation"><button data-action="stamp-previous" aria-label="前の週">‹</button><p class="muted">${period}</p><button data-action="stamp-next" aria-label="次の週">›</button></div>`}<div class="stamp-days">${card.days.map((d, i) => `<div class="stamp-cell ${d.status}"><span>${"日月火水木金土"[i]}</span><strong class="stamp-mark" aria-label="${d.status === "stamp" ? "成功" : d.status === "failed" ? "失敗" : "未確定"}">${d.status === "stamp" ? '<img class="bath-stamp" src="/stamps/bath.svg" alt="" width="48" height="48">' : d.status === "failed" ? "×" : "−"}</strong><small>${d.day.slice(5).replace("-", "/")}</small></div>`).join("")}</div><p>${card.achieved ? "7日達成" : earned.length + " / 7日達成"}</p>${stampButton}${compact ? "" : `${card.achieved && itemsEnabled() && card.claimed ? '<p>特典はプレゼントボックスへ送付済みです。</p><button class="primary" data-action="nav-gifts">プレゼントボックスへ</button>' : ""}<h3>スタンプ獲得履歴</h3>${earned.length ? earned.map((d) => `<p class="stamp-history">${d.day}分${d.reason === "ink" ? "（スタンプのインクを使用）" : d.reason === "standby" ? "（翌日の入浴で成功）" : ""} <small>${new Date(d.earnedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} 獲得</small></p>`).join("") : '<p class="muted">この週の獲得履歴はありません。</p>'}`}</section>`;
 }
 function renderSecondaryPage() {
+  const drafts=pageView==='settings' ? [['#notification-preference-form',notificationEditDirty],['#auto-wishes-form',autoEditDirty]].filter(([,dirty])=>dirty).map(([selector])=>root.querySelector(selector)).filter(Boolean) : [];
   const expandedGifts = new Set(
     [...root.querySelectorAll(".gift-description[open]")].map(
       (d) => d.dataset.giftDescription,
@@ -1625,6 +1630,7 @@ function renderSecondaryPage() {
     html = `<section class="inventory-page"><div class="guide-heading">${helpButton("items", "アイテムの使い方")}<h2>持ち物</h2></div><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}${itemUnit(x.kind)}</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
   if (["gifts", "history"].includes(pageView)) html=secondaryLayouts?.giftPage({state,pageView,expandedGifts,enabled:itemsEnabled(),giftBadge,itemName,itemIcon,itemDescription,ticketLimits})||'';
   root.innerHTML = `<button class="back-home" data-action="nav-home">← ホーム</button>${html}`;
+  for(const form of drafts)root.querySelector(`#${form.id}`)?.replaceWith(form);
   applyMemberColors(root);
 }
 function itemDescription(kind) {
@@ -1689,6 +1695,7 @@ async function handleRewardsAction(action, event) {
   }
   if (action.startsWith("nav-")) {
     autoEditDirty = false;
+    notificationEditDirty=false;
     const target = action.slice(4);
     document.querySelector(".account-menu")?.removeAttribute("open");
     if (target === "reserve") {
@@ -1927,6 +1934,7 @@ document.addEventListener("keydown", (event) => {
 
 function resetNavigation() {
   accountGeneration++;
+  notificationEditDirty=false;
   passkeyList = null;
   previousTurn = null;
   notificationStatus = "未設定";
@@ -1963,14 +1971,15 @@ async function paintBathReport(booking,confirm){
 }
 root.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)&&event.target.matches('article[data-action="report-entry"]')){event.preventDefault();event.target.click();}});
 dialog.addEventListener('click',async event=>{
+  if(busy)return;
   if(event.target.closest('[data-bath-later]')){if(busy)return;busy=true;try{if(rebookingQuestion)await api('rebooking/prompt',{day:rebookingQuestion.day,revision:rebookingQuestion.revision,decision:'later'});rebookingQuestion=null;dialog.close();}catch(error){notify(error.message);}finally{busy=false;}return;}
   if(event.target.closest('[data-bath-missed]')){openNotBathedConfirmation(reportingBooking);return;}
   const missed=!!event.target.closest('[data-bath-confirm]'),complete=!!event.target.closest('[data-bath-complete]');
   if((!missed&&!complete)||busy||!reportingBooking)return;
-  busy=true;const generation=accountGeneration,booking=reportingBooking;
+  busy=true;const generation=accountGeneration,booking=reportingBooking,controls=[...dialog.querySelectorAll("button")];controls.forEach(button=>button.disabled=true);
   try{await api(missed?'not-bathed':'complete',{day:booking.day,revision:booking.revision,...(missed?{confirmed:true}:{})});if(generation!==accountGeneration)return;rebookingQuestion=null;dialog.close();await refresh(true);if(missed&&state.unreportedBooking?.canRebook&&state.unreportedBooking.day===booking.day){pageView='home';selectedDay=booking.day;await refresh(true);}notify(missed?'入っていないと報告しました。':'完了を報告しました。');}
   catch(error){const feedback=dialog.querySelector('[data-bath-error]');if(feedback)feedback.textContent=error.message;else notify(error.message);}
-  finally{busy=false;}
+  finally{controls.forEach(button=>button.disabled=false);busy=false;}
 });
 async function startRebooking(offer) {
   if (!offer) throw Error("取り直せる予約がありません。");
