@@ -7,11 +7,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createPanelController } from "../src/server-panel.js";
 import { createApp } from "../src/app.js";
-async function fixture(t,{onShow}={}) {
+async function fixture(t,{onShow,now}={}) {
   const dir = mkdtempSync(join(tmpdir(), "bathjun-panel-"));
   const path = join(dir, "control.sock"),
     token = "a".repeat(64);
-  const app = createApp();
+  const app = createApp(now?{now}:{});
   seedTestMembers(app);
   let stopped = 0;
   const control = createPanelController({
@@ -24,6 +24,7 @@ async function fixture(t,{onShow}={}) {
     onVerifyPassword:app.verifyPassword,
     onChangePassword:app.changePassword,
     onResetData:app.resetAllData,
+    onUnreservedBath:app.reportUnreservedBath,
     onStop: () => stopped++,
     onShow,
   });
@@ -134,4 +135,11 @@ test("ダッシュボードは認証済みローカルIPCからのみ読み出�
 test("authenticated show can reopen a lost management window without stopping the server",async t=>{
  let shown=0;const f=await fixture(t,{onShow:async()=>{shown++}}),c=await client(f.path);t.after(()=>c.socket.destroy());
  c.send({token:f.token,command:'show',id:'restore'});let reply;do{reply=await c.next()}while(reply.id!=='restore');assert.equal(reply.ok,true);assert.equal(shown,1);assert.equal(f.stopped(),0);
+});
+
+
+test("予約外の入浴報告は認証済みIPCで共有し予約枠にはしない",async t=>{
+ const f=await fixture(t,{now:()=>new Date('2026-11-04T18:45:00+09:00')}),c=await client(f.path);t.after(()=>c.socket.destroy());
+ c.send({token:f.token,command:'bath/unreserved',id:'actual',payload:{memberId:1,day:'2026-11-04',start:1080,duration:30,note:'実際の入浴',requestId:'dashboard-actual-test'}});
+ const result=await c.next();assert.equal(result.ok,true);assert.ok(result.dashboard);assert.equal(result.dashboard.entries.filter(e=>e.unreserved).length,1);
 });

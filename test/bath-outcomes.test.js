@@ -32,10 +32,10 @@ async function fixture(t,{onPush=null}={}){
 
 const DAY='2026-11-04';
 async function missed(f,booking,id=1){return f.api('not-bathed',{day:DAY,revision:booking.revision,confirmed:true},id)}
-test('completion has no upper deadline, but still checks ownership, toggle, revision and start',async t=>{
+test('client completion closes with its booking day while dashboard corrections remain available',async t=>{
  const f=await fixture(t);await f.book();const booking=(await f.state()).bookings[0];
  assert.throws(()=>f.app.completeBath({memberId:1,day:DAY,revision:booking.revision}));f.time('2026-11-05T07:00:00');assert.equal((await f.state()).rewards.card.days.find(d=>d.day===DAY).status,'failed');
- f.time('2026-12-01T12:00:00');assert.equal((await f.request('complete',{day:DAY,revision:booking.revision})).status,403);f.settings({clientReportEnabled:true});await f.api('complete',{day:DAY,revision:booking.revision});await f.api('complete',{day:DAY,revision:booking.revision});
+ f.time('2026-12-01T12:00:00');assert.equal((await f.request('complete',{day:DAY,revision:booking.revision})).status,403);f.settings({clientReportEnabled:true});assert.equal((await f.request('complete',{day:DAY,revision:booking.revision})).status,409);f.app.completeBath({memberId:1,day:DAY,revision:booking.revision});await f.api('complete',{day:DAY,revision:booking.revision});
  const card=await f.api('rewards?week=2026-11-01');assert.ok(card);assert.equal(f.sql(db=>db.prepare('SELECT COUNT(*) n FROM bath_completions').get().n),1);
 });
 test('unreported is pending until the booking-day boundary, explicit non-entry fails immediately',async t=>{
@@ -93,4 +93,13 @@ test('a stale wish cancellation preserves a newer wish and one already confirmed
  await f.api('wish',{day:DAY,start:null,duration:45});const current=f.sql(db=>db.prepare('SELECT revision FROM wishes WHERE member_id=1').get().revision);
  assert.equal((await f.request('wish/cancel',{day:DAY,revision:old})).status,409);assert.equal((await f.state()).wishes[0].duration,45);
  await f.api('wish/cancel',{day:DAY,revision:current});await f.book();assert.equal((await f.request('wish/cancel',{day:DAY,revision:current})).status,409);assert.equal((await f.state()).bookings.length,1);
+});
+
+test('client completion is available after a reservation ends until the day closes',async t=>{
+ const f=await fixture(t);f.settings({clientReportEnabled:true});await f.book();const booking=(await f.state()).bookings[0];f.time('2026-11-05T06:59:59');await f.api('complete',{day:DAY,revision:booking.revision});
+ assert.ok((await f.state()).bookings[0].completedAt);
+});
+test('a reservation crossing the cutoff may be reported until its own end',async t=>{
+ const f=await fixture(t);f.settings({clientReportEnabled:true});await f.book(1830,60);const booking=(await f.state()).bookings[0];f.time('2026-11-05T07:15:00');await f.api('complete',{day:DAY,revision:booking.revision});
+ assert.ok((await f.state()).bookings[0].completedAt);
 });

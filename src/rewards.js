@@ -1,5 +1,6 @@
+import {migrateUnreservedBaths} from './unreserved-baths.js';
 import {migrateBathOutcomes} from './bath-outcomes.js';
-import { clientReportsAllowed, lastReportMinutes } from "./completion-policy.js";
+import { clientReportDeadline, clientReportsAllowed, lastReportMinutes } from "./completion-policy.js";
 import { readFileSync } from "node:fs";
 import { randomBytes, randomInt } from "node:crypto";
 import { createStandbyStamps } from "./standby-stamps.js";
@@ -107,6 +108,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     }
   }
   migrateBathOutcomes(db);
+  migrateUnreservedBaths(db);
   // Handle databases from the unreleased time-based preview without losing effects.
   if (
     db
@@ -657,6 +659,7 @@ export function createRewards({ db, now, scheduleForDay }) {
       if (!booking || booking.revision !== revision)
         bad("予約が変更されました。読み込み直してください。", 409);
       if(now()<slotDate(day,booking.start))bad("予約の開始後に報告してください。",409);
+      if(source!=='dashboard'&&now()>=clientReportDeadline(day,booking,scheduleForDay(day)))bad('この日分の完了報告の受付は終了しました。必要な場合はサーバーのダッシュボードから報告してください。',409);
       if(db.prepare('SELECT 1 FROM bath_noncompletions WHERE revision=?').get(revision))bad('「入っていない」と報告済みです。予約を取り直してください。',409);
       db.prepare(
         "INSERT INTO bath_completions VALUES(?,?,?,?,?,?,?) ON CONFLICT(day,member_id) DO UPDATE SET revision=excluded.revision,start=excluded.start,duration=excluded.duration,reported_at=excluded.reported_at,source=excluded.source",
@@ -698,7 +701,7 @@ export function createRewards({ db, now, scheduleForDay }) {
       const weeks = new Map();
       for (const row of db
         .prepare(
-          "SELECT day FROM bath_completions WHERE member_id=? UNION SELECT day FROM standby_stamps WHERE member_id=? AND status='stamp' UNION SELECT day FROM stamp_repairs WHERE member_id=?",
+          "SELECT day FROM bath_successes WHERE member_id=? UNION SELECT day FROM standby_stamps WHERE member_id=? AND status='stamp' UNION SELECT day FROM stamp_repairs WHERE member_id=?",
         )
         .all(member, member, member)) {
         const week = weekOf(row.day);
@@ -720,7 +723,7 @@ export function createRewards({ db, now, scheduleForDay }) {
       days = Array.from({ length: 7 }, (_, i) => addDay(week, i));
     const stamps = db
       .prepare(
-        "SELECT day,reported_at FROM bath_completions WHERE member_id=? AND day>=? AND day<=?",
+        "SELECT day,reported_at FROM bath_successes WHERE member_id=? AND day>=? AND day<=?",
       )
       .all(member, week, days[6]);
     const standbyRows = db
@@ -944,6 +947,7 @@ export function createRewards({ db, now, scheduleForDay }) {
     consumeDraw,
     complete,
     notBathed,
+    recordUnreservedSuccess:(member,day)=>{refundInk(member,day);settle(member);},
     card,
     claim,
     view,

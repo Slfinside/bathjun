@@ -22,7 +22,7 @@ export function createStandbyStamps({
     const completions = new Map(
       db
         .prepare(
-          "SELECT day,reported_at FROM bath_completions WHERE member_id=?",
+          "SELECT day,reported_at FROM bath_successes WHERE member_id=?",
         )
         .all(member)
         .map((x) => [x.day, x.reported_at]),
@@ -78,7 +78,7 @@ export function createStandbyStamps({
   function warning(member, day) {
     const skips = db
       .prepare(
-        "SELECT s.day FROM bath_skips s WHERE s.member_id=? AND s.day>=? AND s.day<? AND NOT EXISTS(SELECT 1 FROM bookings b WHERE b.member_id=s.member_id AND b.day=s.day) AND NOT EXISTS(SELECT 1 FROM bath_completions c WHERE c.member_id=s.member_id AND c.day=s.day)",
+        "SELECT s.day FROM bath_skips s WHERE s.member_id=? AND s.day>=? AND s.day<? AND NOT EXISTS(SELECT 1 FROM bookings b WHERE b.member_id=s.member_id AND b.day=s.day) AND NOT EXISTS(SELECT 1 FROM bath_successes c WHERE c.member_id=s.member_id AND c.day=s.day)",
       )
       .all(member, nextDay(day, -30), day);
     const set = new Set(skips.map((row) => row.day));
