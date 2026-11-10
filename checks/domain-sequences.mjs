@@ -42,7 +42,7 @@ for(const seed of seeds){
   }
   app.distributeItems({recipients:[1,2,3,4,5],kinds:['guard','skip','extend','boost','bathStamp','stampInk'],quantity:10,requestId:`sequence-${seed}`});
   for(let i=0;i<steps;i++){
-   const id=random(5)+1,today=bathCalendar(clock).today,day=shiftDay(today,random(4)-1),operation=random(14);
+   const id=random(5)+1,today=bathCalendar(clock).today,day=shiftDay(today,random(4)-1),operation=random(15);
    const state=(await request('state?day='+day,undefined,id)).body;
    let path,body;
    const start=420+random(96)*15,duration=(random(6)+1)*15,ticket=[undefined,'guard','skip','extend'][random(4)];
@@ -76,13 +76,17 @@ for(const seed of seeds){
     path='settings';
    }
    else if(operation===11){const offer=state.unreportedBooking;path='book';body={day:offer?.day||day,start,duration,rebookRevision:offer?.revision||'stale'};}
+   else if(operation===14){
+    const snapshot=app.getDashboard(),minute=Math.floor((clock-slotDate(snapshot.day,0))/60000),from=Math.max(snapshot.settings.bathStart,minute-30);
+    path='unreserved-bath';body={day:snapshot.day,start:from,duration:minute-from,note:'予約外の混合操作試験',requestId:`sequence-actual-${seed}-${i}`};
+   }
    else if(operation===13){const b=db.prepare('SELECT * FROM bookings WHERE member_id=? ORDER BY day DESC LIMIT 1').get(id);if(b&&slotDate(b.day,b.start)>clock)clock=slotDate(b.day,b.start);path='not-bathed';body={day:b?.day||day,revision:b?.revision||'stale',confirmed:!!random(2)};}
    else {path='items/boost';body={requestId:`sequence-${seed}-${i}`};}
    history.push({i,clock:clock.toISOString(),id,path,body});if(history.length>12)history.shift();
    if(body){const response=await request(path,body,id);const key=path+':'+response.status;outcomes[key]=(outcomes[key]||0)+1;}
    await app.flushNotifications();verify();
   }
-  console.log(`PASS seed=${seed} operations=${steps} bookings=${db.prepare('SELECT COUNT(*) n FROM bookings').get().n} completed=${db.prepare('SELECT COUNT(*) n FROM bath_completions').get().n} rebooked=${db.prepare('SELECT COUNT(*) n FROM rebooking_history').get().n} outcomes=${JSON.stringify(outcomes)}`);
+  console.log(`PASS seed=${seed} operations=${steps} bookings=${db.prepare('SELECT COUNT(*) n FROM bookings').get().n} completed=${db.prepare('SELECT COUNT(*) n FROM bath_completions').get().n} rebooked=${db.prepare('SELECT COUNT(*) n FROM rebooking_history').get().n} unreserved=${db.prepare('SELECT COUNT(*) n FROM unreserved_baths').get().n} outcomes=${JSON.stringify(outcomes)}`);
  }catch(error){console.error('Sequence failure',JSON.stringify({seed,history},null,2));throw error;}
  finally{db.close();await new Promise(r=>server.close(r));app.close();rmSync(dir,{recursive:true,force:true});}
 }

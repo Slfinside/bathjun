@@ -1,10 +1,10 @@
 # 管理者向け：導入・設定・運用
 
-この文書はv2.1.0-beta3の手順です。[日付・予約の区切り](calendar-days.md)と曜日ごとの自動予約にも対応しています。
+この文書はv2.1.0-beta4の手順です。[日付・予約の区切り](calendar-days.md)と曜日ごとの自動予約にも対応しています。
 
 サーバーを管理する人向けの手順です。予約する人は[利用者向けガイド](user-guide.md)、ソースから動かす場合は[開発者向けガイド](development.md)を参照してください。
 
-配布物は[GitHub Release](https://github.com/Slfinside/bathjun/releases/tag/v2.1.0-beta3)から取得します。インストーラーは `Bathjun-Setup-x64.exe`、このPC内で試す版は `Bathjun-Portable-x64.zip` です。「Source code」は開発用で、起動環境は同梱していません。
+配布物は[GitHub Release](https://github.com/Slfinside/bathjun/releases/tag/v2.1.0-beta4)から取得します。インストーラーは `Bathjun-Setup-x64.exe`、このPC内で試す版は `Bathjun-Portable-x64.zip` です。「Source code」は開発用で、起動環境は同梱していません。
 
 ## 接続の仕組み
 
