@@ -2,17 +2,20 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,existsSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {chromium} from 'playwright-core';
+import {chromium,webkit} from 'playwright-core';
 import {createApp} from '../src/app.js';
 import {createHttpServer} from '../src/http.js';
 import {DEFAULT_SCHEDULE} from '../src/server-settings.js';
 const executablePath=process.env.BATHJUN_BROWSER_PATH||['/usr/bin/chromium','/usr/bin/google-chrome'].find(existsSync);
-assert.ok(executablePath,'Install Chrome/Chromium or set BATHJUN_BROWSER_PATH');
-const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox']});
+const engine=process.env.BATHJUN_BROWSER_ENGINE||'chromium';
+assert.ok(['chromium','webkit'].includes(engine),'BATHJUN_BROWSER_ENGINE must be chromium or webkit');
+if(engine==='chromium')assert.ok(executablePath,'Install Chrome/Chromium or set BATHJUN_BROWSER_PATH');
+const browser=await (engine==='webkit'?webkit.launch({headless:true}):chromium.launch({executablePath,headless:true,args:['--no-sandbox']}));
 const output=process.env.BATHJUN_BROWSER_SCREENSHOTS;
 if(output)mkdirSync(output,{recursive:true});
-async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFamily=false,mobile=false}={}){
+async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFamily=false,mobile=false,standalone=false,requiresCDP=false}={}){
  if(process.env.BATHJUN_BROWSER_SCENARIOS&&!process.env.BATHJUN_BROWSER_SCENARIOS.split(',').includes(name))return;
+ if(requiresCDP&&engine!=='chromium'){console.log('SKIP',name,'(Chromium virtual authenticator required)');return;}
  const directory=mkdtempSync(join(tmpdir(),'bathjun-browser-'));
  let clock=new Date('2026-11-02T08:00:00+09:00');
  const app=createApp({database:join(directory,'test.sqlite'),requireFamily,now:()=>clock,deliverPush:async()=>{}});
@@ -20,8 +23,14 @@ async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFami
  clock=new Date('2026-11-04T08:00:00+09:00');
  if(requireFamily)await app.changePassword({target:'family',password:'synthetic-family'});
  const {server}=createHttpServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://${hostname}:${server.address().port}`;
- const context=await browser.newContext({viewport:{width:390,height:844},locale:'ja-JP',isMobile:mobile,hasTouch:mobile}),page=await context.newPage(),errors=[];
- page.on('pageerror',error=>errors.push(error.message));
+ // WebKit's Linux service-worker process can stall automation. These UI checks
+ // do not test push delivery; leave workers enabled in the Chromium scenarios.
+ const context=await browser.newContext({viewport:{width:390,height:844},locale:'ja-JP',isMobile:mobile,hasTouch:mobile,...(engine==='webkit'?{serviceWorkers:'block'}:{})}),page=await context.newPage(),errors=[];
+ if(mobile)await page.addInitScript(standalone=>{
+  Object.defineProperty(navigator,'standalone',{get:()=>standalone});
+  Object.defineProperty(navigator,'userAgent',{get:()=> 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_2 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148'});
+ },standalone);
+ page.on('pageerror',error=>{errors.push(error.message);console.error('PAGE ERROR',name,error.message)});
  const api=async(path,body)=>{const r=await context.request.post(url+'/api/'+path,{data:body});assert.equal(r.status(),200,await r.text());return r.json()};
  const state=async(day='2026-11-04')=>(await context.request.get(url+'/api/state?day='+day)).json();
  const navigate=async(label,selector)=>{await page.locator('.account-menu > summary').click();await page.getByRole('navigation',{name:'メニュー'}).getByRole('button',{name:label,exact:true}).click();await page.locator(selector).waitFor()};
@@ -32,6 +41,10 @@ async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFami
     screenshot:async suffix=>{if(output)await page.screenshot({path:join(output,name+'-'+suffix+'.png')});}
   });
   assert.deepEqual(errors,[]);console.log('PASS',name);
+ }catch(error){
+  console.error('FAIL',engine,name,JSON.stringify({errors,body:await page.locator('body').innerText().catch(()=>''),dialogs:await page.locator('dialog').evaluateAll(nodes=>nodes.map(el=>({open:el.open,rect:el.getBoundingClientRect().toJSON()}))).catch(()=>[])}));
+  if(output)await page.screenshot({path:join(output,name+'-failed.png')}).catch(()=>{});
+  throw error;
  }finally{await context.close();await new Promise(r=>server.close(r));app.close();rmSync(directory,{recursive:true,force:true})}
 }
 async function checkDialogPosition(page,modal,screenshot,label){
@@ -60,14 +73,14 @@ try {
   }
   await modal.getByRole('button',{name:'次へ',exact:true}).click();await modal.getByRole('heading',{name:'<script>テキストです</script>',exact:true}).waitFor();assert.equal(await modal.locator('script').count(),0);assert.equal(await modal.locator('img').isVisible(),false);assert.equal(await modal.locator('.announcement-counter').innerText(),'2 / 3');
   await modal.getByRole('button',{name:'次へ',exact:true}).click();await modal.getByRole('heading',{name:'最後のページ'}).waitFor();await screenshot('last');const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'閉じる',exact:true}).click();await ack;assert.equal((await state()).announcements.length,0);await page.reload();await page.locator('.date-bar').waitFor();assert.equal(await page.locator('.announcement-dialog[open]').count(),0);
- });
+ },{mobile:true,standalone:true});
  await scenario('announcement-long-centered',async({app,page,url,state,screenshot})=>{
   await page.setViewportSize({width:320,height:480});app.saveAnnouncement({label:'長いお知らせ',state:'published',pages:[{title:'長いお知らせも中央に表示',text:'お知らせの本文を、枠の中でスクロールして確認できます。'.repeat(50)}]});
   await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();await page.evaluate(()=>window.scrollTo(0,1000));
   const rect=await modal.boundingBox();assert.ok(Math.abs(rect.x+rect.width/2-160)<=2);assert.ok(Math.abs(rect.y+rect.height/2-240)<=2);
   assert.ok(rect.height<=432.5);assert.ok(await modal.evaluate(el=>el.scrollHeight>el.clientHeight));await screenshot('mobile');
   const ack=page.waitForResponse(r=>r.url().endsWith('/api/announcements/seen'));await modal.getByRole('button',{name:'閉じる',exact:true}).click();await ack;assert.equal((await state()).announcements.length,0);
- });
+ },{mobile:true,standalone:true});
  await scenario('cancel-changed-booking',async({page,url,api,state})=>{
   await api('book',{day:'2026-11-04',start:1080,duration:30});await page.goto(url);await page.getByRole('button',{name:'自分の予約を変更',exact:true}).click();
   await api('book',{day:'2026-11-04',start:1140,duration:30});const saved=(await state()).bookings[0];
@@ -168,24 +181,27 @@ try {
   let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);await page.route('**/api/complete',async route=>{const response=await route.fetch();seen();await held;await route.fulfill({response});});
   await modal.getByRole('button',{name:'完了を報告',exact:true}).click();await requested;assert.equal(await modal.getByRole('button',{name:'入っていない',exact:true}).isDisabled(),true);assert.equal(await modal.getByRole('button',{name:'完了を報告',exact:true}).isDisabled(),true);release();await modal.waitFor({state:'hidden'});assert.ok((await state()).bookings[0].completedAt);
  });
- await scenario('common-dialog-centering',async({app,page,url,api,navigate,time,state,screenshot})=>{
+ const commonDialogCentering=async({app,page,url,api,navigate,time,state,screenshot})=>{
   app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});app.distributeItems({recipients:[1],kinds:['guard','bathStamp','stampInk'],quantity:1,requestId:'centered-dialog-items'});for(const gift of (await state()).rewards.gifts)await api('gifts/receive',{id:gift.id});
-  await page.addInitScript(()=>Object.defineProperty(navigator,'userAgent',{get:()=> 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'}));
   await page.goto(url);await page.locator('.date-bar').waitFor();await page.locator('[data-action="book"]').click();let modal=page.locator('#booking-dialog[open]');await checkDialogPosition(page,modal,screenshot,'booking');await modal.getByRole('button',{name:'閉じる',exact:true}).click();
   await navigate('設定','.settings-page');await page.locator('[data-action="profile-edit"]').click();modal=page.locator('.profile-dialog[open]');await checkDialogPosition(page,modal,screenshot,'profile');await modal.locator('[data-profile-close]').click();
   await navigate('ヘルプ','.help-page');await page.locator('[data-guide="booking"]').click();modal=page.locator('.guide-dialog[open]');await modal.locator('details').evaluate(el=>el.open=true);await checkDialogPosition(page,modal,screenshot,'guide');await modal.getByRole('button',{name:'ガイドを閉じる'}).click();
   await navigate('持ち物','.inventory-page');await page.getByRole('button',{name:/順番抜かしガード/}).click();modal=page.locator('#booking-dialog[open]');await checkDialogPosition(page,modal,screenshot,'item');await modal.getByRole('button',{name:'閉じる',exact:true}).click();
   await navigate('スタンプカード','.stamp-card');await page.locator('[data-action="stamp-card-use"]').click();modal=page.locator('#booking-dialog[open]');await checkDialogPosition(page,modal,screenshot,'stamp');await modal.getByRole('button',{name:'閉じる',exact:true}).click();
-  await page.locator('#install-help-button').click();modal=page.locator('#install-dialog[open]');await checkDialogPosition(page,modal,screenshot,'install');await page.locator('#install-help-close').click();
+  if(!await page.evaluate(()=>navigator.standalone)){
+   await page.locator('#install-help-button').click();modal=page.locator('#install-dialog[open]');await checkDialogPosition(page,modal,screenshot,'install');await page.locator('#install-help-close').click();
+  }else assert.equal(await page.locator('#install-help-button').isVisible(),false);
   time('2026-11-04T18:45:00');await navigate('入浴の報告','.reports-page');await page.locator('[data-action="unreserved-bath"]').click();modal=page.locator('#booking-dialog[open]');await checkDialogPosition(page,modal,screenshot,'unreserved');await modal.getByRole('button',{name:'閉じる',exact:true}).click();
   await api('book',{day:'2026-11-04',start:1140,duration:30});time('2026-11-04T19:05:00');await navigate('ホーム','.date-bar');await page.locator('.reservation[data-action="report-entry"]').click();modal=page.locator('#booking-dialog[open]');await checkDialogPosition(page,modal,screenshot,'report');
   await modal.getByRole('button',{name:'入っていない',exact:true}).click();await modal.getByRole('heading',{name:'入っていないと報告しますか？'}).waitFor();await checkDialogPosition(page,modal,screenshot,'confirmation');await modal.getByRole('button',{name:'キャンセル',exact:true}).click();
- },{mobile:true});
+ };
+ await scenario('common-dialog-centering',commonDialogCentering,{mobile:true});
+ await scenario('common-dialog-centering-webapp',commonDialogCentering,{mobile:true,standalone:true});
  await scenario('celebration-dialog-centering',async({app,page,url,time,screenshot})=>{
   time('2026-11-07T18:45:00');app.saveRewardSettings({...app.getRewardsAdmin().settings,rewardMode:'fixed',fixedKind:'guard',fixedQuantity:1});
   for(let day=1;day<=7;day++)app.reportUnreservedBath({memberId:1,day:`2026-11-0${day}`,start:1080,duration:30,requestId:'centered-celebration-'+day});
   await page.goto(url);const modal=page.locator('#booking-dialog[data-mode="celebration"][open]');await modal.waitFor();await checkDialogPosition(page,modal,screenshot,'celebration');
- },{mobile:true});
+ },{mobile:true,standalone:true});
  await scenario('clarity-help-and-records',async({page,url,api,navigate,time,screenshot})=>{
   await api('book',{day:'2026-11-04',start:1080,duration:30});time('2026-11-05T08:00:00');await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('ヘルプ','.help-page');
   assert.equal(await page.getByText('知りたいことから、ひとつずつ。',{exact:true}).count(),0);
@@ -400,9 +416,9 @@ try {
   await page.locator('[data-action="logout"]').click();await page.locator('[data-action="passkey-login"]').click();
   await page.locator('.date-bar').waitFor();assert.equal((await state()).me.id,1);
  };
- await scenario('passkey-after-expiry',f=>passkeyExpiry(f),{hostname:'localhost'});
- await scenario('passkey-list-inflight-expiry',f=>passkeyExpiry(f,true),{hostname:'localhost'});
- await scenario('passkey-shared-session-switch',f=>passkeyExpiry(f,false,true),{hostname:'localhost'});
+ await scenario('passkey-after-expiry',f=>passkeyExpiry(f),{hostname:'localhost',requiresCDP:true});
+ await scenario('passkey-list-inflight-expiry',f=>passkeyExpiry(f,true),{hostname:'localhost',requiresCDP:true});
+ await scenario('passkey-shared-session-switch',f=>passkeyExpiry(f,false,true),{hostname:'localhost',requiresCDP:true});
  await scenario('unresponsive-server',async({page,url})=>{
   await page.addInitScript(()=>{
    const originalFetch=window.fetch;

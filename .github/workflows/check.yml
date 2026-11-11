@@ -5,6 +5,31 @@ on:
 permissions:
   contents: read
 jobs:
+  webkit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install the pinned WebKit browser and its dependencies
+        run: node node_modules/playwright-core/cli.js install --with-deps webkit
+      - name: Check client workflows in WebKit
+        env:
+          BATHJUN_BROWSER_ENGINE: webkit
+          BATHJUN_BROWSER_SCREENSHOTS: ${{ runner.temp }}/webkit-previews
+        run: npm run test:browser
+      - name: Keep synthetic WebKit previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-previews
+          path: ${{ runner.temp }}/webkit-previews/*.png
+          if-no-files-found: ignore
+          retention-days: 7
   tests:
     runs-on: ubuntu-24.04
     steps:

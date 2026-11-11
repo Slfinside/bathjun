@@ -14,6 +14,15 @@ npm run test:sequences
 
 ブラウザーテストにはChromeまたはChromiumが必要です。`BATHJUN_BROWSER_PATH`で実行ファイルを指定できます。`BATHJUN_BROWSER_SCREENSHOTS`を指定すると合成データの画面を保存します。連続操作テストは`BATHJUN_SEQUENCE_SEEDS`（カンマ区切り）と`BATHJUN_SEQUENCE_STEPS`で操作選択のseedと回数を指定できます。抽選結果には通常の乱数を使い、失敗時はseedと直近の操作を出力します。
 
+Safari向けの表示確認には、同じテストをWebKitでも実行します。
+
+```sh
+node node_modules/playwright-core/cli.js install --with-deps webkit
+BATHJUN_BROWSER_ENGINE=webkit npm run test:browser
+```
+
+CIではChromiumとWebKitの両方を確認します。ウインドウの中央位置・はみ出し・内部スクロールを縦横の画面サイズで検証し、iPhoneのホーム画面アプリ相当のユーザーエージェント・タッチ操作・`navigator.standalone`でも操作します。LinuxのWebKitでは自動操作が停止するService Workerとの干渉を避けるため、ワーカーをテスト内だけで無効にします。Chromium専用の仮想パスキー認証3項目はWebKitでは明示的にスキップします。これらはiOS実機の表示・ソフトキーボード・PWAの画面領域を完全に再現するものではありません。
+
 テストは一時DBを使用し、実際の予約には触れません。日本時間の日付境界、抽選、認証、公開リンクの保護、予約順と重複、備考と任意表示、通知送信の対象と再試行、データ保持などを検証します。プッシュサービスへの通信はテスト用送信処理で置き換えます。
 
 `PORT=3001 npm start` でポートを変更できます。LAN用サーバーの既定は `0.0.0.0:3000`、公開用は `127.0.0.1:3000` です。`BATHJUN_DB` でDBファイルを、`CLOUDFLARED` でcloudflared実行ファイルを指定できます。
