@@ -28,6 +28,14 @@ internal static class AutomaticUpdateTest {
         if(Call("Select",json.Serialize(new[]{Release("2.0.0-beta2",true)}),"2.0.0-beta1",false)==null)throw new Exception("Beta updates excluded");
         if(Call("Select",json.Serialize(new[]{Release("2.0.0-rc",true)}),"2.0.0-beta1",false)==null)throw new Exception("Beta to RC updates excluded");
         if(Call("Select",json.Serialize(new[]{Release("2.0.0-beta1",true)}),"1.3.0",false)!=null)throw new Exception("Stable installs opted into beta");
+        foreach(bool portable in new[]{false,true}){
+            string promotion=json.Serialize(new[]{Release("2.1.0-beta4",true,portable),Release("2.1.0",false,portable)});
+            foreach(string installed in new[]{"2.0.2","2.1.0-beta4"}){
+                object next=Call("Select",promotion,installed,portable);if(next==null||(Version)next.GetType().GetField("version").GetValue(next)!=new Version(2,1,0,65535))throw new Exception("Stable 2.1.0 promotion failed: "+installed);
+            }
+            if(Call("Select",promotion,"2.1.0",portable)!=null)throw new Exception("Stable 2.1.0 was offered an equal version or downgraded to beta4");
+            if(Call("Select",json.Serialize(new[]{Release("3.0.0-beta1",true,portable)}),"2.1.0",portable)!=null)throw new Exception("Stable 2.1.0 opted into a future beta");
+        }
         if(Call("Select",releases,"2.0.0",false)!=null)throw new Exception("Equal version treated as upgrade");
         if(Call("Select",json.Serialize(new[]{Release("2.0.0",false,true)}),"1.3.0",true)==null)throw new Exception("Portable update selection failed");
         Rejected("Select",releases.Replace("https://github.com/Slfinside/bathjun/releases/download/","https://example.test/"),"1.3.0",false);
