@@ -3,23 +3,15 @@
 お風呂の順番と時間を家族で共有するアプリです。Windows PCをサーバーにして、ブラウザーから予約できます。
 細かい説明は一旦Codexに書かせているので、不自然だったり分かりにくいところがあるかもしれません。ちまちま修正しておきます。
 
-## v2.0.2
+## v2.1.0
 
-管理画面が出る前に起動が中断する問題への対策と、起動時のバージョン表示を追加しました。毎朝4:00のサーバー自動更新・お知らせ・インク返却も引き続き利用できます。[v2.0.1の使い方](docs/updates-and-announcements.md)を参照してください。
+beta1〜beta4で確認した内容をまとめた正式版です。予約時に所要時間だけを共有する機能、予約外の入浴報告、未入浴の記録と予約の取り直しを収録しています。
 
-週間スタンプとアイテム、プレゼントボックス、サーバーダッシュボード、曜日ごとの自動予約を収録した安定版です。アプリ内の使い方ガイド、自動予約の曜日別設定、未報告時の再予約確認、通知・認証・入力保持などの修正も含みます。日本語名は「ふろじゅん」に戻し、bathjunの識別子と既存データを引き継ぎます。
+クライアントからの完了報告は、その日分の終了（初期は翌7:00）までです。区切りをまたぐ予約は予約終了まで受け付け、後日の報告はダッシュボードから行えます。スマホのウインドウ表示、未保存の設定、画面切り替え中の操作も修正しています。
 
-**[v2.0.2のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.0.2)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.0.2/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.0.2/Bathjun-Portable-x64.zip)
+**[v2.1.0のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.1.0)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.1.0/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.1.0/Bathjun-Portable-x64.zip)
 
-[変更点と確認範囲](docs/release-notes.md)、[使い方ガイド](docs/client-help.md)、[消灯処理と実機確認の範囲](docs/screen-off-investigation.md)をご確認ください。
-
-## v2.1.0-beta4（ベータ版）
-
-予約外の入浴を時刻・備考付きで共有できるようにしました。クライアントの完了報告はその日分の終了までに制限し、区切りをまたぐ予約は予約終了まで受け付けます。スマホで各ウインドウが左下へ寄る表示、未保存の通知設定が戻る問題などを修正し、ログイン・設定・ヘルプの文言と操作画面を整理しました。beta3までの起動・認証・予約の修正と、時刻未定の希望も含みます。
-
-**[ベータ版のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.1.0-beta4)** · [ベータ版インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.1.0-beta4/Bathjun-Setup-x64.exe) · [ベータ版ZIP](https://github.com/Slfinside/bathjun/releases/download/v2.1.0-beta4/Bathjun-Portable-x64.zip)
-
-[時刻未定の希望と通知の条件](docs/duration-only-wishes.md)、[入浴報告と取り直し](docs/bath-reports.md)をご確認ください。安定版の自動更新ではベータ版を取得しません。試す場合は手動でインストールしてください。
+[変更点と確認範囲](docs/release-notes.md)、[利用者向けガイド](docs/user-guide.md)、[管理者向けガイド](docs/administrator-guide.md)、[消灯処理と実機確認の範囲](docs/screen-off-investigation.md)をご確認ください。
 
 ## 安定版のダウンロード
 

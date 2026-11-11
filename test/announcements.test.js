@@ -93,7 +93,7 @@ test('installed beta announcements activate once and allow beta-to-beta and stab
  const activate=(version,previous)=>f.app.activateUpdateAnnouncements({version,label:'更新 '+version,pages},previous);
  activate('2.1.0-beta1','2.0.2');activate('2.1.0-beta1','2.0.2');
  assert.equal(f.app.getAnnouncementsAdmin().entries.length,1);
- activate('2.1.0-beta2','2.1.0-beta1');activate('2.1.0','2.1.0-beta2');
+ activate('2.1.0-beta4','2.1.0-beta1');activate('2.1.0','2.1.0-beta4');
  assert.equal(f.app.getAnnouncementsAdmin().entries.length,3);
  for(const invalidVersion of ['../2.1.0-beta1','2.1.0-nightly','2.1.0-beta1/extra'])assert.throws(()=>activate(invalidVersion,'2.0.2'));
  assert.throws(()=>activate('2.1.0-beta1','2.1.0-beta1'));
