@@ -25,7 +25,16 @@ let pageView = "home",
 const celebrating = new Set();
 let guidePending = false;
 let announcementBusy=false;
-let secondaryLayouts=null;
+let secondaryLayouts = null, secondaryLayoutPromise = null, secondaryLayoutAttempt = 0;
+function loadSecondaryLayouts() {
+  if (secondaryLayouts) return Promise.resolve(secondaryLayouts);
+  // A rejected import can stay in the browser's module map. A failed speculative
+  // load must not make the later user-initiated navigation permanently fail.
+  const retry = secondaryLayoutAttempt ? '?retry=' + secondaryLayoutAttempt : '';
+  return secondaryLayoutPromise ??= import('./secondary-layouts.js' + retry)
+    .then(ui => secondaryLayouts = ui)
+    .catch(error => { secondaryLayoutPromise = null; secondaryLayoutAttempt++; throw error; });
+}
 let reportingBooking=null,reportList=[],bathReportUI=null,reportContext={reportDays:[],visits:[]};
 let accountGeneration = 0;
 let checkRebookingOnOpen = true, rebookingQuestion = null, rebookingFlow = false;
@@ -644,21 +653,21 @@ profileDialog.addEventListener("submit", async (event) => {
     button.disabled = false;
   }
 });
-function refresh(force = false) {
+function refresh(force = false, initialState = null) {
   if (!me) return Promise.resolve();
   // Mutations and date changes must wait for their own fresh response.
   if (refreshing) return force ? refreshing.then(() => refresh(true)) : refreshing;
-  refreshing = refreshOnce(force).finally(() => { refreshing = null; });
+  refreshing = refreshOnce(force, initialState).finally(() => { refreshing = null; });
   return refreshing;
 }
-async function refreshOnce(force) {
+async function refreshOnce(force, initialState = null) {
   const account = me;
   let requestedDay = selectedDay;
   const currentRequest = () => account === me && requestedDay === selectedDay;
   try {
     let data;
     try {
-      data = await api(`state${requestedDay ? `?day=${requestedDay}` : ""}`);
+      data = initialState ?? await api(`state${requestedDay ? `?day=${requestedDay}` : ""}`);
     } catch (error) {
       if (!currentRequest()) return;
       if (error.status !== 400 || !requestedDay) throw error;
@@ -676,7 +685,7 @@ async function refreshOnce(force) {
       if (!currentRequest() || pageView !== "stamps" || stampWeek !== requestedWeek) return;
       data.rewards.card = card;
     }
-    if(['settings','help','gifts','history'].includes(pageView)){const view=pageView,ui=await import('./secondary-layouts.js');if(!currentRequest()||view!==pageView)return;secondaryLayouts=ui;}
+    if(['settings','help','gifts','history'].includes(pageView)){const view=pageView,ui=await loadSecondaryLayouts();if(!currentRequest()||view!==pageView)return;secondaryLayouts=ui;}
     if(pageView==='reports'){const [result,ui]=await Promise.all([api('bath-reports'),import('./bath-reports.js')]);if(!currentRequest()||pageView!=='reports')return;reportList=result.reports;reportContext=result;bathReportUI=ui;}
     const signature = JSON.stringify([
       data.day,
@@ -1458,9 +1467,20 @@ dialog.addEventListener("submit", async (event) => {
   }
 });
 async function init() {
+  const generation = accountGeneration;
   checkRebookingOnOpen = true;
   try {
-    const family = await api("family");
+    let startup;
+    try {
+      startup = await api(`bootstrap${selectedDay ? '?day=' + encodeURIComponent(selectedDay) : ''}`);
+    } catch (error) {
+      if (generation !== accountGeneration) return;
+      if (error.status !== 400 || !selectedDay) throw error;
+      selectedDay = undefined;
+      startup = await api('bootstrap');
+    }
+    if (generation !== accountGeneration) return;
+    const family = startup.family;
     familyAuthenticated = family.authenticated;
     if (!familyAuthenticated) {
       me = null;
@@ -1469,14 +1489,17 @@ async function init() {
       renderFamily(family.configured);
       return;
     }
-    const data = await api("members");
-    members = data.members;
-    me = data.me;
+    members = startup.members;
+    me = startup.me;
     if (me) {
-      await refresh(true);
+      await refresh(true, startup.state);
+      // Fetch only the small shared view module after the first frame. Reuse it
+      // on navigation without waiting for another state response first.
+      requestAnimationFrame(() => setTimeout(() => { void loadSecondaryLayouts().catch(() => {}); }, 0));
       void syncNotifications();
     } else renderLogin();
   } catch (error) {
+    if (generation !== accountGeneration) return;
     root.innerHTML = `<section class="login-card"><h1>接続できませんでした。</h1><p>${escapeHTML(error.message)}</p><button class="primary" id="retry">もう一度読み込む</button></section>`;
     document.querySelector("#retry").addEventListener("click", init);
   }
@@ -1715,7 +1738,18 @@ async function handleRewardsAction(action, event) {
       );
     } else {
       pageView = target;
-      await refresh(true);
+      // These views can render from the latest in-memory snapshot. Mutations
+      // still await their server response; reports need their separate query.
+      const instant = !!state && target !== 'reports';
+      if (instant) {
+        if (['settings', 'help', 'gifts', 'history'].includes(target)) {
+          try { await loadSecondaryLayouts(); }
+          catch { if (pageView === target) await refresh(true); return true; }
+        }
+        if (pageView !== target || !me) return true;
+        renderDashboard();
+      }
+      await refresh(!instant);
     }
     return true;
   }

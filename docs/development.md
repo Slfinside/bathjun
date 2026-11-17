@@ -70,3 +70,7 @@ Windowsは `PrivateFontCollection` から同梱の Noto Sans JP の通常・太�
 `src/server-power.js` が `bin/Bathjun-Power.node` を予約サーバー内へ読み込み、System／Execution／threadの要求をそのプロセスで保持します。管理用IPCの `serverPowerHeld` と管理画面自身の要求の両方が有効な場合だけ消灯します。復帰時の認証済み `power/renew` で再取得し、ランタイム終了・Node環境終了の両方で解除します。モジュールを含まないWindowsのソース起動では消灯が無効になります。Windows以外では読み込みません。
 
 Source checksではWindows上で配布用Nodeのチェックサムを検証して実要求をテストし、その保護モジュールを使ってLinuxビルダーでインストーラとZIPを組み立てます。配布ワークフローも同じ流れです。C++モジュールは静的CRTでビルドし、追加のVisual C++ランタイム配布を必要としません。[調査内容と実機検証の範囲](screen-off-investigation.md)も参照してください。
+
+## クライアントの応答時間
+
+`npm run bench:client`で、架空の5人分の一時DBを使った起動・画面切り替えの測定を実行できます。[測定条件・変更内容・残る確認](web-responsiveness.md)を参照してください。Chromiumの遅延・CPU制限による比較で、iPhoneや実際の配信PCの性能を保証するものではありません。

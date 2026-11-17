@@ -61,6 +61,53 @@ async function checkDialogPosition(page,modal,screenshot,label){
  }
 }
 try {
+ await scenario('startup-one-response',async({page,url})=>{
+  const paths=[];
+  page.on('request',request=>{const path=new URL(request.url()).pathname;if(path.startsWith('/api/'))paths.push(path)});
+  await page.goto(url+'/?day=2026-11-03');await page.locator('.date-bar').waitFor();
+  await page.getByRole('heading',{name:'11月3日(火)',exact:true}).waitFor();
+  assert.equal(paths.filter(p=>p==='/api/bootstrap').length,1);
+  for(const path of ['/api/family','/api/members','/api/state'])assert.equal(paths.includes(path),false,'Startup must not wait for '+path);
+ });
+ await scenario('startup-invalid-day',async({page,url})=>{
+  await page.goto(url+'/?day=1999-01-01');
+  await page.getByRole('heading',{name:'11月4日(水)',exact:true}).waitFor();
+ });
+ await scenario('navigation-prefetch-failure',async({page,url,navigate})=>{
+  let count=0,seen;const failed=new Promise(r=>seen=r);
+  await page.route('**/secondary-layouts.js*',async route=>{
+   if(++count===1){await route.fulfill({status:503,contentType:'text/plain',body:'Temporary failure'});seen()}
+   else await route.continue();
+  });
+  await page.goto(url);await page.locator('.date-bar').waitFor();await failed;
+  await navigate('設定','.settings-page');
+  assert.ok(count>=2,'Failed background imports must be retryable');
+ });
+ await scenario('navigation-before-refresh',async({page,url,navigate})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  const initial=page.waitForResponse(r=>r.url().includes('/api/state'));
+  await navigate('設定','.settings-page');await initial;
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);
+  await page.route('**/api/state*',async route=>{seen();await held;await route.continue()});
+  await navigate('持ち物','.inventory-page');await requested;
+  // The response is deliberately still held: the page must already be usable.
+  await page.getByRole('heading',{name:'持ち物',exact:true}).waitFor({timeout:3000});
+  await navigate('設定','.settings-page');await page.locator('[name="reminderMinutes"]').fill('25');
+  const response=page.waitForResponse(r=>r.url().includes('/api/state'));release();await response;
+  await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  assert.equal(await page.locator('[name="reminderMinutes"]').inputValue(),'25');
+ });
+ await scenario('fast-navigation-session-expiry',async({page,url,navigate,context})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  const initial=page.waitForResponse(r=>r.url().includes('/api/state'));
+  await navigate('設定','.settings-page');await initial;
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);
+  await page.route('**/api/state*',async route=>{seen();await held;await route.continue()});
+  await navigate('持ち物','.inventory-page');await requested;
+  await context.request.post(url+'/api/logout',{data:{}});release();
+  await page.locator('.member-button').first().waitFor();
+  assert.equal(await page.locator('.inventory-page,.settings-page').count(),0,'Expired sessions must return to login');
+ });
  await scenario('announcements',async({app,page,url,state,screenshot,context})=>{
   app.saveAnnouncement({label:'画面内お知らせのテスト',state:'published',pages:[{title:'はじめのお知らせ',text:'説明は本文として表示します。',imagePath:new URL('../release-announcements/items.png',import.meta.url).pathname},{title:'<script>テキストです</script>',text:'2ページ目の説明'},{title:'最後のページ',text:'お知らせの終わりです。'}]});
   await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();await modal.locator('img').evaluate(img=>img.decode());
@@ -424,7 +471,7 @@ try {
    const originalFetch=window.fetch;
    let hang=true;
    window.fetch=(url,options)=>{
-    if(hang&&url==='/api/family'){
+    if(hang&&url==='/api/bootstrap'){
      hang=false;
      return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true}));
     }
@@ -437,7 +484,7 @@ try {
   await page.getByRole('button',{name:'もう一度読み込む',exact:true}).click();await page.locator('.date-bar').waitFor();
  });
  await scenario('gateway-response',async({page,url})=>{
-  let first=true;await page.route('**/api/family',async route=>{
+  let first=true;await page.route('**/api/bootstrap',async route=>{
    if(first){first=false;await route.fulfill({status:502,contentType:'text/html',body:'<html>Bad gateway</html>'});}
    else await route.continue();
   });

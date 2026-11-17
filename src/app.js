@@ -489,6 +489,15 @@ export function createApp({
     };
     try {
       const url = requestUrl(req.url);
+      const bootstrap = req.method === "GET" && url.pathname === "/api/bootstrap";
+      const startupFamily = bootstrap ? {
+        configured: !!familyConfig().password_hash,
+        authenticated: familyAllowed(req),
+      } : null;
+      // One startup request, with the same family and member boundaries as the
+      // individual endpoints. Never include member data before the family gate.
+      if (bootstrap && !startupFamily.authenticated)
+        return send(200, { family: startupFamily, members: [], me: null, state: null });
       if (req.method === "GET" && url.pathname === "/api/family")
         return send(200, {
           configured: !!familyConfig().password_hash,
@@ -639,6 +648,8 @@ export function createApp({
         return send(200, { me: { id: member.id, name: member.name } });
       }
       const me = memberFor(req);
+      if (bootstrap && !me)
+        return send(200, { family: startupFamily, members: allMembers(), me: null, state: null });
       if (!me) fail(401, "ログインしてください。");
       if(req.method==='GET'&&url.pathname==='/api/auto-wishes')return send(200,autoWishes.get(me.id));
       if(req.method==='POST'&&url.pathname==='/api/auto-wishes'){
@@ -766,12 +777,12 @@ export function createApp({
       }
       if(req.method==='GET'&&url.pathname==='/api/announcements')return send(200,announcements.get(url.searchParams.get('id'),me.id));
       if(req.method==='POST'&&url.pathname==='/api/announcements/seen')return send(200,announcements.seen(me.id,body));
-      if (req.method === "GET" && url.pathname === "/api/state") {
+      if (req.method === "GET" && (url.pathname === "/api/state" || bootstrap)) {
         const time = currentTime();
         const day = validDay(url.searchParams.get("day") || time.activeDay, true);
         if (day <= time.today) {ensureFixedDraw(day);enqueueTurn(day,currentTurn(day));}
         const draw = db.prepare("SELECT * FROM draws WHERE day=?").get(day);
-        return send(200, {
+        const data = {
           me,
           rewards:rewards.view(me.id,day),
           unreportedBooking:rebooking.offer(me.id),
@@ -824,7 +835,10 @@ export function createApp({
               "SELECT member_id AS memberId,start,duration,note,no_negotiation AS noNegotiation,auto_confirmed AS autoConfirmed,automatic,ticket,ticket_extension AS ticketExtension,revision,(SELECT reported_at FROM bath_completions c WHERE c.revision=bookings.revision) AS completedAt,(SELECT reported_at FROM bath_noncompletions n WHERE n.revision=bookings.revision) AS notBathedAt FROM bookings WHERE day=? ORDER BY start",
             )
             .all(day).map(b=>({...b,clientReportUntil:clientReportDeadline(day,b,scheduleForDay(day)).toISOString()})),
-        });
+        };
+        return send(200, bootstrap
+          ? { family: startupFamily, members: data.members, me, state: data }
+          : data);
       }
       if (req.method === "POST" && url.pathname === "/api/logout") {
         const cookie = (req.headers.cookie || "")
