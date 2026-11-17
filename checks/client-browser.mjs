@@ -108,6 +108,21 @@ try {
   await page.locator('.member-button').first().waitFor();
   assert.equal(await page.locator('.inventory-page,.settings-page').count(),0,'Expired sessions must return to login');
  });
+ await scenario('fast-navigation-week-context',async({page,url,navigate})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('スタンプカード','.week-navigation');
+  const previous=page.waitForResponse(r=>r.url().includes('/api/rewards?week='));
+  await page.locator('[data-action="stamp-previous"]').click();await previous;
+  await page.locator('.week-navigation p').filter({hasText:'10/25'}).waitFor();
+  const initial=page.waitForResponse(r=>r.url().includes('/api/state'));
+  await navigate('持ち物','.inventory-page');await initial;
+  await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);
+  await page.route('**/api/state*',async route=>{seen();await held;await route.continue()});
+  await page.locator('.account-menu > summary').click();
+  await page.getByRole('navigation',{name:'メニュー'}).getByRole('button',{name:'スタンプカード',exact:true}).click();await requested;
+  assert.equal(await page.locator('.stamp-card').count(),0,'Do not flash a card from the wrong week');
+  release();await page.locator('.week-navigation p').filter({hasText:'10/25'}).waitFor();
+ });
  await scenario('announcements',async({app,page,url,state,screenshot,context})=>{
   app.saveAnnouncement({label:'画面内お知らせのテスト',state:'published',pages:[{title:'はじめのお知らせ',text:'説明は本文として表示します。',imagePath:new URL('../release-announcements/items.png',import.meta.url).pathname},{title:'<script>テキストです</script>',text:'2ページ目の説明'},{title:'最後のページ',text:'お知らせの終わりです。'}]});
   await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();await modal.locator('img').evaluate(img=>img.decode());

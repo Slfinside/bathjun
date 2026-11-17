@@ -28,8 +28,7 @@ let announcementBusy=false;
 let secondaryLayouts = null, secondaryLayoutPromise = null, secondaryLayoutAttempt = 0;
 function loadSecondaryLayouts() {
   if (secondaryLayouts) return Promise.resolve(secondaryLayouts);
-  // A rejected import can stay in the browser's module map. A failed speculative
-  // load must not make the later user-initiated navigation permanently fail.
+  // Retry failed speculative imports with a fresh module URL.
   const retry = secondaryLayoutAttempt ? '?retry=' + secondaryLayoutAttempt : '';
   return secondaryLayoutPromise ??= import('./secondary-layouts.js' + retry)
     .then(ui => secondaryLayouts = ui)
@@ -193,6 +192,11 @@ const dateLabel = (day) =>
     weekday: "short",
     timeZone: "Asia/Tokyo",
   }).format(new Date(`${day}T12:00:00+09:00`));
+const weekStart = day => {
+  const date = new Date(day + 'T12:00:00Z');
+  date.setUTCDate(date.getUTCDate() - date.getUTCDay());
+  return date.toISOString().slice(0, 10);
+};
 const slotDate = (minute) =>
   new Date(new Date(`${state.day}T00:00:00+09:00`).getTime() + minute * 60000);
 const serverNow = () => new Date(state.now);
@@ -1493,8 +1497,7 @@ async function init() {
     me = startup.me;
     if (me) {
       await refresh(true, startup.state);
-      // Fetch only the small shared view module after the first frame. Reuse it
-      // on navigation without waiting for another state response first.
+      // Prefetch the small shared view after first paint.
       requestAnimationFrame(() => setTimeout(() => { void loadSecondaryLayouts().catch(() => {}); }, 0));
       void syncNotifications();
     } else renderLogin();
@@ -1738,9 +1741,10 @@ async function handleRewardsAction(action, event) {
       );
     } else {
       pageView = target;
-      // These views can render from the latest in-memory snapshot. Mutations
-      // still await their server response; reports need their separate query.
-      const instant = !!state && target !== 'reports';
+      // A historical card or report needs its own query before rendering.
+      const cardWeek = target === 'stamps' && stampWeek ? stampWeek : state && weekStart(state.day);
+      const instant = !!state && target !== 'reports' &&
+        (!['home', 'stamps'].includes(target) || state.rewards.card.week === cardWeek);
       if (instant) {
         if (['settings', 'help', 'gifts', 'history'].includes(target)) {
           try { await loadSecondaryLayouts(); }
