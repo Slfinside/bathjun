@@ -144,6 +144,8 @@ test("ガイドと説明書は同一サーバーから読め、長い家族用�
   const get = await serverFor(t, true),
     cookie = "bath_gate=" + "a".repeat(64);
   for (const path of [
+    "/transport.js",
+    "/theme.js",
     "/help.js",
     "/help/content.json",
     "/help/",
@@ -158,6 +160,6 @@ test("ガイドと説明書は同一サーバーから読め、長い家族用�
     assert.ok(guide[topic].steps.length);
   const manual = (await get("/help/", { cookie })).body.toString();
   assert.ok(manual.includes("詳細を見る"));
-  assert.ok(!manual.includes("<script"));
+  assert.deepEqual([...manual.matchAll(/<script\b[^>]*>[\s\S]*?<\/script>/g)].map(match => match[0]), ['<script src="../theme.js"></script>']);
   assert.ok(!manual.includes("/family/"));
 });

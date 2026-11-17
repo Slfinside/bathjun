@@ -17,20 +17,20 @@ def render(standalone=False):
     nav=''.join(f'<a href="#{key}">{escape(topic["title"])}</a>' for key,topic in topics.items())
     css='./help.css' if standalone else './manual.css'
     return f'''<!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f6f5f0"><meta name="description" content="ふろじゅんの予約・事前希望・アイテム・スタンプカードの使い方。"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; script-src 'none'; base-uri 'none'; form-action 'none'"><title>使い方ガイド | ふろじゅん</title><link rel="icon" href="{prefix}icon.svg" type="image/svg+xml"><link rel="stylesheet" href="{prefix}fonts/web.css"><link rel="stylesheet" href="{prefix}style.css"><link rel="stylesheet" href="{css}"></head>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f6f5f0"><meta name="color-scheme" content="light dark"><meta name="description" content="ふろじゅんの予約・事前希望・アイテム・スタンプカードの使い方。"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; script-src 'self'; base-uri 'none'; form-action 'none'"><script src="{prefix}theme.js"></script><title>使い方ガイド | ふろじゅん</title><link rel="icon" href="{prefix}icon.svg" type="image/svg+xml"><link rel="stylesheet" href="{prefix}fonts/web.css"><link rel="stylesheet" href="{prefix}style.css"><link rel="stylesheet" href="{css}"></head>
 <body><div class="app-shell" id="top"><header class="site-header"><a class="brand" href="./"><span class="brand-icon" aria-hidden="true">♨</span>ふろじゅん<span class="brand-dot">.</span></a></header><main><div class="manual-hero"><h1>使い方ガイド</h1><p>予約・入浴報告・アイテム・スタンプカードの操作方法を確認できます。</p></div><nav class="manual-nav" aria-label="目次">{nav}</nav>{''.join(sections)}<p class="manual-note">予約できる時間や本人の画面からの完了報告の可否などは、ご家庭の設定によって異なります。アプリに表示される内容を確認してください。</p></main><footer><span class="site-credit">Made by @Slfinside・with Codex</span></footer></div></body></html>
 '''
 
 def build(output):
     manifest=json.loads((PUBLIC/'fonts/web.json').read_text())
-    expected={'index.html','.nojekyll','style.css','icon.svg','help.css','fonts/web.css','fonts/OFL.txt'}
+    expected={'index.html','.nojekyll','style.css','theme.js','icon.svg','help.css','fonts/web.css','fonts/OFL.txt'}
     expected.update('fonts/web/'+font['file'] for face in manifest['faces'] for font in face['files'])
     existing={path.relative_to(output).as_posix() for path in output.rglob('*') if path.is_file()} if output.exists() else set()
     if existing - expected:raise ValueError('Output directory contains unrelated files; choose an empty directory')
     output.mkdir(parents=True,exist_ok=True)
     (output/'index.html').write_text(render(True))
     (output/'.nojekyll').write_text('')
-    for source,target in [('style.css','style.css'),('icon.svg','icon.svg'),('help/manual.css','help.css')]:shutil.copyfile(PUBLIC/source,output/target)
+    for source,target in [('theme.js','theme.js'),('style.css','style.css'),('icon.svg','icon.svg'),('help/manual.css','help.css')]:shutil.copyfile(PUBLIC/source,output/target)
     fonts=output/'fonts';fonts.mkdir(exist_ok=True)
     shutil.copyfile(PUBLIC/'fonts/web.css',fonts/'web.css')
     shutil.copyfile(PUBLIC/'fonts/OFL.txt',fonts/'OFL.txt')
@@ -38,7 +38,7 @@ def build(output):
     (fonts/'web').mkdir(exist_ok=True)
     for face in manifest['faces']:
         for font in face['files']:shutil.copyfile(PUBLIC/'fonts/web'/font['file'],fonts/'web'/font['file'])
-    print('Built public manual (static HTML/CSS/fonts only):',output)
+    print('Built public manual (static HTML/CSS/theme/fonts only):',output)
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--output',type=Path);args=parser.parse_args()

@@ -11,6 +11,8 @@ const webFonts = JSON.parse(
   readFileSync(new URL("../public/fonts/web.json", import.meta.url)),
 );
 const assets = {
+  "/theme.js": ["theme.js", "text/javascript; charset=utf-8"],
+  "/transport.js": ["transport.js", "text/javascript; charset=utf-8"],
   ...Object.fromEntries(
     webFonts.faces.flatMap((face) =>
       face.files.map((file) => [

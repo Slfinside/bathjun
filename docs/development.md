@@ -70,3 +70,14 @@ Windowsは `PrivateFontCollection` から同梱の Noto Sans JP の通常・太�
 `src/server-power.js` が `bin/Bathjun-Power.node` を予約サーバー内へ読み込み、System／Execution／threadの要求をそのプロセスで保持します。管理用IPCの `serverPowerHeld` と管理画面自身の要求の両方が有効な場合だけ消灯します。復帰時の認証済み `power/renew` で再取得し、ランタイム終了・Node環境終了の両方で解除します。モジュールを含まないWindowsのソース起動では消灯が無効になります。Windows以外では読み込みません。
 
 Source checksではWindows上で配布用Nodeのチェックサムを検証して実要求をテストし、その保護モジュールを使ってLinuxビルダーでインストーラとZIPを組み立てます。配布ワークフローも同じ流れです。C++モジュールは静的CRTでビルドし、追加のVisual C++ランタイム配布を必要としません。[調査内容と実機検証の範囲](screen-off-investigation.md)も参照してください。
+
+## v3.0.0の共通基盤
+
+[要件と実装範囲](v3-app-foundation.md)、[データ移行仕様の草案](v3-data-transfer.md)を参照。`src/connection.js` は家庭IDとAPI能力、`public/transport.js` は画面非依存のHTTP通信を扱います。ネイティブ用フレームワークと同期方式は未選定です。
+
+
+## テーマの検証
+
+`public/theme.js` は初回描画前に実行する外部スクリプト、`public/style.css` は共通パレット、`public/secondary-layouts.js` はテーマ選択欄です。単に画面を再描画すると未保存フォームや開いているダイアログが失われるため、CSSとメンバー色だけを更新します。説明書を変更した場合は `python3 packaging/build-help.py` で生成HTMLも更新します。
+
+`BATHJUN_BROWSER_SCENARIOS=dark-appearance,dark-storage-and-login,appearance-cross-tab npm run test:browser` でテーマ固有の検証ができます。既存シナリオを暗いテーマで確認する場合は `BATHJUN_BROWSER_COLOR_SCHEME=dark` を指定します。

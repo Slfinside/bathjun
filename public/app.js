@@ -1,3 +1,5 @@
+import { createHttpTransport } from "./transport.js";
+const transport = createHttpTransport();
 import {
   renderProfilePicker,
   initializeProfilePicker,
@@ -76,6 +78,10 @@ if (requestedDay && /^\d{4}-\d{2}-\d{2}$/.test(requestedDay))
   selectedDay = requestedDay;
 const icon = (name) => {
   const paths = {
+    home: '<path d="m3 10 9-7 9 7v11h-6v-7H9v7H3z"/>',
+    stamps: '<path d="M7 13h10l2 5H5zM4 21h16M9 13V7a3 3 0 0 1 6 0v6"/>',
+    inventory: '<path d="M4 7h16v14H4zM8 7V5a4 4 0 0 1 8 0v2M9 12h6"/>',
+    settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--paper)"/><circle cx="15" cy="17" r="3" fill="var(--paper)"/>',
     arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     check: '<path d="m5 12 4 4L19 6"/>',
@@ -105,13 +111,14 @@ function applyMemberColors(container) {
     const color = members.find((m) => m.id === Number(id))?.color;
     return /^#[0-9a-f]{6}$/i.test(color || "") ? color : "#c5c9c1";
   };
+  const tintBase = getComputedStyle(document.documentElement).getPropertyValue('--member-tint-base').trim() || '#ffffff';
   const tint = (hex, strength) =>
     "#" +
     [1, 3, 5]
       .map((index) =>
         Math.round(
           parseInt(hex.slice(index, index + 2), 16) * strength +
-            255 * (1 - strength),
+            parseInt(tintBase.slice(index, index + 2), 16) * (1 - strength),
         )
           .toString(16)
           .padStart(2, "0"),
@@ -133,6 +140,10 @@ function applyMemberColors(container) {
       node.style.borderColor = tint(color, 0.7);
   });
 }
+document.addEventListener('bathjun:themechange', () => {
+  applyMemberColors(root);
+  applyMemberColors(document.querySelector('#header-account'));
+});
 const itemsEnabled = () => state?.rewards?.settings?.itemsEnabled !== false;
 function giftBadge() {
   if (!itemsEnabled()) return "";
@@ -141,40 +152,27 @@ function giftBadge() {
     ? `<span class="gift-badge" aria-label="未受取のプレゼント ${n}件">${n > 99 ? "99+" : n}</span>`
     : "";
 }
+const primaryView = () => ({ reports: 'stamps', gifts: 'inventory', history: 'inventory', help: 'settings', profile: 'settings' })[pageView] || pageView;
 function renderHeaderAccount() {
   const account = document.querySelector("#header-account");
-  const menuOpen = !!account.querySelector("details")?.open;
-  const showGiftNotice =
-    itemsEnabled() &&
-    !!me &&
-    state?.rewards?.pendingGifts > 0 &&
-    !["gifts", "history"].includes(pageView);
-  document
-    .querySelector(".site-header")
-    .classList.toggle("has-gift-callout", showGiftNotice);
-  account.classList.toggle("menu-open", menuOpen);
   account.hidden = !me;
-  account.innerHTML = me
-    ? `<details class="account-menu" ${menuOpen ? "open" : ""}><summary class="profile-button" aria-label="${menuOpen ? "メニューを閉じる" : "メニューを開く"}">${avatar(me.id, true)}<span class="profile-identity"><span class="profile-name">${escapeHTML(me.name)}</span><small>メニュー <span class="menu-glyph"><span class="menu-icon" aria-hidden="true"><span class="menu-line"></span><span class="menu-line"></span></span>${itemsEnabled() && state?.rewards?.pendingGifts ? '<span class="menu-notice" aria-label="未受取のプレゼントがあります">*</span>' : ""}</span></small></span></summary><nav aria-label="メニュー">${[
-        ["home", "ホーム"],
-        ["reserve", "おふろを予約する"],
-        ["reports", "入浴の報告"],
-        ["gifts", "プレゼントボックス"],
-        ["inventory", "持ち物"],
-        ["stamps", "スタンプカード"],
-        ["settings", "設定"],
-        ["help", "ヘルプ"],
-      ]
-        .map(
-          ([key, label]) =>
-            `<button data-action="nav-${key}">${label}${key === "gifts" ? giftBadge() : ""}</button>`,
-        )
-        .join(
-          "",
-        )}</nav></details>${showGiftNotice ? '<button class="gift-callout" data-action="nav-gifts" aria-label="プレゼントが届いています。プレゼントボックスを開く"><span aria-hidden="true">📦</span><span>プレゼントが届いています。</span></button>' : ""}`
-    : "";
+  document.querySelector('.site-header').classList.remove('has-gift-callout');
+  account.innerHTML = me ? `<button class="profile-button" data-action="nav-profile" aria-label="プロフィールとログインの設定">${avatar(me.id, true)}<span class="profile-name">${escapeHTML(me.name)}</span></button>` : '';
   if (me) applyMemberColors(account);
+  const navigation = document.querySelector('#primary-navigation');
+  navigation.hidden = !me;
+  document.body.classList.toggle('has-primary-navigation', !!me);
+  navigation.innerHTML = me ? [['home', 'ホーム'], ['stamps', 'スタンプ'], ['inventory', '持ち物'], ['settings', '設定']].map(([key, label]) =>
+    `<button data-action="nav-${key}" aria-label="${label}" ${primaryView() === key ? 'aria-current="page"' : ''}><span class="navigation-symbol" aria-hidden="true">${icon(key)}</span><span>${label}</span>${key === 'inventory' ? giftBadge() : ''}</button>`).join('') : '';
 }
+function sectionNavigation() {
+  const groups = {
+    stamps: [['stamps', 'スタンプカード'], ['reports', '入浴の報告']],
+    inventory: [['inventory', '持ち物'], ['gifts', 'プレゼントボックス'], ['history', '配布履歴']],
+  };
+  return groups[primaryView()] ? `<nav class="section-navigation" aria-label="${primaryView() === 'stamps' ? 'スタンプ' : '持ち物'}の切り替え">${groups[primaryView()].map(([key, label]) => `<button data-action="nav-${key}" aria-label="${label}" aria-current="${pageView === key ? 'page' : 'false'}">${label}${key === 'gifts' ? giftBadge() : ''}</button>`).join('')}</nav>` : '';
+}
+
 const time = (minute) =>
   `${minute >= 2880 ? "翌々" : minute >= 1440 ? "翌" : ""}${String(Math.floor(minute / 60) % 24).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 const dateLabel = (day) =>
@@ -221,37 +219,13 @@ function notify(message) {
 }
 async function api(path, data) {
   const generation = accountGeneration;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-  const timeoutError = () => new Error("サーバーの応答に時間がかかっています。接続を確認し、もう一度お試しください。");
-  try {
-    let response;
-    try {
-      response = await fetch(`/api/${path}`, {
-        keepalive:path==='rebooking/prompt'&&data?.decision==='later',
-        signal: controller.signal,
-        ...(data === undefined ? { cache: "no-store" } : {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        }),
-      });
-    } catch {
-      if (controller.signal.aborted) throw timeoutError();
-      throw new Error("サーバーに接続できません。接続を確認してください。");
-    }
-    if (response.status === 401 && generation === accountGeneration && !["login", "register", "family/login", "passkey/auth/verify"].includes(path)) {
+  try { return await transport.request(path, data); }
+  catch (error) {
+    if (error.status === 401 && generation === accountGeneration && !["login", "register", "family/login", "passkey/auth/verify"].includes(path)) {
       me = null; state = null; resetNavigation(); selectedMember = null; void init();
     }
-    let result;
-    try { result = await response.json(); }
-    catch {
-      if (controller.signal.aborted) throw timeoutError();
-      throw Object.assign(new Error("サーバーの応答を読み込めませんでした。接続を確認して、もう一度お試しください。"), { status: response.status });
-    }
-    if (!response.ok) throw Object.assign(new Error(typeof result?.error === "string" ? result.error : "読み込みに失敗しました。"), { status: response.status });
-    return result;
-  } finally { clearTimeout(timer); }
+    throw error;
+  }
 }
 
 function renderFamily(configured = true) {
@@ -676,7 +650,7 @@ async function refreshOnce(force) {
       if (!currentRequest() || pageView !== "stamps" || stampWeek !== requestedWeek) return;
       data.rewards.card = card;
     }
-    if(['settings','help','gifts','history'].includes(pageView)){const view=pageView,ui=await import('./secondary-layouts.js');if(!currentRequest()||view!==pageView)return;secondaryLayouts=ui;}
+    if(['settings','profile','help','gifts','history'].includes(pageView)){const view=pageView,ui=await import('./secondary-layouts.js');if(!currentRequest()||view!==pageView)return;secondaryLayouts=ui;}
     if(pageView==='reports'){const [result,ui]=await Promise.all([api('bath-reports'),import('./bath-reports.js')]);if(!currentRequest()||pageView!=='reports')return;reportList=result.reports;reportContext=result;bathReportUI=ui;}
     const signature = JSON.stringify([
       data.day,
@@ -1327,6 +1301,7 @@ root.addEventListener("submit", async (event) => {
         ? { profile: { emoji: data.get("emoji"), color: data.get("color") } }
         : {}),
     });
+    await transport.discover();
     me = result.me;
     previousTurn = null;
     if (!m.registered) guidePending = true;
@@ -1473,6 +1448,7 @@ async function init() {
     members = data.members;
     me = data.me;
     if (me) {
+      await transport.discover();
       await refresh(true);
       void syncNotifications();
     } else renderLogin();
@@ -1625,11 +1601,12 @@ function renderSecondaryPage() {
   if(pageView==='reports')html=bathReportUI?.reportsPage({reports:reportList,visits:reportContext.visits,enabled:state.rewards.settings.clientReportEnabled===true,now:serverNow(),time,escapeHTML})||'';
   if (pageView === "stamps") html = renderStampCard(false);
   if (pageView === "help") html=secondaryLayouts?.helpPage()||'';
-  if (pageView === "settings") html=secondaryLayouts?.settingsPage({passkeys:passkeyCard(true),notifications:notificationCard(true),preferences:notificationPreferencesForm(),automation:autoWishesForm()})||'';
+  if (pageView === "settings") html=secondaryLayouts?.settingsPage({themePreference:window.BathjunTheme?.preference,notifications:notificationCard(true),preferences:notificationPreferencesForm(),automation:autoWishesForm()})||'';
+  if (pageView === "profile") html=secondaryLayouts?.profilePage({passkeys:passkeyCard(true)})||'';
   if (pageView === "inventory")
     html = `<section class="inventory-page"><div class="guide-heading">${helpButton("items", "アイテムの使い方")}<h2>持ち物</h2></div><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}${itemUnit(x.kind)}</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
-  if (["gifts", "history"].includes(pageView)) html=secondaryLayouts?.giftPage({state,pageView,expandedGifts,enabled:itemsEnabled(),giftBadge,itemName,itemIcon,itemDescription,ticketLimits})||'';
-  root.innerHTML = `<button class="back-home" data-action="nav-home">← ホーム</button>${html}`;
+  if (["gifts", "history"].includes(pageView)) html=secondaryLayouts?.giftPage({state,pageView,expandedGifts,enabled:itemsEnabled(),itemName,itemIcon,itemDescription,ticketLimits})||'';
+  root.innerHTML = `${["help", "profile"].includes(pageView) ? '<button class="back-home" data-action="nav-settings">← 設定</button>' : ""}${sectionNavigation()}${html}`;
   for(const form of drafts)root.querySelector(`#${form.id}`)?.replaceWith(form);
   applyMemberColors(root);
 }
@@ -1694,10 +1671,11 @@ async function handleRewardsAction(action, event) {
     return true;
   }
   if (action.startsWith("nav-")) {
+    const target = action.slice(4);
+    if (target === pageView) return true;
+    const previousView = pageView;
     autoEditDirty = false;
     notificationEditDirty=false;
-    const target = action.slice(4);
-    document.querySelector(".account-menu")?.removeAttribute("open");
     if (target === "reserve") {
       pageView = "home";
       await refresh(true);
@@ -1714,7 +1692,29 @@ async function handleRewardsAction(action, event) {
           : "wish",
       );
     } else {
+      if (!['home', 'stamps', 'reports', 'inventory', 'gifts', 'history', 'settings', 'help', 'profile'].includes(target)) return true;
       pageView = target;
+      const generation = accountGeneration;
+      renderHeaderAccount();
+      // Switch with the last shared state immediately; writes still await the
+      // server and report/history data are fetched through the existing API.
+      if (['settings', 'profile', 'help', 'gifts', 'history'].includes(target)) {
+        let ui;
+        try { ui = await import('./secondary-layouts.js'); }
+        catch {
+          if (generation === accountGeneration && pageView === target) {
+            pageView = previousView;
+            renderHeaderAccount();
+            notify('画面を読み込めませんでした。接続を確認して再読み込みしてください。');
+          }
+          return true;
+        }
+        if (generation !== accountGeneration || pageView !== target) return true;
+        secondaryLayouts = ui;
+      }
+      if (target === 'reports') root.innerHTML = `${sectionNavigation()}<p class="loading">入浴の記録を読み込み中…</p>`;
+      else renderDashboard();
+      window.scrollTo(0, 0);
       await refresh(true);
     }
     return true;
@@ -1823,24 +1823,6 @@ async function handleRewardsAction(action, event) {
   return true;
 }
 
-document.querySelector("#header-account").addEventListener(
-  "toggle",
-  (event) => {
-    if (event.target.matches(".account-menu")) {
-      document
-        .querySelector("#header-account")
-        .classList.toggle("menu-open", event.target.open);
-      event.target
-        .querySelector("summary")
-        .setAttribute(
-          "aria-label",
-          event.target.open ? "メニューを閉じる" : "メニューを開く",
-        );
-    }
-  },
-  true,
-);
-
 async function maybeShowAnnouncement(){
   if(announcementBusy||!me||pageView!=='home'||guidePending||document.querySelector('dialog[open]'))return;
   const entry=state?.announcements?.[0];if(!entry)return;
@@ -1882,12 +1864,12 @@ function maybeCelebrate() {
   );
   const sector = 360 / rouletteKinds.length;
   const colors = [
-    "#dce9c8",
-    "#eaddb9",
-    "#d8e6df",
-    "#e7d5be",
-    "#e4deeb",
-    "#dee7eb",
+    "var(--wheel-1, #dce9c8)",
+    "var(--wheel-2, #eaddb9)",
+    "var(--wheel-3, #d8e6df)",
+    "var(--wheel-4, #e7d5be)",
+    "var(--wheel-5, #e4deeb)",
+    "var(--wheel-6, #dee7eb)",
   ];
   const wheelBackground = `conic-gradient(${rouletteKinds.map((k, i) => `${colors[i % colors.length]} ${i * sector}deg ${(i + 1) * sector}deg`).join(",")})`;
   dialog.innerHTML = `<div class="sheet-heading"><h2 class="celebration-heading" id="booking-title"><span>1週間達成、</span><span>おめでとう！</span></h2><button class="icon-button" data-action="close" aria-label="閉じる">×</button></div><p class="muted">${pending.week}からの7日間、すべてのスタンプがそろいました。</p>${roulette ? `<div class="roulette-pointer">▼</div><div class="roulette-viewport"><div class="roulette-wheel">${rouletteKinds.map((k) => `<span>${itemIcon(k)}</span>`).join("")}</div></div>` : ""}<div class="${roulette ? "roulette-result" : "fixed-result"} celebration-prize"><span class="item-icon">${itemIcon(pending.kind)}</span><h3>${itemName(pending.kind)}</h3><strong>${pending.quantity}${itemUnit(pending.kind)} 獲得！</strong></div>${fixedPrize ? `<div class="fixed-result celebration-prize fixed-bonus"><span class="muted">固定報酬</span><span class="item-icon">${itemIcon(fixedPrize.kind)}</span><h3>${itemName(fixedPrize.kind)}</h3><strong>${fixedPrize.quantity}${itemUnit(fixedPrize.kind)} 獲得！</strong></div>` : ""}<button class="primary" data-action="celebration-gifts">プレゼントボックスへ</button>`;
@@ -1921,15 +1903,6 @@ dialog.addEventListener("close", () => {
     .catch(() => {
       celebrating.delete(week);
     });
-});
-
-document.addEventListener("pointerdown", (event) => {
-  const menu = document.querySelector(".account-menu[open]");
-  if (menu && !menu.contains(event.target)) menu.removeAttribute("open");
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape")
-    document.querySelector(".account-menu")?.removeAttribute("open");
 });
 
 function resetNavigation() {

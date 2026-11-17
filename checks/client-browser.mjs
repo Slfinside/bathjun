@@ -13,7 +13,7 @@ if(engine==='chromium')assert.ok(executablePath,'Install Chrome/Chromium or set 
 const browser=await (engine==='webkit'?webkit.launch({headless:true}):chromium.launch({executablePath,headless:true,args:['--no-sandbox']}));
 const output=process.env.BATHJUN_BROWSER_SCREENSHOTS;
 if(output)mkdirSync(output,{recursive:true});
-async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFamily=false,mobile=false,standalone=false,requiresCDP=false}={}){
+async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFamily=false,mobile=false,standalone=false,requiresCDP=false,colorScheme=process.env.BATHJUN_BROWSER_COLOR_SCHEME||'light'}={}){
  if(process.env.BATHJUN_BROWSER_SCENARIOS&&!process.env.BATHJUN_BROWSER_SCENARIOS.split(',').includes(name))return;
  if(requiresCDP&&engine!=='chromium'){console.log('SKIP',name,'(Chromium virtual authenticator required)');return;}
  const directory=mkdtempSync(join(tmpdir(),'bathjun-browser-'));
@@ -25,7 +25,7 @@ async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFami
  const {server}=createHttpServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://${hostname}:${server.address().port}`;
  // WebKit's Linux service-worker process can stall automation. These UI checks
  // do not test push delivery; leave workers enabled in the Chromium scenarios.
- const context=await browser.newContext({viewport:{width:390,height:844},locale:'ja-JP',isMobile:mobile,hasTouch:mobile,...(engine==='webkit'?{serviceWorkers:'block'}:{})}),page=await context.newPage(),errors=[];
+ const context=await browser.newContext({viewport:{width:390,height:844},colorScheme,locale:'ja-JP',isMobile:mobile,hasTouch:mobile,...(engine==='webkit'?{serviceWorkers:'block'}:{})}),page=await context.newPage(),errors=[];
  if(mobile)await page.addInitScript(standalone=>{
   Object.defineProperty(navigator,'standalone',{get:()=>standalone});
   Object.defineProperty(navigator,'userAgent',{get:()=> 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_2 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148'});
@@ -33,7 +33,16 @@ async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFami
  page.on('pageerror',error=>{errors.push(error.message);console.error('PAGE ERROR',name,error.message)});
  const api=async(path,body)=>{const r=await context.request.post(url+'/api/'+path,{data:body});assert.equal(r.status(),200,await r.text());return r.json()};
  const state=async(day='2026-11-04')=>(await context.request.get(url+'/api/state?day='+day)).json();
- const navigate=async(label,selector)=>{await page.locator('.account-menu > summary').click();await page.getByRole('navigation',{name:'メニュー'}).getByRole('button',{name:label,exact:true}).click();await page.locator(selector).waitFor()};
+ const navigate=async(label,selector)=>{
+  const parents={'入浴の報告':'スタンプ','スタンプカード':'スタンプ','プレゼントボックス':'持ち物','配布履歴':'持ち物','ヘルプ':'設定'};
+  if(label==='プロフィールとログインの設定')await page.locator('#header-account button').click();
+  else {
+   await page.getByRole('navigation',{name:'メインナビゲーション',exact:true}).getByRole('button',{name:parents[label]||label,exact:true}).click();
+   if(['入浴の報告','プレゼントボックス','配布履歴'].includes(label))await page.locator('.section-navigation').getByRole('button',{name:label,exact:true}).click();
+   if(label==='ヘルプ')await page.locator('[data-action="nav-help"]').click();
+  }
+  await page.locator(selector).waitFor();
+ };
  try{
   if(requireFamily)await api('family/login',{password:'synthetic-family'});
   await api('register',{memberId:1,password:'test-only'});await state();
@@ -46,6 +55,18 @@ async function scenario(name,fn,{maxDuration=90,hostname='127.0.0.1',requireFami
   if(output)await page.screenshot({path:join(output,name+'-failed.png')}).catch(()=>{});
   throw error;
  }finally{await context.close();await new Promise(r=>server.close(r));app.close();rmSync(directory,{recursive:true,force:true})}
+}
+async function checkTextContrast(page,selector,minimum=4.5){
+ const values=await page.locator(selector).first().evaluate(el=>{
+  const parse=color=>color.match(/[\d.]+/g).map(Number);
+  const over=(fg,bg)=>fg.slice(0,3).map((v,i)=>v*(fg[3]??1)+bg[i]*(1-(fg[3]??1)));
+  const chain=[];for(let node=el;node;node=node.parentElement)chain.unshift(node);
+  let background=[255,255,255];for(const node of chain)background=over(parse(getComputedStyle(node).backgroundColor),background);
+  const color=over(parse(getComputedStyle(el).color),background);
+  const luminance=rgb=>rgb.map(v=>{v/=255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4}).reduce((sum,v,i)=>sum+v*[0.2126,0.7152,0.0722][i],0);
+  const a=luminance(color),b=luminance(background);return {color,background,ratio:(Math.max(a,b)+0.05)/(Math.min(a,b)+0.05)};
+ });
+ assert.ok(values.ratio>=minimum,selector+' contrast '+JSON.stringify(values));
 }
 async function checkDialogPosition(page,modal,screenshot,label){
  for(const size of [{width:320,height:568},{width:390,height:844},{width:844,height:390},{width:1280,height:800}]){
@@ -61,6 +82,137 @@ async function checkDialogPosition(page,modal,screenshot,label){
  }
 }
 try {
+ await scenario('dark-appearance',async({app,page,url,navigate,api,screenshot})=>{
+  await api('profile',{emoji:'🐈',color:'#ffffff'});
+  await api('book',{day:'2026-11-04',start:1080,duration:30,note:'合成データの予約'});
+  await api('register',{memberId:2,password:'test-other'});await api('wish',{day:'2026-11-04',start:1080,duration:30});
+  await api('login',{memberId:1,password:'test-only'});
+  app.distributeItems({recipients:[1],kinds:['guard'],quantity:1,requestId:'dark-gift'});
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+  assert.equal(await page.locator('body').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(23, 28, 25)');
+  assert.equal(await page.locator('html').evaluate(el=>getComputedStyle(el).colorScheme),'dark');
+  assert.equal(await page.locator('meta[name="theme-color"]').getAttribute('content'),'#171c19');
+  await screenshot('home');
+  for(const selector of ['.date-bar h2','.primary','.wish-conflict','.primary-navigation [aria-current="page"]'])await checkTextContrast(page,selector);
+  const reservation=page.locator('.reservation[data-tint-member="1"]').first();
+  const darkReservation=await reservation.evaluate(el=>getComputedStyle(el).backgroundColor);
+  await reservation.scrollIntoViewIfNeeded();await screenshot('schedule');
+  for(const selector of ['.reservation[data-tint-member="1"] .reservation-time','.reservation[data-tint-member="1"] .booking-note','.reservation[data-tint-member="1"] .duration'])await checkTextContrast(page,selector);
+  await page.getByRole('button',{name:'自分の予約を変更',exact:true}).click();
+  await page.locator('#booking-dialog[open]').waitFor();await screenshot('booking');
+  assert.equal(await page.locator('#booking-dialog').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(34, 42, 36)');
+  await page.locator('#booking-dialog [data-action="close"]').click();
+  await navigate('スタンプカード','.stamp-card');await screenshot('stamps');await checkTextContrast(page,'.stamp-cell small');
+  await navigate('入浴の報告','.reports-page');await screenshot('reports');
+  await navigate('持ち物','.inventory-page');await screenshot('inventory');
+  await navigate('プレゼントボックス','.gift-page');await screenshot('gifts');
+  await navigate('設定','.settings-page');await screenshot('settings');await checkTextContrast(page,'.appearance-settings .muted');
+  const theme=page.locator('[data-theme-preference]');assert.equal(await theme.inputValue(),'system');
+  // Theme changes must retain unsaved input and must not call a preferences API.
+  const minutes=page.locator('[name="reminderMinutes"]');await minutes.fill('25');
+  await theme.selectOption('light');assert.equal(await page.locator('html').getAttribute('data-theme'),'light');assert.equal(await minutes.inputValue(),'25');
+  await page.emulateMedia({colorScheme:'dark'});assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+  await page.reload();await page.locator('.date-bar').waitFor();assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+  assert.notEqual(await page.locator('.reservation[data-tint-member="1"]').first().evaluate(el=>getComputedStyle(el).backgroundColor),darkReservation);
+  await navigate('設定','.settings-page');await page.locator('[data-theme-preference]').selectOption('dark');
+  await page.emulateMedia({colorScheme:'light'});assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+  await navigate('プロフィールとログインの設定','.profile-page');await page.locator('[data-action="profile-edit"]').click();await page.locator('.profile-dialog[open]').waitFor();await screenshot('profile');await page.locator('[data-profile-close]').click();
+  await navigate('ヘルプ','.help-page');await page.locator('[data-guide="booking"]').click();await page.locator('.guide-dialog[open]').waitFor();await screenshot('guide');await page.getByRole('button',{name:'ガイドを閉じる'}).click();
+  await page.goto(url+'/help/');await page.getByRole('heading',{name:'使い方ガイド',exact:true}).waitFor();assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');await screenshot('manual');
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','.settings-page');await page.locator('[data-theme-preference]').selectOption('system');
+  assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+  await page.emulateMedia({colorScheme:'dark'});await page.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
+  await page.emulateMedia({colorScheme:'light'});await page.waitForFunction(()=>document.documentElement.dataset.theme==='light');
+ },{colorScheme:'dark',mobile:true,standalone:true});
+ await scenario('dark-storage-and-login',async({page,url,navigate,context,screenshot})=>{
+  await page.addInitScript(()=>{Storage.prototype.getItem=()=>{throw new Error('storage unavailable')};Storage.prototype.setItem=()=>{throw new Error('storage unavailable')};});
+  await page.goto(url);await page.locator('.date-bar').waitFor();assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+  await navigate('設定','.settings-page');await page.locator('[data-theme-preference]').selectOption('light');assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+  await page.locator('[data-theme-preference]').selectOption('dark');await navigate('プロフィールとログインの設定','.profile-page');await page.locator('[data-action="logout"]').click();await page.locator('.member-button').first().waitFor();
+  assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');await screenshot('login');
+ },{colorScheme:'dark'});
+ await scenario('appearance-cross-tab',async({page,context,url,navigate})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','.settings-page');
+  const input=page.locator('[name="reminderMinutes"]');await input.fill('25');
+  const other=await context.newPage();await other.goto(url);await other.locator('.date-bar').waitFor();
+  await other.evaluate(()=>window.BathjunTheme.setPreference('dark'));
+  await page.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
+  assert.equal(await page.locator('[data-theme-preference]').inputValue(),'dark');assert.equal(await input.inputValue(),'25');
+  await page.locator('[data-theme-preference]').selectOption('light');await other.waitForFunction(()=>document.documentElement.dataset.theme==='light');
+  await other.evaluate(()=>localStorage.setItem('bathjun.appearance','unknown'));
+  await page.waitForFunction(()=>document.querySelector('[data-theme-preference]').value==='system');
+  assert.equal(await page.locator('html').getAttribute('data-theme'),'light');assert.equal(await input.inputValue(),'25');
+  await other.reload();await other.locator('.date-bar').waitFor();assert.equal(await other.evaluate(()=>window.BathjunTheme.preference),'system');
+  await other.close();
+ });
+ await scenario('v3-navigation',async({app,page,url,navigate,screenshot,context})=>{
+  app.distributeItems({recipients:[1],kinds:['guard'],quantity:1,requestId:'navigation-gift'});
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  const nav=page.getByRole('navigation',{name:'メインナビゲーション',exact:true});
+  assert.deepEqual(await nav.getByRole('button').allTextContents().then(labels=>labels.map(s=>s.replace(/1$/,''))),['ホーム','スタンプ','持ち物','設定']);
+  assert.equal(await nav.locator('[aria-current="page"]').getAttribute('aria-label'),'ホーム');
+  assert.equal(await nav.locator('.gift-badge').innerText(),'1');
+  await navigate('スタンプカード','.stamp-card');
+  assert.equal(await nav.locator('[aria-current="page"]').getAttribute('aria-label'),'スタンプ');
+  await page.locator('.section-navigation').getByRole('button',{name:'入浴の報告',exact:true}).click();await page.locator('.reports-page').waitFor();
+  assert.equal(await nav.locator('[aria-current="page"]').getAttribute('aria-label'),'スタンプ');
+  await navigate('プレゼントボックス','.gift-page');
+  assert.equal(await nav.locator('[aria-current="page"]').getAttribute('aria-label'),'持ち物');
+  await page.locator('.section-navigation').getByRole('button',{name:'配布履歴',exact:true}).click();await page.locator('.section-navigation [data-action="nav-history"][aria-current="page"]').waitFor();
+  await navigate('プロフィールとログインの設定','.profile-page');
+  await page.getByRole('heading',{name:'プロフィールとログインの設定',exact:true}).waitFor();
+  assert.equal(await nav.locator('[aria-current="page"]').getAttribute('aria-label'),'設定');
+  for(const size of [{width:320,height:568},{width:390,height:844},{width:844,height:390},{width:1280,height:800}]){
+   await page.setViewportSize(size);await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));
+   const box=await nav.boundingBox();assert.ok(Math.abs(box.y+box.height-size.height)<2);
+   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+   for(const button of await nav.getByRole('button').all())assert.ok((await button.boundingBox()).height>=44);
+   const logout=page.locator('[data-action="logout"]');await logout.scrollIntoViewIfNeeded();const last=await logout.boundingBox();assert.ok(last.y+last.height<=box.y,'last control must scroll clear of navigation');
+   await screenshot('profile-'+size.width);
+  }
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('[data-action="logout"]').click();await page.locator('.member-button').first().waitFor();
+  assert.equal(await nav.isVisible(),false);assert.equal(await page.locator('#header-account').isVisible(),false);
+ },{mobile:true,standalone:true});
+ await scenario('v3-navigation-with-delayed-state',async({page,url,navigate})=>{
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  // Load the secondary module before deliberately holding the state request.
+  await navigate('設定','.settings-page');await navigate('ホーム','.date-bar');
+  let release,seen;const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);let first=true;
+  await page.route('**/api/state?day=*',async route=>{
+   if(first){first=false;const response=await route.fetch();seen();await held;await route.fulfill({response});}
+   else await route.continue();
+  });
+  const nav=page.getByRole('navigation',{name:'メインナビゲーション',exact:true});
+  await nav.getByRole('button',{name:'設定',exact:true}).click();await requested;
+  await page.locator('.settings-page').waitFor({timeout:1000});
+  await nav.getByRole('button',{name:'持ち物',exact:true}).click();await page.locator('.inventory-page').waitFor({timeout:1000});
+  const response=page.waitForResponse(r=>r.url().includes('/api/state?day='));release();await response;
+  await page.waitForFunction(()=>!document.querySelector('.settings-page')&&!!document.querySelector('.inventory-page'));
+  assert.equal(await nav.locator('[aria-current="page"]').getAttribute('aria-label'),'持ち物');
+ });
+ await scenario('v3-legacy-connection',async({page,url,navigate})=>{
+  await page.route('**/api/connection',route=>route.fulfill({status:404,contentType:'application/json',body:JSON.stringify({error:'ページが見つかりません。'})}));
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  await navigate('プロフィールとログインの設定','.profile-page');
+  await page.locator('[data-action="logout"]').click();await page.locator('[data-member="1"]').click();
+  await page.locator('#password').fill('test-only');await page.locator('#login-form button[type="submit"]').click();
+  await page.locator('.date-bar').waitFor();
+  await page.unroute('**/api/connection');
+  await page.route('**/api/connection',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({product:'bathjun',apiVersion:2})}));
+  await page.reload();await page.getByRole('heading',{name:'接続できませんでした。',exact:true}).waitFor();
+  assert.match(await page.locator('#app').innerText(),/APIには対応していません/);
+  assert.equal(await page.locator('#primary-navigation').isVisible(),false);
+ });
+ await scenario('v3-secondary-load-failure',async({page,url})=>{
+  await page.route('**/secondary-layouts.js',route=>route.abort());
+  await page.goto(url);await page.locator('.date-bar').waitFor();
+  await page.getByRole('navigation',{name:'メインナビゲーション',exact:true}).getByRole('button',{name:'設定',exact:true}).click();
+  await page.getByText('画面を読み込めませんでした。接続を確認して再読み込みしてください。',{exact:true}).waitFor();
+  assert.equal(await page.locator('#primary-navigation [aria-current="page"]').getAttribute('aria-label'),'ホーム');
+  assert.equal(await page.locator('.date-bar').isVisible(),true);
+ });
  await scenario('announcements',async({app,page,url,state,screenshot,context})=>{
   app.saveAnnouncement({label:'画面内お知らせのテスト',state:'published',pages:[{title:'はじめのお知らせ',text:'説明は本文として表示します。',imagePath:new URL('../release-announcements/items.png',import.meta.url).pathname},{title:'<script>テキストです</script>',text:'2ページ目の説明'},{title:'最後のページ',text:'お知らせの終わりです。'}]});
   await page.goto(url);const modal=page.locator('.announcement-dialog[open]');await modal.waitFor();await modal.locator('img').evaluate(img=>img.decode());
@@ -159,7 +311,7 @@ try {
  await scenario('organized-settings',async({page,url,navigate,screenshot})=>{
   await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','.settings-page');
   for(const width of [320,390,768,1200]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await screenshot('settings-'+width);}
-  for(const title of ['プロフィール・ログイン','通知','自動予約','アカウント'])await page.getByRole('heading',{name:title,exact:true}).waitFor();
+  for(const title of ['通知','自動予約','ヘルプ'])await page.getByRole('heading',{name:title,exact:true}).waitFor();
   await navigate('ヘルプ','.help-page');await page.getByRole('button',{name:'予約と事前希望',exact:true}).click();await page.locator('.guide-dialog[open]').waitFor();await page.getByRole('button',{name:'ガイドを閉じる'}).click();await navigate('ホーム','.date-bar');
  });
  await scenario('notification-draft-refresh',async({page,url,navigate,state,time})=>{
@@ -184,7 +336,7 @@ try {
  const commonDialogCentering=async({app,page,url,api,navigate,time,state,screenshot})=>{
   app.saveRewardSettings({...app.getRewardsAdmin().settings,clientReportEnabled:true});app.distributeItems({recipients:[1],kinds:['guard','bathStamp','stampInk'],quantity:1,requestId:'centered-dialog-items'});for(const gift of (await state()).rewards.gifts)await api('gifts/receive',{id:gift.id});
   await page.goto(url);await page.locator('.date-bar').waitFor();await page.locator('[data-action="book"]').click();let modal=page.locator('#booking-dialog[open]');await checkDialogPosition(page,modal,screenshot,'booking');await modal.getByRole('button',{name:'閉じる',exact:true}).click();
-  await navigate('設定','.settings-page');await page.locator('[data-action="profile-edit"]').click();modal=page.locator('.profile-dialog[open]');await checkDialogPosition(page,modal,screenshot,'profile');await modal.locator('[data-profile-close]').click();
+  await navigate('プロフィールとログインの設定','.profile-page');await page.locator('[data-action="profile-edit"]').click();modal=page.locator('.profile-dialog[open]');await checkDialogPosition(page,modal,screenshot,'profile');await modal.locator('[data-profile-close]').click();
   await navigate('ヘルプ','.help-page');await page.locator('[data-guide="booking"]').click();modal=page.locator('.guide-dialog[open]');await modal.locator('details').evaluate(el=>el.open=true);await checkDialogPosition(page,modal,screenshot,'guide');await modal.getByRole('button',{name:'ガイドを閉じる'}).click();
   await navigate('持ち物','.inventory-page');await page.getByRole('button',{name:/順番抜かしガード/}).click();modal=page.locator('#booking-dialog[open]');await checkDialogPosition(page,modal,screenshot,'item');await modal.getByRole('button',{name:'閉じる',exact:true}).click();
   await navigate('スタンプカード','.stamp-card');await page.locator('[data-action="stamp-card-use"]').click();modal=page.locator('#booking-dialog[open]');await checkDialogPosition(page,modal,screenshot,'stamp');await modal.getByRole('button',{name:'閉じる',exact:true}).click();
@@ -217,8 +369,8 @@ try {
   await page.getByRole('button',{name:'ログインする',exact:true}).click();await page.locator('.date-bar').waitFor();
  },{requireFamily:true});
  await scenario('secondary-gift-flow',async({app,page,url,navigate,state,screenshot})=>{
-  app.distributeItems({recipients:[1],kinds:['guard'],quantity:1,requestId:'lazy-gift-flow'});await page.goto(url);await page.locator('.gift-callout').click();await page.locator('.gift-page').waitFor();
-  const description=page.locator('.gift-description');assert.equal(await description.getAttribute('open'),null);await description.locator('summary').click();await page.getByRole('button',{name:'受け取る',exact:true}).click();await page.getByText('受け取れるプレゼントはありません。',{exact:true}).waitFor();
+  app.distributeItems({recipients:[1],kinds:['guard'],quantity:1,requestId:'lazy-gift-flow'});await page.goto(url);await navigate('プレゼントボックス','.gift-page');await page.locator('.gift-page').waitFor();
+  const description=page.locator('.gift-description');assert.equal(await description.getAttribute('open'),null);await description.locator('summary').click();await page.getByRole('button',{name:'受け取る',exact:true}).click();await page.getByText('受け取れるプレゼントはありません。',{exact:true}).waitFor();assert.ok((await page.locator('#toast').boundingBox()).y+(await page.locator('#toast').boundingBox()).height<(await page.locator('#primary-navigation').boundingBox()).y);
   await page.locator('[data-action="nav-history"]').click();await page.getByText('受取済み',{exact:true}).waitFor();await screenshot('history');assert.equal((await state()).rewards.wallet.find(x=>x.kind==='guard').quantity,1);
   await navigate('持ち物','.inventory-page');await page.getByRole('button',{name:/順番抜かしガード/}).click();await page.locator('#booking-dialog[open]').getByRole('heading',{name:'順番抜かしガード',exact:true}).waitFor();await page.locator('#booking-dialog[open] [data-action="close"]').click();await navigate('ホーム','.date-bar');
  });
@@ -329,7 +481,7 @@ try {
  });
  await scenario('logout-during-refresh',async({page,url,navigate})=>{
   await page.goto(url);await page.locator('.date-bar').waitFor();
-  await navigate('設定','#auto-wishes-form');
+  await navigate('プロフィールとログインの設定','.profile-page');
   let release,seen;
   const held=new Promise(r=>release=r),requested=new Promise(r=>seen=r);let first=true;
   await page.route('**/api/state?day=2026-11-04',async route=>{
@@ -389,7 +541,7 @@ try {
   await api('register',{memberId:2,password:'synthetic-member-b'});await api('login',{memberId:1,password:'test-only'});
   const cdp=await context.newCDPSession(page);await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
-  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','#auto-wishes-form');
+  await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('プロフィールとログインの設定','.profile-page');
   await page.locator('[data-action="passkey-register"]').click();
   await page.getByText('パスキーを登録しました。',{exact:true}).waitFor();
   assert.equal((await state()).passkeyCount,1);
@@ -411,7 +563,7 @@ try {
    await page.locator('[data-member="2"]').click();await page.locator('#password').fill('synthetic-member-b');
    await page.locator('#login-form button[type="submit"]').click();await page.locator('.date-bar').waitFor();
   }
-  await navigate('設定','#auto-wishes-form');assert.equal(await page.locator('.passkey-list li').count(),0);
+  await navigate('プロフィールとログインの設定','.profile-page');assert.equal(await page.locator('.passkey-list li').count(),0);
   // Authenticate with the first member's actual virtual passkey after logging out B.
   await page.locator('[data-action="logout"]').click();await page.locator('[data-action="passkey-login"]').click();
   await page.locator('.date-bar').waitFor();assert.equal((await state()).me.id,1);

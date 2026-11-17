@@ -1,3 +1,4 @@
+import { createConnection } from './connection.js';
 import {createUnreservedBaths} from './unreserved-baths.js';
 import {bookingHistory,pendingBathReports} from './bath-outcomes.js';
 import {migrateDurationOnlyWishes} from './duration-only-wishes.js';
@@ -115,6 +116,7 @@ export function createApp({
   if (!db.prepare("PRAGMA table_info(draws)").all().some(column=>column.name==="boosted_json"))
     db.exec("ALTER TABLE draws ADD COLUMN boosted_json TEXT NOT NULL DEFAULT '[]'");
   db.exec(readFileSync(new URL('../migrations/0008_notification_controls.sql',import.meta.url),'utf8'));
+  const connection = createConnection(db);
   const familyConfig = () =>
     db.prepare("SELECT * FROM family_config WHERE id=1").get();
   const cookieValue = (req, name) =>
@@ -506,6 +508,8 @@ export function createApp({
         )
       )
         fail(401, "先に家族の合い言葉を入力してください。");
+      if (req.method === "GET" && url.pathname === "/api/connection")
+        return send(200, connection());
       if (req.method === "GET" && url.pathname === "/api/members")
         return send(200, { members: allMembers(), me: memberFor(req) });
       if (req.method !== "GET" && req.method !== "POST")
