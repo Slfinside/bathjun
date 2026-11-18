@@ -1360,6 +1360,13 @@ test("自動予約で過ぎた時刻を設定しても、当日の未来の時�
   assert.deepEqual([bookings[0].start, bookings[0].duration, bookings[0].automatic], [1147, 30, 1]);
   await f.restart();
   assert.equal((await f.state()).bookings[0].revision, bookings[0].revision);
+
+  f.time("2026-10-26T08:00:00");
+  await f.api("auto-wishes", { day: weeklyPlan(1, 475).days[1] });
+  await f.api("skip", { day: "2026-10-26", skip: true });
+  await f.api("skip", { day: "2026-10-26", skip: false });
+  await f.api("auto-wishes", { day: { ...corrected, weekday: 1 } });
+  assert.equal((await f.state()).bookings.length, 0);
 });
 
 test("自動希望は順番が来る前には出さず、取り消した希望を出し直さない", async (t) => {

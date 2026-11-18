@@ -142,7 +142,9 @@ export function createAutoWishes({
   function suppress(day, member) {
     if (!planFor(day, member)) return;
     db.prepare(
-      "INSERT OR IGNORE INTO auto_wish_runs VALUES(?,?,'skipped',?,?)",
+      `INSERT INTO auto_wish_runs VALUES(?,?,'skipped',?,?)
+       ON CONFLICT(day, member_id) DO UPDATE SET status='skipped'
+       WHERE auto_wish_runs.status='rejected'`,
     ).run(day, member, randomBytes(16).toString("hex"), now().toISOString());
   }
   function apply(day, member) {
