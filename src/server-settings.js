@@ -62,19 +62,7 @@ export function validateSchedule(schedule) {
     step,
   } = result;
   if (![5, 10, 15, 30].includes(step))
-    throw new Error("予約の刻み幅は5・10・15・30分から選んでください。");
-  if (
-    bathStart < 0 ||
-    bathStart >= 1440 ||
-    bathEnd <= bathStart ||
-    bathEnd > bathStart + 1440 ||
-    bathEnd > 2880 ||
-    bathStart % step ||
-    bathEnd % step
-  )
-    throw new Error(
-      "予約・スタンプの区切り時刻は予約の刻み幅に合わせてください。",
-    );
+    throw new Error("所要時間の刻み幅は5・10・15・30分から選んでください。");
   if (lotteryStart < 0 || lotteryStart >= lotteryEnd || lotteryEnd > 1440)
     throw new Error("抽選できる時間帯を同日の0:00〜24:00で設定してください。");
   if (

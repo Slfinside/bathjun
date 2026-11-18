@@ -20,7 +20,6 @@ export function createBookingInputs(dialog, {context, isFuture, ticketAllowed, a
     let error = '';
     if (!untimed) {
       if (start === null) error = '開始時刻を選んでください。';
-      else if (start % rule.step) error = `${rule.step}分刻みで選んでください。`;
       else if (start < rule.bathStart || start >= rule.bathEnd) error = 'この日分の予約時間外です。';
       else if (!isFuture(start)) error = '開始時刻を過ぎています。';
       else if (!ticketAllowed(start, duration())) error = 'アイテムの使用条件に合わない時刻です。';
@@ -36,7 +35,6 @@ export function createBookingInputs(dialog, {context, isFuture, ticketAllowed, a
   }
   function update(preferred) {
     const input = startInput(), rule = context(), untimed = !!dialog.querySelector('[name="untimed"]:checked');
-    input.step = String(rule.step * 60);
     input.required = !untimed; input.hidden = untimed; input.disabled = untimed;
     dialog.querySelector('.end-summary').hidden = untimed;
     dialog.querySelector('#start-hint').hidden = untimed;
@@ -46,10 +44,10 @@ export function createBookingInputs(dialog, {context, isFuture, ticketAllowed, a
     save.innerHTML = (untimed ? '使う時間を共有する' : save.dataset.timedLabel) + checkIcon;
     if (Number.isInteger(preferred)) {
       input.value = preferred >= rule.bathStart && preferred < rule.bathEnd &&
-        preferred % rule.step === 0 && canChoose(preferred, duration()) ? clockInput(preferred) : '';
+        canChoose(preferred, duration()) ? clockInput(preferred) : '';
     }
     if (!input.value && !untimed) {
-      for (let start = rule.bathStart; start < rule.bathEnd; start += rule.step) {
+      for (let start = rule.bathStart; start < rule.bathEnd; start++) {
         if (canChoose(start, duration())) { input.value = clockInput(start); break; }
       }
     }

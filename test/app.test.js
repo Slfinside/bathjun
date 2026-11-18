@@ -79,16 +79,16 @@ test("日本時間の日付区切りと抽選時間（6:00・15:00・翌7:00）"
   assert.equal(lotteryOpen("2026-10-28", at("15:00:00"), {...DEFAULT_SCHEDULE,lotteryTimeRestricted:true}), false);
   assert.equal(lotteryOpen("2026-10-27", at("08:00:00"), {...DEFAULT_SCHEDULE,lotteryTimeRestricted:true}), false);
 });
-test("15〜90分、5分刻み、開始時刻は翌7時までを検証する", () => {
+test("所要時間は15〜90分を5分刻み、開始時刻は翌7時までの1分単位", () => {
   assert.equal(validateSlot(900, 15), true);
-  assert.equal(validateSlot(905, 20), true);
+  assert.equal(validateSlot(907, 20), true);
   assert.equal(validateSlot(1770, 90), true);
   assert.equal(validateSlot(1845,30),true);
   for (const args of [
     [405, 30],
     [900, 14],
     [900, 105],
-    [901, 30],
+    [901.5, 30],
     [1860, 30],
     [1800, NaN],
     ["900", 30],

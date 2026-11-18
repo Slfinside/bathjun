@@ -3,11 +3,11 @@
 お風呂の順番と時間を家族で共有するアプリです。Windows PCをサーバーにして、ブラウザーから予約できます。
 細かい説明は一旦Codexに書かせているので、不自然だったり分かりにくいところがあるかもしれません。ちまちま修正しておきます。
 
-## v2.1.1
+## v2.1.2
 
-端末標準の時刻入力、スクロールを知らせる短いフェード、日付横の再読み込みを追加しました。iOSのホーム画面アプリでウインドウの中央配置を見直し、起動と画面切り替えの待ち時間も減らしました。
+開始時刻を1分単位で選べるようにしました。iPhoneの時刻欄のはみ出しと、自動予約が一度見送られたあとに設定を直しても再試行されない問題を修正しました。
 
-**[v2.1.1のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.1.1)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.1.1/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.1.1/Bathjun-Portable-x64.zip)
+**[v2.1.2のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.1.2)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.1.2/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.1.2/Bathjun-Portable-x64.zip)
 
 [変更点と確認範囲](docs/release-notes.md)、[利用者向けガイド](docs/user-guide.md)、[管理者向けガイド](docs/administrator-guide.md)、[消灯処理と実機確認の範囲](docs/screen-off-investigation.md)をご確認ください。
 

@@ -64,14 +64,17 @@ try {
  await scenario('native-five-minute-booking',async({page,url,api,state,screenshot})=>{
   await page.goto(url);await page.locator('.date-bar').waitFor();await page.locator('[data-action="book"]').click();
   const modal=page.locator('#booking-dialog[open]'),start=modal.locator('#start');
-  assert.equal(await start.getAttribute('type'),'time');assert.equal(await start.getAttribute('step'),'300');
+  assert.equal(await start.getAttribute('type'),'time');assert.equal(await start.getAttribute('step'),'60');
   assert.deepEqual(await modal.locator('select[name="duration"] option').evaluateAll(options=>options.map(o=>Number(o.value))),Array.from({length:16},(_,i)=>15+i*5));
   await modal.locator('[name="duration"]').selectOption('20');await start.fill('18:05');
   assert.equal(await modal.locator('#end-time').innerText(),'18:25');await screenshot('native');
-  await start.fill('18:07');assert.equal(await modal.locator('#save-booking').isDisabled(),true);await modal.locator('#start-hint').getByText('5分刻みで選んでください。',{exact:true}).waitFor();
-  await start.fill('00:05');assert.equal(await modal.locator('#end-time').innerText(),'翌00:25');await modal.locator('#start-hint').getByText('翌日の時刻です。',{exact:true}).waitFor();
+  const noteBox = await modal.locator('#booking-note').boundingBox();
+  const startBox = await start.boundingBox();
+  assert.ok(Math.abs(startBox.x - noteBox.x) <= 1 && Math.abs(startBox.width - noteBox.width) <= 1, 'Start field must line up with the other inputs');
+  await start.fill('18:07');assert.equal(await modal.locator('#save-booking').isDisabled(),false);
+  await start.fill('00:07');assert.equal(await modal.locator('#end-time').innerText(),'翌00:27');await modal.locator('#start-hint').getByText('翌日の時刻です。',{exact:true}).waitFor();
   await modal.locator('#save-booking').click();await modal.waitFor({state:'hidden'});
-  const data=await state();assert.equal(data.bookings[0].start,1445);assert.equal(data.bookings[0].duration,20);
+  const data=await state();assert.equal(data.bookings[0].start,1447);assert.equal(data.bookings[0].duration,20);
  },{step:5,mobile:true,standalone:true});
  await scenario('native-time-conflict',async({page,url,api,state})=>{
   await api('book',{day:'2026-11-04',start:1080,duration:30});
@@ -481,22 +484,25 @@ try {
   await modal.getByRole('button',{name:'入っていない',exact:true}).click();const ack=page.waitForResponse(r=>r.url().endsWith('/api/not-bathed'));await modal.getByRole('button',{name:'入っていないと確定',exact:true}).click();await ack;await page.locator('[data-action="rebook"]').click();
   await modal.getByRole('heading',{name:'おふろを予約し直す',exact:true}).waitFor();
   await page.getByRole('heading',{name:'11月4日(水)',exact:true}).waitFor();
-  assert.equal(await modal.locator('#start').inputValue(),'06:45');assert.equal(await modal.locator('#start').getAttribute('type'),'time');assert.equal(await modal.locator('#start').getAttribute('step'),'900');
+  assert.equal(await modal.locator('#start').inputValue(),'06:33');assert.equal(await modal.locator('#start').getAttribute('type'),'time');assert.equal(await modal.locator('#start').getAttribute('step'),'60');
   await screenshot('previous-night');
  });
- await scenario('auto-settings-other-device',async({page,url,api,state,navigate})=>{
+ await scenario('auto-settings-other-device',async({app,page,url,api,state,navigate,time})=>{
   const original=(await state()).autoWishes.days;
   await page.goto(url);await page.locator('.date-bar').waitFor();await navigate('設定','#auto-wishes-form');
   const form=page.locator('#auto-wishes-form');
   await form.locator('[name="weekday"]').selectOption('1');await form.locator('[name="mode"]').selectOption('reservation');
-  await form.locator('[name="start"]').fill('18:15');await form.locator('[name="duration"]').selectOption('45');
+  await form.locator('[name="start"]').fill('18:17');await form.locator('[name="duration"]').selectOption('45');
   await form.locator('[name="note"]').fill('月曜の設定');
   // Another logged-in device saves Tuesday while this device is editing Monday.
   await api('auto-wishes',{days:original.map(d=>d.weekday===2?{...d,enabled:true,mode:'reservation',start:1140,duration:30,note:'別端末から保存'}:d)});
   await form.getByRole('button',{name:'設定する',exact:true}).click();await page.getByText('自動予約の設定を保存しました。',{exact:true}).waitFor();
   const days=(await state()).autoWishes.days;
-  assert.deepEqual([days[1].mode,days[1].start,days[1].duration,days[1].note],['reservation',1095,45,'月曜の設定']);
+  assert.deepEqual([days[1].mode,days[1].start,days[1].duration,days[1].note],['reservation',1097,45,'月曜の設定']);
   assert.deepEqual([days[2].mode,days[2].start,days[2].note],['reservation',1140,'別端末から保存']);
+  time('2026-11-09T00:00:00');await app.flushNotifications();
+  const {bookings}=await state('2026-11-09');
+  assert.deepEqual(bookings.map(({start,duration,automatic})=>[start,duration,automatic]),[[1097,45,1]]);
  });
  await scenario('boost-response-lost',async({app,page,url,api,state,navigate})=>{
   app.distributeItems({recipients:[1],kinds:['boost'],quantity:2,requestId:'browser-boost-lost-response'});
