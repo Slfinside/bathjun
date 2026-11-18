@@ -2806,3 +2806,66 @@ footer .site-credit {
 .report-history-entry>.primary,.report-history-entry>.secondary{margin-top:16px;}
 #unreserved-form select{margin-bottom:0;}
 .help-topics button{min-height:48px;line-height:1.6;}
+
+/* Scroll cue only: no fixed action bar, footer, or extra scroll space. */
+dialog::after {
+  content: "";
+  display: block;
+  position: sticky;
+  bottom: calc(-1 * var(--fade-padding-bottom, 28px));
+  height: 80px;
+  margin: -80px calc(-1 * var(--fade-padding-right, 28px)) 0 calc(-1 * var(--fade-padding-left, 28px));
+  background: linear-gradient(to bottom, #fffefa00, #fffefa38 25%, #fffefab8 65%, #fffefaed);
+  pointer-events: none;
+  opacity: 0;
+}
+dialog[data-scroll-fade]::after { opacity: 1; }
+#booking-form input[type="time"], #auto-wishes-form .auto-wish-time input[type="time"] {
+  width: 100%; min-width: 0; height: 52px; min-height: 52px;
+  padding: 0 14px; border: 1px solid #dadfce; border-radius: 10px;
+  background: var(--paper); color: var(--ink); font: inherit;
+  font-size: 16px; box-sizing: border-box;
+}
+#booking-form input[type="time"] { margin-bottom: 8px; }
+.auto-wish-time select { margin-bottom: 0; }
+.auto-wish-time > label { align-content: start; }
+.time-input-hint { margin: 0 0 14px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.time-input-hint:empty { display: none; }
+#booking-form .duration-options { display: block; }
+.sheet-heading > div { min-width: 0; }
+.sheet-heading h2 { overflow-wrap: anywhere; }
+.sheet-heading .icon-button { flex-shrink: 0; }
+.settings-group > .notification-button {
+  border: 1px solid #cbd4c0; background: #f4f6ed; font-size: 14px;
+  padding: 10px 16px; color: var(--green); margin: 0 0 16px;
+}
+.gift-description summary, .guide-details summary, .schedule-conflict summary { list-style: none; }
+.gift-description summary::-webkit-details-marker, .guide-details summary::-webkit-details-marker, .schedule-conflict summary::-webkit-details-marker { display: none; }
+.gift-description summary::before, .guide-details summary::before, .schedule-conflict summary::before {
+  content: ""; display: inline-block; width: 7px; height: 7px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); margin-right: 10px; vertical-align: 1px;
+}
+.gift-description[open] > summary::before, .guide-details[open] > summary::before, .schedule-conflict[open] > summary::before { transform: rotate(45deg); vertical-align: 3px; }
+.schedule-conflict { padding: 0 10px; border-left-width: 2px; }
+.schedule-conflict summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
+.schedule-conflict p { margin: 0 0 10px; }
+.reservation.has-overlap { outline-width: 1px; }
+[data-reload-confirm], [data-reload-cancel] { width: 100%; }
+[data-reload-cancel] { margin-top: 12px; }
+#booking-form .duration-options { margin-bottom: 20px; }
+#booking-form .duration-options select { margin-bottom: 0; }
+
+/* Use the space to the right of the date, above the day picker. */
+.date-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.date-bar > div:first-child { min-width: 0; }
+.date-bar p { flex-wrap: wrap; row-gap: 2px; }
+.date-bar .day-switch { grid-column: 1 / -1; justify-self: end; }
+.page-reload { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 44px; max-width: 100%; padding: 6px 4px; border: 0; border-radius: 8px; background: transparent; color: var(--green); font: inherit; font-size: 12px; }
+.page-reload svg { width: 16px; height: 16px; }
+.page-reload:hover { background: var(--pear); }
+.page-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; }
+.page-tools .back-home { margin-bottom: 0; }
+@media (min-width: 780px) {
+  .site-header.has-gift-callout { margin-bottom: 16px; }
+}

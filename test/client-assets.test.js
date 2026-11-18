@@ -145,6 +145,8 @@ test("ガイドと説明書は同一サーバーから読め、長い家族用�
     cookie = "bath_gate=" + "a".repeat(64);
   for (const path of [
     "/help.js",
+    "/booking-inputs.js",
+    "/dialog-ui.js",
     "/help/content.json",
     "/help/",
     "/help/manual.css",

@@ -223,7 +223,7 @@ test("不正な設定を原子的に拒否し、既存メンバーを消さな�
     validateSchedule({ ...DEFAULT_SCHEDULE, lotteryTimeRestricted: true, lotteryEnd: 1441 }),
   );
   assert.throws(() =>
-    validateSchedule({ ...DEFAULT_SCHEDULE, minDuration: 25 }),
+    validateSchedule({ ...DEFAULT_SCHEDULE, minDuration: 22 }),
   );
   assert.deepEqual(f.app.getServerSettings(), original);
 });
