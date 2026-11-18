@@ -14,6 +14,15 @@ npm run test:sequences
 
 ブラウザーテストにはChromeまたはChromiumが必要です。`BATHJUN_BROWSER_PATH`で実行ファイルを指定できます。`BATHJUN_BROWSER_SCREENSHOTS`を指定すると合成データの画面を保存します。連続操作テストは`BATHJUN_SEQUENCE_SEEDS`（カンマ区切り）と`BATHJUN_SEQUENCE_STEPS`で操作選択のseedと回数を指定できます。抽選結果には通常の乱数を使い、失敗時はseedと直近の操作を出力します。
 
+Safari向けの表示確認には、同じテストをWebKitでも実行します。
+
+```sh
+node node_modules/playwright-core/cli.js install --with-deps webkit
+BATHJUN_BROWSER_ENGINE=webkit npm run test:browser
+```
+
+CIではChromiumとWebKitの両方を確認します。ウインドウの中央位置・はみ出し・内部スクロールを縦横の画面サイズで検証し、iPhoneのホーム画面アプリ相当のユーザーエージェント・タッチ操作・`navigator.standalone`でも操作します。LinuxのWebKitでは自動操作が停止するService Workerとの干渉を避けるため、ワーカーをテスト内だけで無効にします。Chromium専用の仮想パスキー認証3項目はWebKitでは明示的にスキップします。これらはiOS実機の表示・ソフトキーボード・PWAの画面領域を完全に再現するものではありません。
+
 テストは一時DBを使用し、実際の予約には触れません。日本時間の日付境界、抽選、認証、公開リンクの保護、予約順と重複、備考と任意表示、通知送信の対象と再試行、データ保持などを検証します。プッシュサービスへの通信はテスト用送信処理で置き換えます。
 
 `PORT=3001 npm start` でポートを変更できます。LAN用サーバーの既定は `0.0.0.0:3000`、公開用は `127.0.0.1:3000` です。`BATHJUN_DB` でDBファイルを、`CLOUDFLARED` でcloudflared実行ファイルを指定できます。
@@ -61,3 +70,7 @@ Windowsは `PrivateFontCollection` から同梱の Noto Sans JP の通常・太�
 `src/server-power.js` が `bin/Bathjun-Power.node` を予約サーバー内へ読み込み、System／Execution／threadの要求をそのプロセスで保持します。管理用IPCの `serverPowerHeld` と管理画面自身の要求の両方が有効な場合だけ消灯します。復帰時の認証済み `power/renew` で再取得し、ランタイム終了・Node環境終了の両方で解除します。モジュールを含まないWindowsのソース起動では消灯が無効になります。Windows以外では読み込みません。
 
 Source checksではWindows上で配布用Nodeのチェックサムを検証して実要求をテストし、その保護モジュールを使ってLinuxビルダーでインストーラとZIPを組み立てます。配布ワークフローも同じ流れです。C++モジュールは静的CRTでビルドし、追加のVisual C++ランタイム配布を必要としません。[調査内容と実機検証の範囲](screen-off-investigation.md)も参照してください。
+
+## クライアントの応答時間
+
+`npm run bench:client`で、架空の5人分の一時DBを使った起動・画面切り替えの測定を実行できます。[測定条件・変更内容・残る確認](web-responsiveness.md)を参照してください。Chromiumの遅延・CPU制限による比較で、iPhoneや実際の配信PCの性能を保証するものではありません。

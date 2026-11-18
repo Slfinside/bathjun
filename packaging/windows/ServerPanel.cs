@@ -116,7 +116,7 @@ internal sealed class PanelForm : Form {
     readonly NumericUpDown extensionNotice=new NumericUpDown{Minimum=0,Maximum=1440,Value=120,Increment=15,Width=90},skipNotice=new NumericUpDown{Minimum=0,Maximum=1440,Value=120,Increment=15,Width=90};
     readonly Dictionary<string,NumericUpDown> rewardQuantities=new Dictionary<string,NumericUpDown>(),rewardWeights=new Dictionary<string,NumericUpDown>();
     readonly DataGridView itemInventory=new DataGridView(),giftHistory=new DataGridView();readonly Label itemFeedback=new Label();
-    readonly Button distributeItems=ActionButton("配布"),saveRewards=ActionButton("特典設定を保存");
+    readonly Button distributeItems=ActionButton("選択したアイテムを今すぐ配布"),saveRewards=ActionButton("アイテム・入浴報告の設定を保存");
     static readonly string[] ItemKinds={"skip","extend","boost","guard","bathStamp","stampInk"};
     static string ItemTitle(string kind){return kind=="skip"?"順番抜かしチケット":kind=="extend"?"時間延長チケット":kind=="boost"?"抽選確率UPチケット":kind=="guard"?"順番抜かしガード":kind=="bathStamp"?"おふろスタンプ":"スタンプのインク";}
     DashboardForm dashboard;readonly CheckBox presenceEnabled=new CheckBox();
@@ -142,6 +142,7 @@ internal sealed class PanelForm : Form {
     static DateTimePicker Clock(){return new DateTimePicker{Format=DateTimePickerFormat.Custom,CustomFormat="HH:mm",ShowUpDown=true,Width=100};}
     static NumericUpDown Number(){return new NumericUpDown{Minimum=5,Maximum=1440,Increment=5,Width=85};}
     static Label TextLabel(string text,int height){return new Label{Text=text,AutoSize=false,Width=550,Height=height,Padding=new Padding(0,5,0,0)};}
+    static Label SectionLabel(string text){var label=TextLabel(text,36);label.Font=new Font("Yu Gothic UI",10,FontStyle.Bold);label.Margin=new Padding(0,16,0,6);return label;}
     static Button ActionButton(string text){return new Button{Text=text,Height=44,AutoSize=true,MinimumSize=new Size(120,44),Margin=new Padding(0,5,10,5)};}
     public PanelForm(string pipeName,string token,bool minimized) {
         SuspendLayout();
@@ -228,14 +229,16 @@ internal sealed class PanelForm : Form {
     void TryAutomaticUpdate(){if(!closing&&connected&&currentPhase=="ready"&&!updatePreparing&&DateTime.UtcNow>=nextAutoAttempt&&autoUpdatePreferences.Due(DateTime.UtcNow.AddHours(9))){nextAutoAttempt=DateTime.UtcNow.AddMinutes(15);CheckForUpdates(true);}}
     void BuildItems(TabPage page) {
         var box=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,FlowDirection=FlowDirection.TopDown,WrapContents=false};page.Controls.Add(box);
+        box.Controls.Add(SectionLabel("機能・入浴報告の設定"));
         box.Controls.Add(itemsEnabled);
         var standbyRow=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,8,0,8)};standbyRow.Controls.Add(new Label{Text="連続して入らないと失敗になる日数",Width=330,Margin=new Padding(0,6,8,0)});standbyRow.Controls.Add(standbyFailureDays);box.Controls.Add(standbyRow);
         box.Controls.Add(clientReportEnabled);clientReportMinutes.Enabled=false;clientReportEnabled.CheckedChanged+=delegate{clientReportMinutes.Enabled=false;};
         var reportRow=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,4)};reportRow.Controls.Add(new Label{Text="大きな報告ボタンの表示時間（予約終了後・分）",Width=330,Margin=new Padding(0,6,8,0)});reportRow.Controls.Add(dashboardReportMinutes);box.Controls.Add(reportRow);
         box.Controls.Add(TextLabel("報告期限はありません。表示時間の後も、ダッシュボードの予定をタッチして報告できます。未報告はその日分が終わった時点で失敗になります。",76));
-        box.Controls.Add(TextLabel("設定の変更は下の「特典設定を保存」で保存します。",40));
-        box.Controls.Add(TextLabel("メンバーの持ち物",36));itemInventory.Size=new Size(550,180);itemInventory.ReadOnly=true;itemInventory.AllowUserToAddRows=itemInventory.AllowUserToDeleteRows=false;itemInventory.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;itemInventory.RowHeadersVisible=false;
+        box.Controls.Add(TextLabel("設定は下の「アイテム・入浴報告の設定を保存」で保存します。配布はボタンを押すとすぐに実行します。",64));
+        box.Controls.Add(SectionLabel("メンバーの持ち物"));itemInventory.Size=new Size(550,180);itemInventory.ReadOnly=true;itemInventory.AllowUserToAddRows=itemInventory.AllowUserToDeleteRows=false;itemInventory.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;itemInventory.RowHeadersVisible=false;
         foreach(string key in new[]{"メンバー","順番抜かし","時間延長","確率UP","ガード","スタンプ","インク","UP残回数"})itemInventory.Columns.Add(key,key);box.Controls.Add(itemInventory);
+        box.Controls.Add(SectionLabel("アイテムを配布（保存操作は不要）"));
         box.Controls.Add(TextLabel("対象",32));box.Controls.Add(giftTargets);box.Controls.Add(TextLabel("内容",32));foreach(string kind in ItemKinds)giftKinds.Items.Add(ItemTitle(kind));box.Controls.Add(giftKinds);
         var countRow=new FlowLayoutPanel{Width=550,AutoSize=true};countRow.Controls.Add(new Label{Text="個数（各アイテム・各メンバーへ）",AutoSize=true});countRow.Controls.Add(giftQuantity);box.Controls.Add(countRow);box.Controls.Add(distributeItems);
         distributeItems.Click+=delegate{
@@ -244,15 +247,15 @@ internal sealed class PanelForm : Form {
             distributeItems.Enabled=false;if(Send("items/distribute",new{recipients=ids.ToArray(),kinds=kinds.ToArray(),quantity=(int)giftQuantity.Value,requestId=Guid.NewGuid().ToString("N")})==null)distributeItems.Enabled=true;
         };
         itemFeedback.Size=new Size(550,50);box.Controls.Add(itemFeedback);
-        box.Controls.Add(TextLabel("配布履歴（全メンバー）",36));giftHistory.Size=new Size(550,180);giftHistory.ReadOnly=true;giftHistory.AllowUserToAddRows=giftHistory.AllowUserToDeleteRows=false;giftHistory.RowHeadersVisible=false;giftHistory.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;
+        box.Controls.Add(SectionLabel("配布履歴（全メンバー）"));giftHistory.Size=new Size(550,180);giftHistory.ReadOnly=true;giftHistory.AllowUserToAddRows=giftHistory.AllowUserToDeleteRows=false;giftHistory.RowHeadersVisible=false;giftHistory.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;
         foreach(string key in new[]{"配布日時","対象","内容","個数","受取状態"})giftHistory.Columns.Add(key,key);box.Controls.Add(giftHistory);
-        box.Controls.Add(TextLabel("週間特典の設定",36));
+        box.Controls.Add(SectionLabel("週間特典の設定"));
         weeklyRewardMode.Items.AddRange(new object[]{"ルーレットで決める","固定で渡す","固定＋ルーレット"});weeklyRewardMode.SelectedIndex=0;box.Controls.Add(weeklyRewardMode);
         var fixedRow=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,8)};foreach(string kind in ItemKinds)weeklyFixedKind.Items.Add(ItemTitle(kind));weeklyFixedKind.SelectedIndex=1;fixedRow.Controls.Add(weeklyFixedKind);fixedRow.Controls.Add(new Label{Text="個数",AutoSize=true,Margin=new Padding(8,6,6,0)});fixedRow.Controls.Add(weeklyFixedQuantity);box.Controls.Add(fixedRow);
         weeklyRewardMode.SelectedIndexChanged+=delegate{bool fixedMode=weeklyRewardMode.SelectedIndex==1;weeklyFixedKind.Enabled=weeklyFixedQuantity.Enabled=weeklyRewardMode.SelectedIndex!=0;foreach(string kind in ItemKinds){rewardQuantities[kind].Enabled=rewardWeights[kind].Enabled=!fixedMode;}};weeklyFixedKind.Enabled=weeklyFixedQuantity.Enabled=false;
         box.Controls.Add(TextLabel("「固定＋ルーレット」は、固定報酬に加えて抽選した報酬も渡します。変更は以後の達成から反映されます。",62));foreach(bool extend in new[]{true,false}){var duration=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,4)};duration.Controls.Add(new Label{Text=extend?"時間延長（分）":"確率UP（抽選回数）",Width=260,Margin=new Padding(0,6,8,0)});duration.Controls.Add(extend?rewardExtension:rewardDraws);box.Controls.Add(duration);}
         foreach(string kind in ItemKinds){var row=new FlowLayoutPanel{Width=550,AutoSize=true};row.Controls.Add(new Label{Text=ItemTitle(kind),Width=210,Height=36,Margin=new Padding(0,6,8,0)});var quantity=new NumericUpDown{Minimum=1,Maximum=99,Value=kind=="guard"?2:1,Width=65};var weight=new NumericUpDown{Minimum=0,Maximum=100,Value=kind=="bathStamp"?0:1,Width=65};rewardQuantities.Add(kind,quantity);rewardWeights.Add(kind,weight);row.Controls.Add(new Label{Text="個数",AutoSize=true,Margin=new Padding(6,6,6,0)});row.Controls.Add(quantity);row.Controls.Add(new Label{Text="出現比率",AutoSize=true,Margin=new Padding(6,6,6,0)});row.Controls.Add(weight);box.Controls.Add(row);}
-        box.Controls.Add(TextLabel("チケットの使用制限",36));
+        box.Controls.Add(SectionLabel("チケットの使用制限"));
         box.Controls.Add(extensionBlocked);
         var hours=new FlowLayoutPanel{Width=550,AutoSize=true,Padding=new Padding(0,4,0,8)};hours.Controls.Add(extensionBlockedStart);hours.Controls.Add(new Label{Text="〜",AutoSize=true,Margin=new Padding(8,7,8,0)});hours.Controls.Add(extensionBlockedEnd);box.Controls.Add(hours);
         extensionBlocked.CheckedChanged+=delegate{extensionBlockedStart.Enabled=extensionBlockedEnd.Enabled=extensionBlocked.Checked;};
@@ -485,7 +488,7 @@ internal sealed class PanelForm : Form {
         if(!string.IsNullOrWhiteSpace(newMemberName.Text)&&!AddMemberFromInput(false))return;
         var rows=new List<object>();
         foreach(DataGridViewRow row in members.Rows){if(row.IsNewRow)continue;string name=Convert.ToString(row.Cells["Name"].Value);int id=row.Cells["Id"].Value==null?0:Convert.ToInt32(row.Cells["Id"].Value);if(id==0 && string.IsNullOrWhiteSpace(name))continue;rows.Add(new{id=id,name=name,active=Convert.ToBoolean(row.Cells["Active"].Value)});}
-        var schedule=new Schedule{bookingCutoff=Minutes(bookingCutoff),lotteryTimeRestricted=drawRestricted.Checked,lotteryStart=Minutes(drawStart),lotteryEnd=Minutes(drawEnd),minDuration=(int)minimum.Value,maxDuration=(int)maximum.Value,step=step.SelectedItem==null?15:(int)step.SelectedItem,orderMode=orderMode.SelectedIndex==1?"fixed":"random"};
+        var schedule=new Schedule{bookingCutoff=Minutes(bookingCutoff),lotteryTimeRestricted=drawRestricted.Checked,lotteryStart=Minutes(drawStart),lotteryEnd=Minutes(drawEnd),minDuration=(int)minimum.Value,maxDuration=(int)maximum.Value,step=step.SelectedItem==null?5:(int)step.SelectedItem,orderMode=orderMode.SelectedIndex==1?"fixed":"random"};
         if(pendingSecurity!=null)return;save.Enabled=false;saveState.Text="保存しています…";pendingSave=Send("settings/save",new{members=rows,schedule=schedule,ignoreLowerPriorityWishes=ignoreLowerPriorityWishes.Checked,nightDeadline=Minutes(nightDeadline)});if(pendingSave!=null)saveTimeout.Start();else save.Enabled=true;
     }
     string Send(string command,object payload) {
