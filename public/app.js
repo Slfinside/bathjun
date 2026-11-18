@@ -171,7 +171,6 @@ function renderHeaderAccount() {
   document
     .querySelector(".site-header")
     .classList.toggle("has-gift-callout", showGiftNotice);
-  document.querySelector(".site-header").classList.toggle("has-account", !!me);
   account.classList.toggle("menu-open", menuOpen);
   account.hidden = !me;
   account.innerHTML = me
@@ -191,7 +190,7 @@ function renderHeaderAccount() {
         )
         .join(
           "",
-        )}</nav></details><button type="button" class="header-reload" data-action="nav-reload">${icon("refresh")}<span>再読み込み</span></button>${showGiftNotice ? '<button class="gift-callout" data-action="nav-gifts" aria-label="プレゼントが届いています。プレゼントボックスを開く"><span aria-hidden="true">📦</span><span>プレゼントが届いています。</span></button>' : ""}`
+        )}</nav></details>${showGiftNotice ? '<button class="gift-callout" data-action="nav-gifts" aria-label="プレゼントが届いています。プレゼントボックスを開く"><span aria-hidden="true">📦</span><span>プレゼントが届いています。</span></button>' : ""}`
     : "";
   if (me) applyMemberColors(account);
 }
@@ -786,6 +785,7 @@ async function refreshOnce(force, initialState = null) {
     if (status) status.textContent = "接続できません · サーバーと接続を確認";
   }
 }
+const reloadButton = () => `<button type="button" class="page-reload" data-action="nav-reload">${icon("refresh")}<span>再読み込み</span></button>`;
 function renderDashboard() {
   if (pageView !== "home") return renderSecondaryPage();
 
@@ -797,7 +797,7 @@ function renderDashboard() {
   const yourTurn = turn === me.id && !expired;
   const allBooked = state.draw && !turn;
   renderHeaderAccount();
-  root.innerHTML = `  <div class="date-bar"><div><span class="date-caption">BATH DAY</span><h2>${dateLabel(state.day)}</h2><p>${time(state.settings.bathStart)} <span>—</span> ${time(state.settings.bathEnd)} <span class="jst">日本時間</span></p></div><div class="day-switch" aria-label="日付切り替え"><button data-day="${state.yesterday}" class="${state.day === state.yesterday ? "active" : ""}" aria-pressed="${state.day === state.yesterday}">昨日</button><button data-day="${state.today}" class="${state.day === state.today ? "active" : ""}" aria-pressed="${state.day === state.today}">今日</button><button data-day="${state.tomorrow}" class="${state.day === state.tomorrow ? "active" : ""}" aria-pressed="${state.day === state.tomorrow}">明日</button><button data-day="${state.dayAfterTomorrow}" class="${state.day === state.dayAfterTomorrow ? "active" : ""}" aria-pressed="${state.day === state.dayAfterTomorrow}">明後日</button></div></div>
+  root.innerHTML = `  <div class="date-bar"><div><span class="date-caption">BATH DAY</span><h2>${dateLabel(state.day)}</h2><p>${time(state.settings.bathStart)} <span>—</span> ${time(state.settings.bathEnd)} <span class="jst">日本時間</span></p></div>${reloadButton()}<div class="day-switch" aria-label="日付切り替え"><button data-day="${state.yesterday}" class="${state.day === state.yesterday ? "active" : ""}" aria-pressed="${state.day === state.yesterday}">昨日</button><button data-day="${state.today}" class="${state.day === state.today ? "active" : ""}" aria-pressed="${state.day === state.today}">今日</button><button data-day="${state.tomorrow}" class="${state.day === state.tomorrow ? "active" : ""}" aria-pressed="${state.day === state.tomorrow}">明日</button><button data-day="${state.dayAfterTomorrow}" class="${state.day === state.dayAfterTomorrow ? "active" : ""}" aria-pressed="${state.day === state.dayAfterTomorrow}">明後日</button></div></div>
   <div class="dashboard-grid"><div class="left-column"><section class="draw-card">${
     state.draw
       ? `
@@ -1624,7 +1624,7 @@ function renderSecondaryPage() {
   if (pageView === "inventory")
     html = `<section class="inventory-page"><div class="guide-heading">${helpButton("items", "アイテムの使い方")}<h2>持ち物</h2></div><p class="muted">タップすると説明と使用方法が開きます。</p><div class="item-grid">${state.rewards.wallet.map((x) => `<button class="item-card" data-action="item-detail" data-kind="${x.kind}"><span class="item-icon">${itemIcon(x.kind)}</span><strong>${itemName(x.kind)}</strong><span>${x.quantity}${itemUnit(x.kind)}</span></button>`).join("")}</div>${itemsEnabled() && state.rewards.boostRemaining ? `<p class="boost-active">抽選確率UP 発動中：あと${state.rewards.boostRemaining}回</p>` : ""}</section>`;
   if (["gifts", "history"].includes(pageView)) html=secondaryLayouts?.giftPage({state,pageView,expandedGifts,enabled:itemsEnabled(),giftBadge,itemName,itemIcon,itemDescription,ticketLimits})||'';
-  root.innerHTML = `<button class="back-home" data-action="nav-home">← ホーム</button>${html}`;
+  root.innerHTML = `<div class="page-tools"><button class="back-home" data-action="nav-home">← ホーム</button>${reloadButton()}</div>${html}`;
   for(const form of drafts)root.querySelector(`#${form.id}`)?.replaceWith(form);
   applyMemberColors(root);
 }

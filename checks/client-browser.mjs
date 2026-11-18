@@ -108,15 +108,17 @@ try {
   await page.goto(url);await page.locator('.date-bar').waitFor();
   for(const size of [{width:320,height:568},{width:390,height:844},{width:844,height:390},{width:1280,height:800}]){
    await page.setViewportSize(size);await page.evaluate(()=>scrollTo(0,0));
-   const trigger=await page.locator('.account-menu > summary').boundingBox(),reload=await page.locator('.header-reload').boundingBox(),gift=await page.locator('.gift-callout').boundingBox();
-   assert.ok(reload.y>=trigger.y+trigger.height-1,'Reload must sit below the trigger, outside the menu');
+   const date=await page.locator('.date-bar > div:first-child').boundingBox(),reload=await page.locator('.date-bar .page-reload').boundingBox(),picker=await page.locator('.day-switch').boundingBox(),gift=await page.locator('.gift-callout').boundingBox();
+   assert.ok(reload.x>=date.x+date.width-1,'Reload must sit to the right of the date');
+   assert.ok(reload.y+reload.height<=picker.y,'Reload must sit above the day picker');
    assert.ok(reload.x>=0&&reload.x+reload.width<=size.width,'Reload must fit the screen');
-   assert.ok(gift.y>=reload.y+reload.height,'The gift callout must not cover reload');
+   assert.ok(gift.y+gift.height<=reload.y||gift.x+gift.width<=reload.x||gift.x>=reload.x+reload.width,'The gift callout must not cover reload');
+   assert.equal(await page.locator('#header-account [data-action="nav-reload"]').count(),0);
    assert.equal(await page.locator('.account-menu nav [data-action="nav-reload"]').count(),0);
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await screenshot('header-'+size.width);
   }
   await page.setViewportSize({width:390,height:844});await page.locator('.account-menu > summary').click();
-  assert.ok((await page.locator('.account-menu nav').boundingBox()).y>=(await page.locator('.header-reload').boundingBox()).y+44);await screenshot('menu-open');
+  await screenshot('menu-open');
   await page.locator('.account-menu > summary').click();await navigate('設定','.settings-page');
   await page.locator('[name="reminderMinutes"]').fill('25');await page.locator('[data-action="nav-reload"]').click();
   const confirmation=page.locator('dialog[open]').filter({has:page.locator('#reload-title')});await confirmation.waitFor();

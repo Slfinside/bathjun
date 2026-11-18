@@ -2856,11 +2856,16 @@ dialog[data-scroll-fade]::after { opacity: 1; }
 #booking-form .duration-options { margin-bottom: 20px; }
 #booking-form .duration-options select { margin-bottom: 0; }
 
-/* Keep reload directly below the menu trigger, outside the opened menu. */
-.site-header.has-account { height: auto; min-height: 112px; padding: 12px 0 8px; align-items: flex-start; }
-.site-header.has-account .brand { min-height: 44px; }
-#header-account { flex-direction: column; align-items: flex-end; }
-.header-reload { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 44px; max-width: 100%; padding: 6px 4px; border: 0; border-radius: 8px; background: transparent; color: var(--green); font: inherit; font-size: 12px; }
-.header-reload svg { width: 16px; height: 16px; }
-.header-reload:hover { background: var(--pear); }
-.account-menu nav { top: calc(100% + 48px); max-height: min(70dvh, 520px); overflow-y: auto; }
+/* Use the space to the right of the date, above the day picker. */
+.date-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.date-bar > div:first-child { min-width: 0; }
+.date-bar p { flex-wrap: wrap; row-gap: 2px; }
+.date-bar .day-switch { grid-column: 1 / -1; justify-self: end; }
+.page-reload { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 44px; max-width: 100%; padding: 6px 4px; border: 0; border-radius: 8px; background: transparent; color: var(--green); font: inherit; font-size: 12px; }
+.page-reload svg { width: 16px; height: 16px; }
+.page-reload:hover { background: var(--pear); }
+.page-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; }
+.page-tools .back-home { margin-bottom: 0; }
+@media (min-width: 780px) {
+  .site-header.has-gift-callout { margin-bottom: 16px; }
+}
