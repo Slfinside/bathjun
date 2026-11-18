@@ -59,7 +59,7 @@ test('duration-only wishes survive restart, never auto-book or cause a midnight 
 
 test('explicit null alone enables duration-only; invalid duration and direct untimed booking are rejected',async t=>{
  const f=await fixture(t);
- for(const extra of [{start:undefined},{start:'none'},{duration:0},{duration:20},{duration:105},{duration:'30'},{note:42}])assert.equal((await f.request('wish',{day:DAY,start:null,duration:30,...extra})).status,400);
+ for(const extra of [{start:undefined},{start:'none'},{duration:0},{duration:22},{duration:105},{duration:'30'},{note:42}])assert.equal((await f.request('wish',{day:DAY,start:null,duration:30,...extra})).status,400);
  assert.equal((await f.request('book',{day:DAY,start:null,duration:30})).status,400);
  await wish(f);assert.equal((await f.api('wish',{day:DAY,start:1080,duration:30})).autoConfirmed,true);assert.equal((await f.state()).wishes.length,0);
 });

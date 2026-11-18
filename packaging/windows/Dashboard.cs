@@ -419,13 +419,12 @@ internal sealed class DashboardForm : Form {
             Box(g,bar,wish?Paper:Color.FromArgb(48,62,38),conflict?Orange:Green,4,wish);
             if(entry.notBathedAt!=null)using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Muted,Color.Transparent))g.FillRectangle(brush,bar);
             if(age<=20&&entry.kind=="予約"&&!entry.archived&&entry.completedAt==null&&entry.notBathedAt==null&&entry.revision!=null&&Instant(entry.startsAt)<=ServerNow)scheduleReportAreas.Add(new KeyValuePair<RectangleF,DashboardEntry>(HitArea(bar),entry));
-            if(conflict)foreach(var overlap in entry.overlaps){float a=ChartY(overlap.start,parts,chartTop,chartHeight),b=ChartY(overlap.end,parts,chartTop,chartHeight);using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Orange,Color.Transparent))g.FillRectangle(brush,bar.X,a,bar.Width,Math.Max(1,b-a));}
-            if(conflict&&bar.Height>=26)using(var brush=new SolidBrush(Paper))g.FillRectangle(brush,new RectangleF(bar.X+3,bar.Y+2,Math.Max(1,bar.Width-6),24));
+            if(conflict)foreach(var overlap in entry.overlaps){float a=Math.Max(bar.Top,ChartY(overlap.start,parts,chartTop,chartHeight)),b=Math.Min(bar.Bottom,ChartY(overlap.end,parts,chartTop,chartHeight));if(b>a)using(var brush=new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.ForwardDiagonal,Color.FromArgb(150,Orange),Color.Transparent))g.FillRectangle(brush,Math.Max(bar.X,bar.Right-10),a,Math.Min(10,bar.Width),b-a);}
             if(entry.unreserved&&bar.Height>=18){
                 WriteFit(g,entry.name,Mix(11,14),10,Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),20),true);
                 if(bar.Height>=34)WriteFit(g,"予約外・入浴済み",10,8,Green,new RectangleF(bar.X+4,bar.Y+21,Math.Max(1,bar.Width-8),16),false);
             }else if(bar.Height>=18)Write(g,(entry.ticket=="guard"?"◇ ":entry.ticket=="skip"?"↗ ":entry.ticket=="extend"?"＋ ":"")+(entry.notBathedAt!=null?"入っていない · ":entry.completedAt!=null?"完了 · ":"")+entry.name+(entry.automatic!=0&&bar.Height<44?" · 自動予約":""),Mix(11,14),wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+2,Math.Max(1,bar.Width-8),26),true);
-            if(entry.automatic!=0&&bar.Height>=44)Write(g,"自動予約",10,wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+27,Math.Max(1,bar.Width-8),18));
+            if(bar.Height>=44&&(wish||entry.automatic!=0))WriteFit(g,(wish?"希望・未確定":"")+(wish&&entry.automatic!=0?" · ":"")+(entry.automatic!=0?"自動予約":""),10,8,wish?Muted:Green,new RectangleF(bar.X+4,bar.Y+27,Math.Max(1,bar.Width-16),18),false);
         }
         foreach(var part in parts)if(part.end-part.start>=120&&part.weight==60){float y=ChartY((part.start+part.end)/2,parts,chartTop,chartHeight);Write(g,"〜",16,Muted,new RectangleF(trackX,y-10,trackWidth,24));}
     }

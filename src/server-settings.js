@@ -11,7 +11,7 @@ export const DEFAULT_SCHEDULE = Object.freeze({
   lotteryEnd: 900,
   minDuration: 15,
   maxDuration: 90,
-  step: 15,
+  step: 5,
   orderMode: "random",
   fixedOrder: [],
 });
