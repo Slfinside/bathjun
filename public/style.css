@@ -2821,13 +2821,14 @@ dialog::after {
 }
 dialog[data-scroll-fade]::after { opacity: 1; }
 #booking-form input[type="time"], #auto-wishes-form .auto-wish-time input[type="time"] {
-  display: block; width: 100%; min-width: 0; max-width: 100%; height: 52px; min-height: 52px;
+  width: 100%; min-width: 0; max-width: 100%; height: 52px; min-height: 52px;
   -webkit-appearance: none; appearance: none;
   padding: 0 14px; border: 1px solid #dadfce; border-radius: 10px;
   background: var(--paper); color: var(--ink); font: inherit;
   font-size: 16px; box-sizing: border-box;
 }
 #booking-form input[type="time"] { margin-bottom: 8px; }
+#booking-form input[type="time"]:not([hidden]), #auto-wishes-form .auto-wish-time input[type="time"] { display: block; }
 .auto-wish-time select { margin-bottom: 0; }
 .auto-wish-time > label { align-content: start; }
 .time-input-hint { margin: 0 0 14px; font-size: 12px; line-height: 1.7; color: var(--muted); }
