@@ -15,7 +15,7 @@ export function createRebooking({db,now,scheduleForDay,rewardSettings}) {
   if(!missed&&instant<=slotDate(booking.day,booking.start+booking.duration).getTime()+rewardSettings().dashboardReportMinutes*60000)return false;
   if(db.prepare('SELECT 1 FROM bath_completions WHERE day=? AND member_id=? AND revision=?').get(booking.day,member,booking.revision))return false;
   const minute=(instant-slotDate(booking.day,0).getTime())/60000;
-  const nextStart=Math.max(rule.bathStart,(Math.floor(minute/rule.step)+1)*rule.step);
+  const nextStart=Math.max(rule.bathStart,Math.floor(minute)+1);
   return nextStart<rule.bathEnd;
  }
  function check(day,member,revision) {

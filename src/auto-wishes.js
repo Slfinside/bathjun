@@ -94,7 +94,7 @@ export function createAutoWishes({
           !validateSlot(relativeStart(d.start, rule), d.duration, rule)
         )
           bad(
-            "開始時刻と長さは、管理者が設定した刻み幅・上限に合わせてください。",
+            "長さは、管理者が設定した所要時間の刻み幅と範囲に合わせてください。",
           );
         return {
           weekday: d.weekday,
@@ -130,12 +130,14 @@ export function createAutoWishes({
     );
   }
   function ready(day, member) {
-    return (
-      !!planFor(day, member) &&
-      !db
-        .prepare("SELECT 1 FROM auto_wish_runs WHERE day=? AND member_id=?")
-        .get(day, member)
-    );
+    const plan = planFor(day, member);
+    if (!plan) return false;
+    const run = db.prepare("SELECT status FROM auto_wish_runs WHERE day=? AND member_id=?").get(day, member);
+    if (!run) return true;
+    if (run.status !== "rejected") return false;
+    const rule = scheduleForDay(day);
+    const start = relativeStart(plan.start, rule);
+    return validateSlot(start, plan.duration, rule) && slotDate(day, start) > now();
   }
   function suppress(day, member) {
     if (!planFor(day, member)) return;
@@ -160,7 +162,12 @@ export function createAutoWishes({
         !validateSlot(start, plan.duration, rule) ||
         slotDate(day, start) <= now();
       const status = existing ? "skipped" : rejected ? "rejected" : "submitted";
-      db.prepare("INSERT INTO auto_wish_runs VALUES(?,?,?,?,?)").run(
+      db.prepare(`
+        INSERT INTO auto_wish_runs VALUES(?,?,?,?,?)
+        ON CONFLICT(day, member_id) DO UPDATE SET
+          status=excluded.status, revision=excluded.revision, created_at=excluded.created_at
+        WHERE auto_wish_runs.status='rejected'
+      `).run(
         day,
         member,
         status,

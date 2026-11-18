@@ -100,9 +100,9 @@ test("時間設定は翌日から反映し、旧範囲の外の予約も新ル�
   const f = await fixture(t);
   const config = f.app.getServerSettings();
   const schedule = {
-    bookingCutoff: 540,
-    bathStart: 540,
-    bathEnd: 1980,
+    bookingCutoff: 543,
+    bathStart: 543,
+    bathEnd: 1983,
     lotteryStart: 300,
     lotteryEnd: 720,
     minDuration: 20,
@@ -186,7 +186,7 @@ test("時間設定は翌日から反映し、旧範囲の外の予約も新ル�
     (
       await f.api(
         "book",
-        { day: today.day, start: 1895, duration: 20 },
+        { day: today.day, start: 1895, duration: 21 },
         secondCookie,
       )
     ).status,

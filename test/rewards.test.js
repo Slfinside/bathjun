@@ -1290,14 +1290,14 @@ const weeklyPlan = (weekday, start = 1200, duration = 30) => ({
   })),
 });
 
-test("曜日ごとの自動希望は本人だけが設定でき、不正な曜日・刻み幅・長さを拒否する", async (t) => {
+test("曜日ごとの自動希望は本人だけが設定でき、不正な曜日・時刻・長さを拒否する", async (t) => {
   const f = await fixture(t);
   assert.equal(
     (await f.api("auto-wishes")).days.filter((d) => d.enabled).length,
     0,
   );
   assert.equal((await f.request("auto-wishes", {}, 99)).status, 401);
-  const config = weeklyPlan(1);
+  const config = weeklyPlan(1, 1201);
   await f.api("auto-wishes", { ...config, memberId: 2 });
   assert.deepEqual(await f.api("auto-wishes"), config);
   assert.equal(
@@ -1307,7 +1307,7 @@ test("曜日ごとの自動希望は本人だけが設定でき、不正な曜�
   for (const value of [
     { days: [] },
     { days: config.days.map((d) => ({ ...d, weekday: 0 })) },
-    weeklyPlan(1, 1201),
+    weeklyPlan(1, 1440),
     weeklyPlan(1, 1200, 200),
     { days: config.days.map((d) => ({ ...d, enabled: "yes" })) },
   ])
@@ -1347,6 +1347,19 @@ test("日付が変わるとアクセスなしで自動希望を送り、固定�
     f.app.notificationDueAt() > Date.parse("2026-10-26T00:00:00+09:00"),
     true,
   );
+});
+
+test("自動予約で過ぎた時刻を設定しても、当日の未来の時刻へ変更すれば確定する", async (t) => {
+  const f = await fixture(t);
+  await f.api("auto-wishes", weeklyPlan(0, 475)); // It is already 08:00.
+  assert.equal((await f.state()).bookings.length, 0);
+  const corrected = weeklyPlan(0, 19 * 60 + 7).days[0];
+  await f.api("auto-wishes", { day: corrected });
+  const { bookings } = await f.state();
+  assert.equal(bookings.length, 1);
+  assert.deepEqual([bookings[0].start, bookings[0].duration, bookings[0].automatic], [1147, 30, 1]);
+  await f.restart();
+  assert.equal((await f.state()).bookings[0].revision, bookings[0].revision);
 });
 
 test("自動希望は順番が来る前には出さず、取り消した希望を出し直さない", async (t) => {
@@ -1882,7 +1895,7 @@ test('曜日を個別に保存しても、別端末から保存した他の曜�
  await f.api('auto-wishes',{day:tuesday});await f.api('auto-wishes',{day:monday,memberId:2});await f.restart();
  const days=(await f.api('auto-wishes')).days;assert.deepEqual(days[1],monday);assert.deepEqual(days[2],tuesday);
  assert.deepEqual((await f.api('auto-wishes',undefined,2)).days,original);
- for(const value of [{day:null},{day:[]},{day:{...monday,weekday:7}},{day:{...monday,start:1081}},{day:monday,days:original}])assert.equal((await f.request('auto-wishes',value)).status,400);
+ for(const value of [{day:null},{day:[]},{day:{...monday,weekday:7}},{day:{...monday,start:1081.5}},{day:monday,days:original}])assert.equal((await f.request('auto-wishes',value)).status,400);
  assert.deepEqual((await f.api('auto-wishes')).days,days);
 });
 

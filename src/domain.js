@@ -44,7 +44,6 @@ export function validateSlot(start, duration, schedule = DEFAULT_SCHEDULE) {
     Number.isInteger(start) &&
     Number.isInteger(duration) &&
     start >= schedule.bathStart &&
-    start % schedule.step === 0 &&
     duration >= schedule.minDuration &&
     duration <= schedule.maxDuration &&
     duration <= 1440 &&
