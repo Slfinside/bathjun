@@ -3,13 +3,11 @@
 お風呂の順番と時間を家族で共有するアプリです。Windows PCをサーバーにして、ブラウザーから予約できます。
 細かい説明は一旦Codexに書かせているので、不自然だったり分かりにくいところがあるかもしれません。ちまちま修正しておきます。
 
-## v2.1.0
+## v2.1.1
 
-beta1〜beta4で確認した内容をまとめた正式版です。予約時に所要時間だけを共有する機能、予約外の入浴報告、未入浴の記録と予約の取り直しを収録しています。
+端末標準の時刻入力、スクロールを知らせる短いフェード、日付横の再読み込みを追加しました。iOSのホーム画面アプリでウインドウの中央配置を見直し、起動と画面切り替えの待ち時間も減らしました。
 
-クライアントからの完了報告は、その日分の終了（初期は翌7:00）までです。区切りをまたぐ予約は予約終了まで受け付け、後日の報告はダッシュボードから行えます。スマホのウインドウ表示、未保存の設定、画面切り替え中の操作も修正しています。
-
-**[v2.1.0のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.1.0)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.1.0/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.1.0/Bathjun-Portable-x64.zip)
+**[v2.1.1のリリース](https://github.com/Slfinside/bathjun/releases/tag/v2.1.1)** · [インストーラ](https://github.com/Slfinside/bathjun/releases/download/v2.1.1/Bathjun-Setup-x64.exe) · [ZIP版](https://github.com/Slfinside/bathjun/releases/download/v2.1.1/Bathjun-Portable-x64.zip)
 
 [変更点と確認範囲](docs/release-notes.md)、[利用者向けガイド](docs/user-guide.md)、[管理者向けガイド](docs/administrator-guide.md)、[消灯処理と実機確認の範囲](docs/screen-off-investigation.md)をご確認ください。
 
